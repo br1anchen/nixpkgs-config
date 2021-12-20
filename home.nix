@@ -19,7 +19,7 @@
   # Let Home Manager install and manage itself.
   programs.home-manager.enable = true;
 
-  home.packages = with pkgs; [ ripgrep fzf cachix rnix-lsp nixfmt neovim ];
+  home.packages = with pkgs; [ ripgrep fzf cachix rnix-lsp nixfmt ];
 
   xdg.configFile.nvim = {
     source = ./config/neovim;
