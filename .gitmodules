@@ -1,0 +1,3 @@
+[submodule "config/neovim"]
+	path = config/neovim
+	url = git@github.com:br1anchen/NvChad.git
