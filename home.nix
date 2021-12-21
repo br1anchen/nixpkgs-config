@@ -1,92 +1,81 @@
-{ config, pkgs, ... }:
+{ config, lib, ... }:
 
-{
-  # Home Manager needs a bit of information about you and the
-  # paths it should manage.
-  home.username = "br1anchen";
-  home.homeDirectory = "/home/br1anchen";
+let
+  nigpkgsRev = "nixpkgs-unstable";
+  pkgs = import (fetchTarball
+    "https://github.com/nixos/nixpkgs/archive/${nigpkgsRev}.tar.gz") { };
 
-  # This value determines the Home Manager release that your
-  # configuration is compatible with. This helps avoid breakage
-  # when a new Home Manager release introduces backwards
-  # incompatible changes.
-  #
-  # You can update Home Manager without changing this value. See
-  # the Home Manager release notes for a list of state version
-  # changes in each release.
-  home.stateVersion = "22.05";
+  # Import other Nix files
+  imports = [ ./git.nix ./neovim.nix ./shell.nix ./tmux.nix ];
+
+  # Handly shell command to view the dependency tree of Nix packages
+  depends = pkgs.writeScriptBin "depends" ''
+    dep=$1
+    nix-store --query --requisites $(which $dep)
+  '';
+
+  git-hash = pkgs.writeScriptBin "git-hash" ''
+    nix-prefetch-url --unpack https://github.com/$1/$2/archive/$3.tar.gz
+  '';
+
+  wo = pkgs.writeScriptBin "wo" ''
+    readlink $(which $1)
+  '';
+
+  run = pkgs.writeScriptBin "run" ''
+    nix-shell --pure --run "$@"
+  '';
+
+  scripts = [ depends git-hash run wo ];
+
+  gitTools = with pkgs.gitAndTools; [
+    delta
+    diff-so-fancy
+    git-codeowners
+    gitflow
+    gh
+  ];
+
+in {
+  inherit imports;
 
   # Let Home Manager install and manage itself.
   programs.home-manager.enable = true;
 
-  home.packages = with pkgs; [ ripgrep fzf cachix rnix-lsp nixfmt ];
-
-  xdg.configFile.nvim = {
-    source = ./config/neovim;
-    recursive = true;
+  home = {
+    username = "br1anchen";
+    homeDirectory = "/home/br1anchen";
+    stateVersion = "22.05";
   };
 
-  programs.bat = {
-    enable = true;
-    config = {
-      theme = "base16";
-      italic-text = "always";
-    };
+  home.sessionVariables = {
+    EDITOR = "nvim";
+    TERMINAL = "alacritty";
   };
 
-  programs.git = {
-    enable = true;
-    userName = "Brian Chen";
-    userEmail = "brianchen8990@gmailcom";
-    extraConfig = {
-      core = { editor = "nvim"; };
-      color = { ui = true; };
-      init = { defaultBranch = "main"; };
-    };
-    delta = {
-      enable = true;
-      options = {
-        navigate = true;
-        line-numbers = true;
-        syntax-theme = "GitHub";
-      };
-    };
-    ignores = [
-      "*.com"
-      "*.class"
-      "*.dll"
-      "*.exe"
-      "*.o"
-      "*.so"
-      "*.7z"
-      "*.dmg"
-      "*.gz"
-      "*.iso"
-      "*.jar"
-      "*.rar"
-      "*.tar"
-      "*.zip"
-      "log/"
-      "*.log"
-      "*.sql"
-      "*.sqlite"
-      ".DS_Store"
-      ".DS_Store?"
-      "._*"
-      ".Spotlight-V100"
-      ".Trashes"
-      "ehthumbs.db"
-      "Thumbs.db"
-      "npm-debug.log"
-      ".tern-project"
-      "*~"
-      ".vim/"
-      "tags"
-      "tags*"
-      ".vscode/"
-      ".elixir_ls/"
-      "_esy/"
-      ".netrwhist"
-    ];
-  };
+  home.packages = with pkgs; [
+    bash # /bin/bash
+    bat # cat replacement written in Rust
+    cachix # Nix build cache
+    curl # An old classic
+    docker # World's #1 container tool
+    docker-compose # Local multi-container Docker environments
+    exa # ls replacement written in Rust
+    fd # find replacement written in Rust
+    fnm
+    fzf # Fuzzy finder
+    htop # Resource monitoring
+    httpie # Like curl but more user friendly
+    jq # JSON parsing for the CLI
+    lazygit
+    mdcat # Markdown converter/reader for the CLI
+    nixfmt
+    nodejs # node and npm
+    ripgrep # grep replacement written in Rust
+    rnix-lsp
+    starship # Fancy shell that works with zsh
+    yarn # Node.js package manager
+    zoxide
+  ];
+
 }
