@@ -70,6 +70,7 @@ in {
     lazygit
     mdcat # Markdown converter/reader for the CLI
     nixfmt
+    nix-prefetch-github
     nodejs # node and npm
     ripgrep # grep replacement written in Rust
     rnix-lsp
