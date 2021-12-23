@@ -6,7 +6,13 @@ let
     "https://github.com/nixos/nixpkgs/archive/${nigpkgsRev}.tar.gz") { };
 
   # Import other Nix files
-  imports = [ ./git.nix ./neovim.nix ./shell.nix ./tmux.nix ];
+  imports = [
+    ./git.nix
+    ./neovim.nix
+    ./shell.nix
+    ./tmux.nix
+    ./gitui.nix
+  ];
 
   # Handly shell command to view the dependency tree of Nix packages
   depends = pkgs.writeScriptBin "depends" ''
@@ -64,6 +70,7 @@ in {
     fd # find replacement written in Rust
     fnm
     fzf # Fuzzy finder
+    gitui
     htop # Resource monitoring
     httpie # Like curl but more user friendly
     jq # JSON parsing for the CLI
