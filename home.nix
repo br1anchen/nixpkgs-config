@@ -12,6 +12,7 @@ let
     ./shell.nix
     ./tmux.nix
     ./gitui.nix
+    ./alacritty.nix
   ];
 
   # Handly shell command to view the dependency tree of Nix packages
