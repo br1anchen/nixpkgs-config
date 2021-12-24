@@ -61,6 +61,7 @@ in {
   };
 
   home.packages = with pkgs; [
+    alacritty
     bash # /bin/bash
     bat # cat replacement written in Rust
     cachix # Nix build cache
