@@ -23,8 +23,11 @@ let
     # Reload zsh
     szsh = "source ~/.zshrc";
 
+    # Reload tmux 
+    stmux = "tmux source-file ~/.tmux.conf";
+
     # Reload home manager and zsh
-    reload = "home-manager switch && source ~/.zshrc";
+    reload = "home-manager switch && szsh && stmux";
 
     # Nix garbage collection
     garbage = "nix-collect-garbage -d && docker image prune --force";
