@@ -71,7 +71,6 @@ in {
     exa # ls replacement written in Rust
     fd # find replacement written in Rust
     fnm
-    fzf # Fuzzy finder
     gitui
     htop # Resource monitoring
     httpie # Like curl but more user friendly
