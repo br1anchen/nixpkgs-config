@@ -84,9 +84,12 @@ in {
     ripgrep # grep replacement written in Rust
     rnix-lsp
     shellcheck
+    shfmt
     starship # Fancy shell that works with zsh
+    stylua
     yarn # Node.js package manager
     zoxide
+    luajitPackages.luacheck
   ];
 
 }
