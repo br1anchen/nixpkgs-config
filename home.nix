@@ -83,6 +83,7 @@ in {
     nodejs # node and npm
     ripgrep # grep replacement written in Rust
     rnix-lsp
+    shellcheck
     starship # Fancy shell that works with zsh
     yarn # Node.js package manager
     zoxide
