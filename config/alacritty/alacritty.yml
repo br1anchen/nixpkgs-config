@@ -12,6 +12,8 @@ env:
   # available, otherwise `xterm-256color` is used.
   TERM: screen-256color
 
+  WINIT_X11_SCALE_FACTOR: "1.0"
+
 window:
   # Window dimensions (changes require restart)
   #
