@@ -13,7 +13,7 @@ let
     ./tmux.nix
     ./gitui.nix
     ./alacritty.nix
-  ];
+  ] ++ lib.optionals pkgs.stdenv.isLinux [ ./arch_i3.nix ];
 
   # Handly shell command to view the dependency tree of Nix packages
   depends = pkgs.writeScriptBin "depends" ''
