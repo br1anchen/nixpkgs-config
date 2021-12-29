@@ -27,7 +27,7 @@ font-0 = "Source Code Pro Semibold:size=10;1"
 font-1 = "Font Awesome 5 Free:style=Solid:size=10;1"
 font-2 = "Font Awesome 5 Brands:size=10;1"
 
-modules-left = powermenu date wlan
+modules-left = powermenu date wlan title
 modules-center = i3
 modules-right = cpu memory pulseaudio backlight battery 
 
@@ -420,6 +420,23 @@ bar-width = 10
 bar-indicator = |
 bar-fill = ─
 bar-empty = ─
+
+[module/title]
+type = internal/xwindow
+
+; Available tags:
+;   <label> (default)
+format = <label>
+format-prefix = 
+
+; Available tokens:
+;   %title%
+; Default: %title%
+label = " %title%"
+label-maxlen = 30
+
+; Used instead of label when there is no window title
+label-empty = Arch Linux
 
 [settings]
 screenchange-reload = true
