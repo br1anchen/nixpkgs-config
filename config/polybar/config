@@ -29,7 +29,7 @@ font-2 = "Font Awesome 5 Brands:size=10;1"
 
 modules-left = powermenu date wlan title
 modules-center = i3
-modules-right = cpu memory pulseaudio backlight battery 
+modules-right = cpu memory backlight battery 
 
 tray-position = right
 wm-restack = i3
