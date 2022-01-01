@@ -63,7 +63,6 @@ in {
   home.packages = with pkgs; [
     alacritty
     bash # /bin/bash
-    bat # cat replacement written in Rust
     cachix # Nix build cache
     curl # An old classic
     docker # World's #1 container tool
