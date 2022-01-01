@@ -11,4 +11,8 @@
     recursive = true;
   };
 
+  xdg.configFile."networkmanager-dmenu" = {
+    source = ./config/networkmanager-dmenu;
+    recursive = true;
+  };
 }
