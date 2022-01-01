@@ -37,13 +37,13 @@ window {
 prompt {
     enabled: 						true;
 	padding: 						2px 0px 0px 4px;
-	background-color: 				@al;
+	background-color: 				@bga;
 	text-color: 					@fg;
 	font:							"feather 12";
 }
 
 entry {
-    background-color:               @al;
+    background-color:               @bga;
     text-color:                     @fg;
     placeholder-color:              @fg;
     expand:                         true;
@@ -66,7 +66,7 @@ inputbar {
 }
 
 listview {
-    background-color:               @al;
+    background-color:               @bg;
     padding:                        0px;
     columns:                        2;
     lines:                          7;
@@ -77,7 +77,7 @@ listview {
 }
 
 mainbox {
-    background-color:               @al;
+    background-color:               @bg;
 	border:							0px;
     border-radius:                  0px;
 	border-color:					@ac;
@@ -87,7 +87,7 @@ mainbox {
 }
 
 element {
-    background-color:               @al;
+    background-color:               @bg;
     text-color:                     @fga;
     orientation:                    horizontal;
     border-radius:                  0px;
@@ -95,11 +95,15 @@ element {
 }
 
 element-icon {
+    background-color:               inherit;
+    text-color:                     inherit;
     size:                           24px;
     border:                         0px;
 }
 
 element-text {
+    background-color:               inherit;
+    text-color:                     inherit;
     expand:                         true;
     horizontal-align:               0;
     vertical-align:                 0.5;
