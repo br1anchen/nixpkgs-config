@@ -4,7 +4,7 @@
 
 ```bash
 cd ~
-git clone git@github.com:br1anchen/nixpkgs-config.git
+git clone --recurse-submodules -j8 git@github.com:br1anchen/nixpkgs-config.git
 cd ~/.config
 rm -rf nixpkgs
 ln -s ~/nixpkgs-config nixpkgs
