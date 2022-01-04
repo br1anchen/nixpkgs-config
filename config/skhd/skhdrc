@@ -1,0 +1,49 @@
+# focus window
+ctrl + alt - h : yabai -m window --focus prev 
+ctrl + alt - j : yabai -m window --focus last
+ctrl + alt - k : yabai -m window --focus first
+ctrl + alt - l : yabai -m window --focus next
+
+# alt for window movement
+# make floating window fill left-half of screen
+alt - h : yabai -m window --grid 1:2:0:0:1:1
+alt - j : yabai -m window --grid 2:1:0:1:1:1
+alt - k : yabai -m window --grid 2:1:0:0:1:1
+alt - l : yabai -m window --grid 1:2:1:0:1:1
+# make floating window fill screen
+alt - m : yabai -m window --grid 1:1:0:0:1:1
+# float / unfloat window and center on screen
+alt - t : yabai -m window --toggle float
+
+# cmd for desktop
+# fast focus desktop
+# cmd - h : yabai -m space --focus prev
+# cmd - l : yabai -m space --focus next
+
+# create desktop, move window and follow focus - uses jq for parsing json (brew install jq)
+# cmd - n : yabai -m space --create && \
+#           index="$(yabai -m query --spaces --display | jq 'map(select(."native-fullscreen" == 0))[-1].index')" && \
+#           yabai -m window --space "${index}" && \
+#           yabai -m space --focus "${index}"
+
+# send window to desktop and follow focus
+shift + cmd - h : yabai -m window --space prev; yabai -m space --focus prev
+shift + cmd - l : yabai -m window --space next; yabai -m space --focus next 
+
+# focus monitor
+ctrl + cmd - h  : yabai -m display --focus prev
+ctrl + cmd - l  : yabai -m display --focus next
+ctrl + cmd - 1  : yabai -m display --focus 1
+ctrl + cmd - 2  : yabai -m display --focus 2
+ctrl + cmd - 3  : yabai -m display --focus 3
+
+# send window to monitor and follow focus
+ctrl + alt - l  : yabai -m window --display prev; yabai -m display --focus prev 
+ctrl + alt - h  : yabai -m window --display next; yabai -m display --focus next
+ctrl + alt - 1  : yabai -m window --display 1; yabai -m display --focus 1
+ctrl + alt - 2  : yabai -m window --display 2; yabai -m display --focus 2
+ctrl + alt - 3  : yabai -m window --display 3; yabai -m display --focus 3
+
+.blacklist [
+    "terminal"
+]
