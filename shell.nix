@@ -15,6 +15,7 @@ let
     l = "exa";
     ll = "ls -lh";
     ls = "exa";
+    la = "ls -lha";
     lg = "lazygit";
     md = "mdcat";
     start-docker = "docker-machine start default";
@@ -56,6 +57,11 @@ in {
     enableBashIntegration = true;
     enableZshIntegration = true;
     defaultCommand = "${pkgs.ripgrep}/bin/rg --files";
+  };
+
+  programs.gh = {
+    enable = true;
+    settings = { git_protocol = "ssh"; };
   };
 
   # zsh settings
@@ -151,22 +157,44 @@ in {
       # fnm
       FNM_PATH="$HOME/.fnm"
 
-      # elixir
-      ELIXI_PATH="/usr/lib/elixir/bin"
+      # Flutter/Android
+      if command -v brew > /dev/null; then
+        export ANDROID_HOME=/usr/local/share/android-commandlinetools
+        export PATH=$ANDROID_HOME:$PATH
+        export AVD=/usr/local/bin/avdmanager
+        export PATH=$AVD:$PATH
+        export SDK_MANAGER=/usr/local/bin/sdkmanager
+        export PATH=$SDK_MANAGER:$PATH
+        export ADB=/usr/local/bin/adb
+        export PATH=$ADB:$PATH
 
-      # Android
-      export ANDROID_SDK="$HOME/Android/Sdk"
-      ANDROID_PLATFORM_PATH="$HOME/Android/Sdk/platform-tools"
+        # Java
+        export JABBA_VERSION="0.11.2"
+        [ -s "/Users/$(whoami)/.jabba/jabba.sh" ] && source "/Users/$(whoami)/.jabba/jabba.sh"
+        export JAVA_HOME=/Users/$(whoami)/.jabba/jdk/openjdk@1.16.0/Contents/Home
+        export PATH=$JAVA_HOME:$PATH
 
-      export FLUTTER_PUB="$HOME/snap/flutter/common/flutter/.pub-cache/bin"
+        # Gradle
+        export GRADLE_HOME=/usr/local/Cellar/gradle/7.3.3
+        export PATH=$GRADLE_HOME/bin:$PATH
+      elif command -v pacman > /dev/null; then
+        export ANDROID_SDK="$HOME/Android/Sdk"
+        ANDROID_PLATFORM_PATH="$ANDROID_SDK/platform-tools"
+        export PATH=$ANDROID_PLATFORM_PATH:$PATH
+        export FLUTTER_PUB="$HOME/snap/flutter/common/flutter/.pub-cache/bin"
+        export CHROME_EXECUTABLE="/usr/bin/brave"
+      else
+          echo 'Unknown OS!'
+      fi
 
-      export CHROME_EXECUTABLE="/usr/bin/brave"
+      # Python
+      eval "$(pyenv init -)"
+      PYENV_ROOT="$HOME/.pyenv"
 
-      export PYENV_ROOT="$HOME/.pyenv"
-
+      # GO
       GO_PATH="$HOME/go/bin"
 
-      export PATH="$RVM_PATH:$CARGO_PATH:$FNM_PATH:$ELIXI_PATH:$ANDROID_PLATFORM_PATH:$PYENV_ROOT/bin:$GO_PATH:$PATH"
+      export PATH="$RVM_PATH:$CARGO_PATH:$FNM_PATH:$ELIXI_PATH:$PYENV_ROOT/bin:$GO_PATH:$PATH"
 
       # Start up Starship shell
       eval "$(starship init zsh)"

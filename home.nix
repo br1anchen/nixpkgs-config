@@ -51,7 +51,8 @@ in {
 
   home = {
     username = "br1anchen";
-    homeDirectory = "/home/br1anchen";
+    homeDirectory =
+      if pkgs.stdenv.isDarwin then "/Users/br1anchen" else "/home/br1anchen";
     stateVersion = "22.05";
   };
 
@@ -64,6 +65,7 @@ in {
     alacritty
     bash # /bin/bash
     cachix # Nix build cache
+    cargo
     curl # An old classic
     docker # World's #1 container tool
     docker-compose # Local multi-container Docker environments
@@ -71,13 +73,17 @@ in {
     fd # find replacement written in Rust
     fnm
     gitui
+    go
     htop # Resource monitoring
     httpie # Like curl but more user friendly
     jq # JSON parsing for the CLI
+    kitty
     lazygit
+    luajitPackages.luacheck
     mdcat # Markdown converter/reader for the CLI
-    nixfmt
+    neovim
     nix-prefetch-github
+    nixfmt
     nodejs # node and npm
     ripgrep # grep replacement written in Rust
     rnix-lsp
@@ -87,7 +93,6 @@ in {
     stylua
     yarn # Node.js package manager
     zoxide
-    luajitPackages.luacheck
   ];
 
 }
