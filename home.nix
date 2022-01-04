@@ -73,6 +73,7 @@ in {
     fd # find replacement written in Rust
     fnm
     gitui
+    gh
     go
     htop # Resource monitoring
     httpie # Like curl but more user friendly

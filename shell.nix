@@ -59,11 +59,6 @@ in {
     defaultCommand = "${pkgs.ripgrep}/bin/rg --files";
   };
 
-  programs.gh = {
-    enable = true;
-    settings = { git_protocol = "ssh"; };
-  };
-
   # zsh settings
   programs.zsh = {
     inherit shellAliases;
