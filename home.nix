@@ -72,7 +72,6 @@ in {
     docker-compose # Local multi-container Docker environments
     exa # ls replacement written in Rust
     fd # find replacement written in Rust
-    fnm
     gitui
     gh
     go
@@ -82,10 +81,8 @@ in {
     kitty
     mdcat # Markdown converter/reader for the CLI
     nix-prefetch-github
-    nodejs # node and npm
     ripgrep # grep replacement written in Rust
     starship # Fancy shell that works with zsh
-    yarn # Node.js package manager
     zoxide
   ];
 
