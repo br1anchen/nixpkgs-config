@@ -13,6 +13,7 @@ let
     ./tmux.nix
     ./gitui.nix
     ./alacritty.nix
+    ./lazygit.nix
   ] ++ lib.optionals pkgs.stdenv.isLinux [ ./arch_i3.nix ]
     ++ lib.optionals pkgs.stdenv.isDarwin [ ./mac.nix ];
 
@@ -79,7 +80,6 @@ in {
     httpie # Like curl but more user friendly
     jq # JSON parsing for the CLI
     kitty
-    lazygit
     mdcat # Markdown converter/reader for the CLI
     nix-prefetch-github
     nodejs # node and npm
