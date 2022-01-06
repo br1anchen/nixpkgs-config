@@ -63,7 +63,6 @@ in {
   };
 
   home.packages = with pkgs; [
-    alacritty
     bash # /bin/bash
     cachix # Nix build cache
     cargo
