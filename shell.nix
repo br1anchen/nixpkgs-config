@@ -194,7 +194,7 @@ in {
       # Start up Starship shell
       eval "$(starship init zsh)"
 
-      eval "`fnm env`"
+      eval "$(fnm env --use-on-cd)"
 
       eval "$(zoxide init zsh)"
 
