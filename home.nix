@@ -80,18 +80,11 @@ in {
     jq # JSON parsing for the CLI
     kitty
     lazygit
-    luajitPackages.luacheck
     mdcat # Markdown converter/reader for the CLI
-    neovim
     nix-prefetch-github
-    nixfmt
     nodejs # node and npm
     ripgrep # grep replacement written in Rust
-    rnix-lsp
-    shellcheck
-    shfmt
     starship # Fancy shell that works with zsh
-    stylua
     yarn # Node.js package manager
     zoxide
   ];
