@@ -59,6 +59,8 @@ in {
     defaultCommand = "${pkgs.ripgrep}/bin/rg --files";
   };
 
+  home.file.".tool-versions".source = ./config/asdf/.tool-versions;
+
   # zsh settings
   programs.zsh = {
     inherit shellAliases;
@@ -143,8 +145,9 @@ in {
         . ~/.env
       fi
 
-      # Add RVM to PATH for scripting. Make sure this is the last PATH variable change.
-      RVM_PATH="$HOME/.rvm/bin"
+      if [ -e /usr/local/opt/asdf/libexec/asdf.sh ]; then
+        . /usr/local/opt/asdf/libexec/asdf.sh
+      fi
 
       # Rust Cargo
       CARGO_PATH="$HOME/.cargo/bin"
@@ -172,6 +175,9 @@ in {
         # Gradle
         export GRADLE_HOME=/usr/local/Cellar/gradle/7.3.3
         export PATH=$GRADLE_HOME/bin:$PATH
+
+        # Flutter
+        export FLUTTER_ROOT=$(asdf where flutter)
       elif command -v pacman > /dev/null; then
         export ANDROID_SDK="$HOME/Android/Sdk"
         ANDROID_PLATFORM_PATH="$ANDROID_SDK/platform-tools"
@@ -189,7 +195,7 @@ in {
       # GO
       GO_PATH="$HOME/go/bin"
 
-      export PATH="$RVM_PATH:$CARGO_PATH:$FNM_PATH:$ELIXI_PATH:$PYENV_ROOT/bin:$GO_PATH:$PATH"
+      export PATH="$CARGO_PATH:$FNM_PATH:$ELIXI_PATH:$PYENV_ROOT/bin:$GO_PATH:$PATH"
 
       # Start up Starship shell
       eval "$(starship init zsh)"
