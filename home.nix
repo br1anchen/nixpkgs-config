@@ -66,7 +66,7 @@ in {
   home.packages = with pkgs; [
     bash # /bin/bash
     cachix # Nix build cache
-    cargo
+    rustup
     curl # An old classic
     docker # World's #1 container tool
     docker-compose # Local multi-container Docker environments
