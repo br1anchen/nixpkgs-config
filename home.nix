@@ -66,14 +66,13 @@ in {
   home.packages = with pkgs; [
     bash # /bin/bash
     cachix # Nix build cache
-    rustup
     curl # An old classic
     docker # World's #1 container tool
     docker-compose # Local multi-container Docker environments
     exa # ls replacement written in Rust
     fd # find replacement written in Rust
-    gitui
     gh
+    gitui
     go
     htop # Resource monitoring
     httpie # Like curl but more user friendly
@@ -82,7 +81,9 @@ in {
     mdcat # Markdown converter/reader for the CLI
     nix-prefetch-github
     ripgrep # grep replacement written in Rust
+    rustup
     starship # Fancy shell that works with zsh
+    wget
     zoxide
   ];
 
