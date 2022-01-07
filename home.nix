@@ -64,7 +64,6 @@ in {
   };
 
   home.packages = with pkgs; [
-    bash # /bin/bash
     cachix # Nix build cache
     curl # An old classic
     docker # World's #1 container tool
@@ -77,7 +76,6 @@ in {
     htop # Resource monitoring
     httpie # Like curl but more user friendly
     jq # JSON parsing for the CLI
-    kitty
     mdcat # Markdown converter/reader for the CLI
     nix-prefetch-github
     ripgrep # grep replacement written in Rust
