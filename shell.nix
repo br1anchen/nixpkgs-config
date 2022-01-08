@@ -71,8 +71,16 @@ in {
 
     oh-my-zsh = {
       enable = true;
-      plugins =
-        [ "docker" "docker-compose" "dotenv" "git" "sudo" "node" "tmux" ];
+      plugins = [
+        "docker"
+        "docker-compose"
+        "dotenv"
+        "git"
+        "sudo"
+        "node"
+        "tmux"
+        "asdf"
+      ];
     };
 
     plugins = [
@@ -152,9 +160,6 @@ in {
       # Rust Cargo
       CARGO_PATH="$HOME/.cargo/bin"
 
-      # fnm
-      FNM_PATH="$HOME/.fnm"
-
       # Flutter/Android
       if command -v brew > /dev/null; then
         export ANDROID_HOME=/usr/local/share/android-commandlinetools
@@ -188,19 +193,13 @@ in {
           echo 'Unknown OS!'
       fi
 
-      # Python
-      eval "$(pyenv init -)"
-      PYENV_ROOT="$HOME/.pyenv"
-
       # GO
       GO_PATH="$HOME/go/bin"
 
-      export PATH="$CARGO_PATH:$FNM_PATH:$ELIXI_PATH:$PYENV_ROOT/bin:$GO_PATH:$PATH"
+      export PATH="$CARGO_PATH:$ELIXI_PATH:$GO_PATH:$PATH"
 
       # Start up Starship shell
       eval "$(starship init zsh)"
-
-      eval "$(fnm env --use-on-cd)"
 
       eval "$(zoxide init zsh)"
 
