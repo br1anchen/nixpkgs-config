@@ -153,10 +153,6 @@ in {
         . ~/.env
       fi
 
-      if [ -e /usr/local/opt/asdf/libexec/asdf.sh ]; then
-        . /usr/local/opt/asdf/libexec/asdf.sh
-      fi
-
       # Rust Cargo
       CARGO_PATH="$HOME/.cargo/bin"
 
