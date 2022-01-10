@@ -59,7 +59,7 @@ in {
     defaultCommand = "${pkgs.ripgrep}/bin/rg --files";
   };
 
-  home.file.".tool-versions".source = ./config/asdf/.tool-versions;
+  home.file.".tool-versions".source = ./config/asdf/tool-versions;
 
   # zsh settings
   programs.zsh = {
