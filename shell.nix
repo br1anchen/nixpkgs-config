@@ -138,10 +138,7 @@ in {
       LC_ALL = "en_US.UTF-8";
     };
 
-    # Called whenever zsh is initialized
-    initExtra = ''
-      bindkey -e
-
+    envExtra = ''
       # Nix setup (environment variables, etc.)
       if [ -e ~/.nix-profile/etc/profile.d/nix.sh ]; then
         . ~/.nix-profile/etc/profile.d/nix.sh
@@ -153,8 +150,13 @@ in {
         . ~/.env
       fi
 
+      if [ -e $HOME/.asdf/asdf.sh ]; then
+        . $HOME/.asdf/asdf.sh 
+      fi
+
       # Rust Cargo
       CARGO_PATH="$HOME/.cargo/bin"
+      export PATH="$CARGO_PATH:$PATH"
 
       # Flutter/Android
       if command -v brew > /dev/null; then
@@ -191,14 +193,17 @@ in {
 
       # GO
       GO_PATH="$HOME/go/bin"
+      export PATH="$GO_PATH:$PATH"
+    '';
 
-      export PATH="$CARGO_PATH:$ELIXI_PATH:$GO_PATH:$PATH"
+    # Called whenever zsh is initialized
+    initExtra = ''
+      bindkey -e
 
       # Start up Starship shell
       eval "$(starship init zsh)"
 
       eval "$(zoxide init zsh)"
-
     '';
   };
 }
