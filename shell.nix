@@ -187,6 +187,17 @@ in {
         export PATH=$ANDROID_PLATFORM_PATH:$PATH
         export FLUTTER_PUB="$HOME/snap/flutter/common/flutter/.pub-cache/bin"
         export CHROME_EXECUTABLE="/usr/bin/brave"
+      elif command -v apt > /dev/null; then
+        # Java
+        export JABBA_VERSION="0.11.2"
+        [ -s "/home/br1anchen/.jabba/jabba.sh" ] && source "/home/br1anchen/.jabba/jabba.sh"        
+        export JAVA_HOME=/home/br1anchen/.jabba/jdk/openjdk@1.16.0
+        export PATH=$JAVA_HOME:$PATH
+
+        # Export the Android SDK path 
+        export ANDROID_HOME=~/Android/Sdk
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+        export CHROME_EXECUTABLE="/usr/bin/firefox"
       else
           echo 'Unknown OS!'
       fi
