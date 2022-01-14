@@ -19,9 +19,11 @@ gui:
     optionsTextColor:
     - blue
     selectedLineBgColor:
-    - default
+    - reverse
+    - bold
     selectedRangeBgColor:
-    - blue
+    - reverse
+    - bold
     cherryPickedCommitBgColor:
     - blue
     cherryPickedCommitFgColor:
