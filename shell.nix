@@ -24,7 +24,7 @@ let
     # Reload zsh
     szsh = "source ~/.zshrc";
 
-    # Reload tmux 
+    # Reload tmux
     stmux = "tmux source-file ~/.tmux.conf";
 
     # Reload home manager and zsh
@@ -151,7 +151,7 @@ in {
       fi
 
       if [ -e $HOME/.asdf/asdf.sh ]; then
-        . $HOME/.asdf/asdf.sh 
+        . $HOME/.asdf/asdf.sh
       fi
 
       # Rust Cargo
@@ -190,11 +190,11 @@ in {
       elif command -v apt > /dev/null; then
         # Java
         export JABBA_VERSION="0.11.2"
-        [ -s "/home/br1anchen/.jabba/jabba.sh" ] && source "/home/br1anchen/.jabba/jabba.sh"        
+        [ -s "/home/br1anchen/.jabba/jabba.sh" ] && source "/home/br1anchen/.jabba/jabba.sh"
         export JAVA_HOME=/home/br1anchen/.jabba/jdk/openjdk@1.16.0
         export PATH=$JAVA_HOME:$PATH
 
-        # Export the Android SDK path 
+        # Export the Android SDK path
         export ANDROID_HOME=~/Android/Sdk
         export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
         export CHROME_EXECUTABLE="/usr/bin/firefox"
