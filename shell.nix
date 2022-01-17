@@ -66,7 +66,7 @@ in {
     inherit shellAliases;
     enable = true;
     enableAutosuggestions = true;
-    enableCompletion = false;
+    enableCompletion = true;
     history.extended = true;
 
     oh-my-zsh = {
@@ -168,6 +168,7 @@ in {
         export PATH=$SDK_MANAGER:$PATH
         export ADB=/usr/local/bin/adb
         export PATH=$ADB:$PATH
+        export ANDROID_NDK_HOME=/usr/local/share/android-commandlinetools/ndk-bundle
 
         # Java
         export JABBA_VERSION="0.11.2"
@@ -181,6 +182,10 @@ in {
 
         # Flutter
         export FLUTTER_ROOT=$(asdf where flutter)
+
+        # Dart
+        export PATH="$PATH":"$HOME/.pub-cache/bin"
+
       elif command -v pacman > /dev/null; then
         export ANDROID_SDK="$HOME/Android/Sdk"
         ANDROID_PLATFORM_PATH="$ANDROID_SDK/platform-tools"
