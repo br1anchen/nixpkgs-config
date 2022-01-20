@@ -5,7 +5,6 @@
 {
 
   home.packages = with pkgs; [
-    neovim
     rnix-lsp
     stylua
     luajitPackages.luacheck
