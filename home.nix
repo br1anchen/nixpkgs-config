@@ -82,6 +82,7 @@ in {
     rustup
     starship # Fancy shell that works with zsh
     wget
+    xclip
     zoxide
   ];
 
