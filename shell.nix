@@ -150,8 +150,12 @@ in {
         . ~/.env
       fi
 
-      if [ -e $HOME/.asdf/asdf.sh ]; then
+      if command -v brew > /dev/null; then
         . $HOME/.asdf/asdf.sh
+      elif command -v pacman > /dev/null; then
+        . /opt/asdf-vm/asdf.sh
+      else
+          echo 'Unknown OS!'
       fi
 
       # Rust Cargo
