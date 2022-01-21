@@ -14,6 +14,7 @@ let
     ./gitui.nix
     ./alacritty.nix
     ./lazygit.nix
+    ./kitty.nix
   ] ++ lib.optionals pkgs.stdenv.isDarwin [ ./mac.nix ];
 
   # Handly shell command to view the dependency tree of Nix packages
