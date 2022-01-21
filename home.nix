@@ -65,6 +65,7 @@ in {
 
   home.packages = with pkgs; [
     cachix # Nix build cache
+    cheat
     curl # An old classic
     docker # World's #1 container tool
     docker-compose # Local multi-container Docker environments
