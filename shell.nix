@@ -23,12 +23,13 @@ let
 
     # Reload zsh
     szsh = "source ~/.zshrc";
+    szenv = "source ~/.zshenv";
 
     # Reload tmux
     stmux = "tmux source-file ~/.tmux.conf";
 
     # Reload home manager and zsh
-    reload = "home-manager switch && szsh && stmux";
+    reload = "home-manager switch && szenv && szsh && stmux";
 
     # Nix garbage collection
     garbage = "nix-collect-garbage -d && docker image prune --force";
@@ -155,7 +156,11 @@ in {
       elif command -v pacman > /dev/null; then
         . /opt/asdf-vm/asdf.sh
       else
-          echo 'Unknown OS!'
+        echo 'Unknown OS to set asdf env!'
+      fi
+
+      if [ -e $HOME/.asdf/plugins/java/set-java-home.zsh ]; then
+        . $HOME/.asdf/plugins/java/set-java-home.zsh
       fi
 
       # Rust Cargo
@@ -192,23 +197,15 @@ in {
 
       elif command -v pacman > /dev/null; then
         export ANDROID_SDK="$HOME/Android/Sdk"
-        ANDROID_PLATFORM_PATH="$ANDROID_SDK/platform-tools"
-        export PATH=$ANDROID_PLATFORM_PATH:$PATH
-        export FLUTTER_PUB="$HOME/snap/flutter/common/flutter/.pub-cache/bin"
-        export CHROME_EXECUTABLE="/usr/bin/brave"
+        export PATH=$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH
+        export CHROME_EXECUTABLE="/usr/bin/firefox"
       elif command -v apt > /dev/null; then
-        # Java
-        export JABBA_VERSION="0.11.2"
-        [ -s "/home/br1anchen/.jabba/jabba.sh" ] && source "/home/br1anchen/.jabba/jabba.sh"
-        export JAVA_HOME=/home/br1anchen/.jabba/jdk/openjdk@1.16.0
-        export PATH=$JAVA_HOME:$PATH
-
         # Export the Android SDK path
         export ANDROID_HOME=~/Android/Sdk
         export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
         export CHROME_EXECUTABLE="/usr/bin/firefox"
       else
-          echo 'Unknown OS!'
+        echo 'Unknown OS to set Flutter/Android env!'
       fi
 
       # GO

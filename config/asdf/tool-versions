@@ -1,5 +1,6 @@
 dart 2.15.1
 flutter 2.8.1-stable
-ruby 2.7.5
+java openjdk-16
 nodejs 17.3.1
 python 3.9.9
+ruby 2.7.5
