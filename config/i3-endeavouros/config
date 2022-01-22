@@ -402,7 +402,7 @@ exec --no-startup-id dbus-launch dunst --config ~/.config/dunst/dunstrc
 # you need to have tray apps started here:
 
 # start blueberry app for managing bluetooth devices from tray:
-exec --no-startup-id blueberry-tray
+#exec --no-startup-id blueberry-tray
 
 # networkmanager-applet
 #exec --no-startup-id nm-applet
