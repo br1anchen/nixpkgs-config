@@ -15,7 +15,8 @@ let
     ./alacritty.nix
     ./lazygit.nix
     ./kitty.nix
-  ] ++ lib.optionals pkgs.stdenv.isDarwin [ ./mac.nix ];
+  ] ++ lib.optionals pkgs.stdenv.isLinux [ ./arch_i3.nix ]
+    ++ lib.optionals pkgs.stdenv.isDarwin [ ./mac.nix ];
 
   # Handly shell command to view the dependency tree of Nix packages
   depends = pkgs.writeScriptBin "depends" ''
