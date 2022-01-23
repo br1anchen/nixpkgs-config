@@ -181,8 +181,8 @@ bindsym F1 exec ~/.config/i3/scripts/keyhint-2
 # bindsym $mod+F1 exec xed ~/.config/i3/keybindings
 
 # Backlight control
-bindsym XF86MonBrightnessUp exec xbacklight +10
-bindsym XF86MonBrightnessDown exec xbacklight -10
+bindsym XF86MonBrightnessUp exec xbacklight +10 && dunstify -h string:x-dunst-stack-tag:backlight backlight: $(xbacklight -get)%
+bindsym XF86MonBrightnessDown exec xbacklight -10 && dunstify -h string:x-dunst-stack-tag:backlight backlight: $(xbacklight -get)%
 
 # change focus
 bindsym $mod+h focus left
@@ -258,9 +258,9 @@ bindsym $mod+Shift+n exec ~/.config/i3/scripts/empty_workspace
 #mute
 #bindsym XF86AudioMute exec pamixer -t && notify-send "mute: $(pamixer --get-mute)"
 
-bindsym XF86AudioRaiseVolume exec pactl set-sink-volume $(pactl info | grep 'Default Sink: ' | sed 's/^Default Sink: //') +5%
-bindsym XF86AudioLowerVolume exec pactl set-sink-volume $(pactl info | grep 'Default Sink: ' | sed 's/^Default Sink: //') -5%
-bindsym XF86AudioMute exec pactl set-sink-mute $(pactl info | grep 'Default Sink: ' | sed 's/^Default Sink: //') toggle
+bindsym XF86AudioRaiseVolume exec pactl set-sink-volume $(pactl info | grep 'Default Sink: ' | sed 's/^Default Sink: //') +5% && dunstify -h string:x-dunst-stack-tag:volume volume: $(pamixer --get-volume)%
+bindsym XF86AudioLowerVolume exec pactl set-sink-volume $(pactl info | grep 'Default Sink: ' | sed 's/^Default Sink: //') -5% && dunstify -h string:x-dunst-stack-tag:volume volume: $(pamixer --get-volume)%
+bindsym XF86AudioMute exec pactl set-sink-mute $(pactl info | grep 'Default Sink: ' | sed 's/^Default Sink: //') toggle && dunstify -h string:x-dunst-stack-tag:mute mute: $(pamixer --get-mute)
 
 bindsym XF86AudioPlay exec playerctl play
 bindsym XF86AudioPause exec playerctl pause

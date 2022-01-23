@@ -10,6 +10,12 @@
     source = ./config/polybar;
     recursive = true;
   };
+
+  xdg.configFile.dunst = {
+    source = ./config/dunst;
+    recursive = true;
+  };
+
   #
   # xdg.configFile."networkmanager-dmenu" = {
   #   source = ./config/networkmanager-dmenu;
