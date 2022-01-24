@@ -185,6 +185,7 @@ in {
 
         # Flutter
         export FLUTTER_ROOT=$(asdf where flutter)
+        export CHROME_EXECUTABLE=/Applications/Firefox.app/Contents/MacOS/firefox
 
         # Dart
         export PATH="$PATH":"$HOME/.pub-cache/bin"
