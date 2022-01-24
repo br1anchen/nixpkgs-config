@@ -179,12 +179,6 @@ in {
         export PATH=$ADB:$PATH
         export ANDROID_NDK_HOME=/usr/local/share/android-commandlinetools/ndk-bundle
 
-        # Java
-        export JABBA_VERSION="0.11.2"
-        [ -s "/Users/$(whoami)/.jabba/jabba.sh" ] && source "/Users/$(whoami)/.jabba/jabba.sh"
-        export JAVA_HOME=/Users/$(whoami)/.jabba/jdk/openjdk@1.16.0/Contents/Home
-        export PATH=$JAVA_HOME:$PATH
-
         # Gradle
         export GRADLE_HOME=/usr/local/Cellar/gradle/7.3.3
         export PATH=$GRADLE_HOME/bin:$PATH
