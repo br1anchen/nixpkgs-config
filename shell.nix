@@ -184,8 +184,7 @@ in {
         export PATH=$GRADLE_HOME/bin:$PATH
 
         # Flutter
-        export FLUTTER_ROOT=$(asdf where flutter)
-        export CHROME_EXECUTABLE=/Applications/Firefox.app/Contents/MacOS/firefox
+        export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
         # Dart
         export PATH="$PATH":"$HOME/.pub-cache/bin"
