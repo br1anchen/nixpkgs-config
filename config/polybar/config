@@ -19,9 +19,9 @@
 [colors]
 background = #1E1E29
 foreground = #DADAE8
-primary = #DDB6F2
-secondary = #F2CDCD
-tertiary = #DADAE8
+primary = #B5E8E0
+secondary = #ABE9B3
+tertiary = #F9C096
 fourth = #A4B9EF
 alert = #F28FAD
 
@@ -190,7 +190,7 @@ ramp-volume-1 = 
 ramp-volume-2 = 
 
 label-muted = ﱝ
-label-muted-foreground = ${colors.secondary}
+label-muted-foreground = ${colors.alert}
 
 [module/wireguard]
 type = custom/script
@@ -238,6 +238,7 @@ type = internal/backlight
 card = intel_backlight
 format = <ramp> <label>
 label = %percentage%%
+label-foreground = ${colors.primary}
 ramp-0 = 
 ramp-1 = 
 ramp-2 = 
