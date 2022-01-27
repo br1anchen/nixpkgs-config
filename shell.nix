@@ -192,7 +192,7 @@ in {
       elif command -v pacman > /dev/null; then
         export ANDROID_SDK="$HOME/Android/Sdk"
         export PATH=$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH
-        export CHROME_EXECUTABLE="/usr/bin/firefox"
+        export CHROME_EXECUTABLE=/usr/bin/chromium
       elif command -v apt > /dev/null; then
         # Export the Android SDK path
         export ANDROID_HOME=~/Android/Sdk
