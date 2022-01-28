@@ -78,8 +78,10 @@ in {
     htop # Resource monitoring
     httpie # Like curl but more user friendly
     jq # JSON parsing for the CLI
+    mcfly
     mdcat # Markdown converter/reader for the CLI
     nix-prefetch-github
+    protobuf
     ripgrep # grep replacement written in Rust
     rustup
     starship # Fancy shell that works with zsh
