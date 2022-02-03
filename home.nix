@@ -74,6 +74,7 @@ in {
     fd # find replacement written in Rust
     gh
     gitui
+    glow
     go
     htop # Resource monitoring
     httpie # Like curl but more user friendly
