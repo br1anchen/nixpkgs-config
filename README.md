@@ -2,6 +2,24 @@
 
 ## Install
 
+### Install Nix
+
+```bash
+sh <(curl -L https://nixos.org/nix/install)
+```
+
+### Install Home Manager
+
+```bash
+nix-channel --add https://github.com/nix-community/home-manager/archive/master.tar.gz home-manager
+
+nix-channel --update
+
+nix-shell '<home-manager>' -A install
+```
+
+### Install configuration
+
 ```bash
 cd ~
 git clone --recurse-submodules -j8 git@github.com:br1anchen/nixpkgs-config.git
