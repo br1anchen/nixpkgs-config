@@ -274,6 +274,7 @@ bindsym $mod+p exec /usr/local/bin/switch-audio-port
 bindsym $mod+w exec /usr/bin/firefox
 bindsym $mod+n exec /usr/bin/thunar
 bindsym Print exec "scrot ~/%Y-%m-%d-%T-screenshot.png"
+bindsym $mod+m exec /var/lib/snapd/snap/bin/mailspring
 
 ##########################################
 # configuration for workspace behaviour: #
