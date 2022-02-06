@@ -44,6 +44,7 @@ tmux_conf_new_session_prompt=false
 #  - true
 #  - false (default)
 tmux_conf_theme_24b_colour=true
+set-option -sa terminal-overrides ',screen-256color:RGB'
 
 # --> Catppuccin
 thm_bg="#1e1e28"
