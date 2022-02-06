@@ -179,10 +179,6 @@ in {
         export PATH=$ADB:$PATH
         export ANDROID_NDK_HOME=/usr/local/share/android-commandlinetools/ndk-bundle
 
-        # Gradle
-        export GRADLE_HOME=/usr/local/Cellar/gradle/7.3.3
-        export PATH=$GRADLE_HOME/bin:$PATH
-
         # Flutter
         export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
