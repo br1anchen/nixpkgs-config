@@ -1,9 +1,29 @@
 { config, lib, ... }:
 
 let
+  # TODO: remove maneul fix for ipython
+  # https://github.com/NixOS/nixpkgs/issues/160133
+  ipythonFix = self: super: {
+    python3 = super.python3.override {
+      packageOverrides = pySelf: pySuper: {
+        ipython = pySuper.ipython.overridePythonAttrs (old: {
+          preCheck = old.preCheck
+            + super.lib.optionalString super.stdenv.isDarwin ''
+              echo '#!${pkgs.stdenv.shell}' > pbcopy
+              chmod a+x pbcopy
+              cp pbcopy pbpaste
+              export PATH="$(pwd)''${PATH:+":$PATH"}"
+            '';
+        });
+      };
+      self = self.python3;
+    };
+  };
   nigpkgsRev = "nixpkgs-unstable";
   pkgs = import (fetchTarball
-    "https://github.com/nixos/nixpkgs/archive/${nigpkgsRev}.tar.gz") { };
+    "https://github.com/nixos/nixpkgs/archive/${nigpkgsRev}.tar.gz") {
+      overlays = [ ipythonFix ];
+    };
 
   # Import other Nix files
   imports = [
