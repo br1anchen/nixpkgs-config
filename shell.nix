@@ -181,14 +181,11 @@ in {
 
         # Flutter
         export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-
-        # Dart
-        export PATH="$PATH":"$HOME/.pub-cache/bin"
-
       elif command -v pacman > /dev/null; then
         export ANDROID_SDK="$HOME/Android/Sdk"
         export PATH=$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH
         export CHROME_EXECUTABLE=/usr/bin/chromium
+
       elif command -v apt > /dev/null; then
         # Export the Android SDK path
         export ANDROID_HOME=~/Android/Sdk
@@ -197,6 +194,9 @@ in {
       else
         echo 'Unknown OS to set Flutter/Android env!'
       fi
+
+      # Dart
+      export PATH="$PATH":"$HOME/.pub-cache/bin"
 
       # GO
       GO_PATH="$HOME/go/bin"
