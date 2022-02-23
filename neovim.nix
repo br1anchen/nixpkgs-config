@@ -11,6 +11,8 @@
     nixfmt
     shellcheck
     shfmt
+    statix
+    code-minimap
   ];
 
   xdg.configFile.nvim = {
