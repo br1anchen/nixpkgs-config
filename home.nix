@@ -89,7 +89,6 @@ in {
     cheat
     curl # An old classic
     docker # World's #1 container tool
-    docker-compose # Local multi-container Docker environments
     exa # ls replacement written in Rust
     fd # find replacement written in Rust
     gh
