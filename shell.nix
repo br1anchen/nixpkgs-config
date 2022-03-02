@@ -152,11 +152,15 @@ in {
       fi
 
       if command -v brew > /dev/null; then
-        . $HOME/.asdf/asdf.sh
+        . $(brew --prefix asdf)/libexec/asdf.sh
       elif command -v pacman > /dev/null; then
         . /opt/asdf-vm/asdf.sh
       else
         echo 'Unknown OS to set asdf env!'
+      fi
+
+      if command -v gtar > /dev/null; then
+        export PATH="/opt/homebrew/opt/gnu-tar/libexec/gnubin:$PATH"
       fi
 
       if [ -e $HOME/.asdf/plugins/java/set-java-home.zsh ]; then
@@ -169,18 +173,14 @@ in {
 
       # Flutter/Android
       if command -v brew > /dev/null; then
-        export ANDROID_HOME=/usr/local/share/android-commandlinetools
-        export PATH=$ANDROID_HOME:$PATH
-        export AVD=/usr/local/bin/avdmanager
-        export PATH=$AVD:$PATH
-        export SDK_MANAGER=/usr/local/bin/sdkmanager
-        export PATH=$SDK_MANAGER:$PATH
-        export ADB=/usr/local/bin/adb
-        export PATH=$ADB:$PATH
-        export ANDROID_NDK_HOME=/usr/local/share/android-commandlinetools/ndk-bundle
-
-        # Flutter
+        export ANDROID_HOME="$HOME/Library/Android/Sdk"
+        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
         export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+        #Cocoapods
+        export GEM_HOME=$HOME/.gem
+        export PATH=$GEM_HOME/ruby/2.7.0/bin:$PATH
+
       elif command -v pacman > /dev/null; then
         export ANDROID_SDK="$HOME/Android/Sdk"
         export PATH=$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH
