@@ -15,6 +15,8 @@ nix-channel --add https://github.com/nix-community/home-manager/archive/master.t
 
 nix-channel --update
 
+export NIX_PATH=$HOME/.nix-defexpr/channels:/nix/var/nix/profiles/per-user/root/channels${NIX_PATH:+:$NIX_PATH}
+
 nix-shell '<home-manager>' -A install
 ```
 
@@ -26,6 +28,4 @@ git clone --recurse-submodules -j8 git@github.com:br1anchen/nixpkgs-config.git
 cd ~/.config
 rm -rf nixpkgs
 ln -s ~/nixpkgs-config nixpkgs
-
-export NIX_PATH=${NIX_PATH:+$NIX_PATH:}$HOME/.nix-defexpr/channels:/nix/var/nix/profiles/per-user/root/channels
 ```
