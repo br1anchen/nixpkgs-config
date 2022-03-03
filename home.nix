@@ -84,31 +84,32 @@ in {
     TERMINAL = "alacritty";
   };
 
-  home.packages = with pkgs; [
-    cachix # Nix build cache
-    cheat
-    curl # An old classic
-    docker # World's #1 container tool
-    exa # ls replacement written in Rust
-    fd # find replacement written in Rust
-    gh
-    gitui
-    glow
-    go
-    htop # Resource monitoring
-    httpie # Like curl but more user friendly
-    jq # JSON parsing for the CLI
-    mcfly
-    mdcat # Markdown converter/reader for the CLI
-    nix-prefetch-github
-    procs
-    protobuf
-    ripgrep # grep replacement written in Rust
-    rustup
-    starship # Fancy shell that works with zsh
-    wget
-    xclip
-    zoxide
-  ];
+  home.packages = with pkgs;
+    [
+      cachix # Nix build cache
+      cheat
+      curl # An old classic
+      docker # World's #1 container tool
+      exa # ls replacement written in Rust
+      fd # find replacement written in Rust
+      gitui
+      glow
+      go
+      htop # Resource monitoring
+      # httpie # Like curl but more user friendly
+      jq # JSON parsing for the CLI
+      mcfly
+      mdcat # Markdown converter/reader for the CLI
+      nix-prefetch-github
+      procs
+      protobuf
+      ripgrep # grep replacement written in Rust
+      rustup
+      wget
+      xclip
+      zoxide
+    ] ++ gitTools ++ lib.optionals pkgs.stdenv.isLinux [
+      starship # Fancy shell that works with zsh
+    ];
 
 }
