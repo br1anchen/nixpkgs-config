@@ -11,6 +11,8 @@
       core = { editor = "nvim"; };
       color = { ui = true; };
       init = { defaultBranch = "main"; };
+      pull = { rebase = true; };
+      submodule = { recurse = true; };
     };
 
     delta = {
