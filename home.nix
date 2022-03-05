@@ -58,13 +58,7 @@ let
 
   scripts = [ depends git-hash run wo ];
 
-  gitTools = with pkgs.gitAndTools; [
-    delta
-    diff-so-fancy
-    git-codeowners
-    gitflow
-    gh
-  ];
+  gitTools = with pkgs.gitAndTools; [ diff-so-fancy git-codeowners gitflow gh ];
 
 in {
   inherit imports;
