@@ -20,6 +20,8 @@ let
     md = "mdcat";
     start-docker = "docker-machine start default";
     vim = "nvim";
+    vf = "nvim";
+    vd = "nvim .";
 
     # Reload zsh
     szsh = "source ~/.zshrc";
