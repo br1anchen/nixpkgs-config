@@ -11,4 +11,7 @@
     recursive = true;
   };
 
+  # macOS:
+  # ln -s ~/.config/lazygit/config.yml ~/Library/Application\ Support/lazygit/config.yml
+
 }
