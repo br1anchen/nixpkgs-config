@@ -6,7 +6,6 @@ let
   # Set all shell aliases programatically
   shellAliases = {
     cat = "bat";
-    diff = "diff --color=auto";
     dc = "docker-compose";
     dk = "docker";
     find = "fd";
