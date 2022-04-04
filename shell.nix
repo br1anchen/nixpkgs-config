@@ -152,16 +152,10 @@ in {
         . ~/.env
       fi
 
-      if command -v brew > /dev/null; then
-        . $(brew --prefix asdf)/libexec/asdf.sh
-      elif command -v pacman > /dev/null; then
+      if command -v pacman > /dev/null; then
         . /opt/asdf-vm/asdf.sh
       else
-        echo 'Unknown OS to set asdf env!'
-      fi
-
-      if command -v gtar > /dev/null; then
-        export PATH="/opt/homebrew/opt/gnu-tar/libexec/gnubin:$PATH"
+        . $HOME/.asdf/asdf.sh
       fi
 
       if [ -e $HOME/.asdf/plugins/java/set-java-home.zsh ]; then
