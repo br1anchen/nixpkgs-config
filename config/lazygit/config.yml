@@ -73,7 +73,7 @@ keybinding:
   universal:
     quit: q
     quit-alt1: <c-c>
-    return: U
+    return: <c-x>
     quitWithoutChangingDirectory: Q
     togglePanel: <tab>
     prevItem: <up>
