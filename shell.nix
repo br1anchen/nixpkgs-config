@@ -178,6 +178,7 @@ in {
 
       elif command -v pacman > /dev/null; then
         export ANDROID_SDK="$HOME/Android/Sdk"
+        export ANDROID_NDK_HOME=$ANDROID_SDK/ndk
         export PATH=$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH
         export CHROME_EXECUTABLE=/usr/bin/chromium
 
