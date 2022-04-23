@@ -41,8 +41,6 @@
       "*.zip"
       "log/"
       "*.log"
-      "*.sql"
-      "*.sqlite"
       ".DS_Store"
       ".DS_Store?"
       "._*"
