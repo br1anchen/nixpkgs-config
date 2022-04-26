@@ -2,8 +2,8 @@ dart 2.16.2
 flutter 2.10.4-stable
 golang 1.18.1
 gradle 7.3.3
-java openjdk-17
-nodejs 17.3.1
+java openjdk-18
+nodejs lts
 python 3.9.9
-ruby 2.7.5
-yarn 1.22.17
+ruby 2.7.2
+yarn 1.22.18
