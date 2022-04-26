@@ -63,6 +63,8 @@ in {
 
   home.file.".tool-versions".source = ./config/asdf/tool-versions;
 
+  xdg.configFile."starship.toml".source = ./config/starship.toml;
+
   # zsh settings
   programs.zsh = {
     inherit shellAliases;
