@@ -199,6 +199,9 @@ in {
       # GO
       GO_PATH="$HOME/go/bin"
       export PATH="$GO_PATH:$PATH"
+
+      #Python
+      export PATH=$(asdf where python)/bin:$PATH
     '';
 
     # Called whenever zsh is initialized
