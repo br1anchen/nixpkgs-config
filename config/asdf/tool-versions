@@ -1,5 +1,5 @@
-dart 2.16.2
-flutter 2.10.5-stable
+dart 2.17.0
+flutter 3.0.0-stable
 golang 1.18.1
 gradle 7.3.3
 java openjdk-18
