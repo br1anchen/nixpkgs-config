@@ -13,6 +13,8 @@
     shfmt
     statix
     code-minimap
+    sqlfluff
+    jupyter
   ];
 
   xdg.configFile.nvim = {
