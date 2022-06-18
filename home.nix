@@ -75,6 +75,7 @@ in {
       mcfly
       mdcat # Markdown converter/reader for the CLI
       nix-prefetch-github
+      ncdu
       procs
       protobuf
       ripgrep # grep replacement written in Rust
