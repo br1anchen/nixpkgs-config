@@ -15,6 +15,7 @@
     code-minimap
     sqlfluff
     jupyter
+    black
     python39Packages.pyqt5
     python39Packages.qtconsole
     python39Packages.jupytext
