@@ -20,7 +20,7 @@
 # new window retains current path, possible values are:
 #   - true
 #   - false (default)
-tmux_conf_new_window_retain_current_path=false
+tmux_conf_new_window_retain_current_path=true
 
 # new pane retains current path, possible values are:
 #   - true (default)
@@ -35,7 +35,7 @@ tmux_conf_new_pane_reconnect_ssh=false
 # prompt for session name when creating a new session, possible values are:
 #   - true
 #   - false (default)
-tmux_conf_new_session_prompt=false
+tmux_conf_new_session_prompt=true
 
 
 # -- display -------------------------------------------------------------------
