@@ -207,6 +207,9 @@ in {
       if command -v pacman > /dev/null; then
         export PATH=~/.local/share/neovim/bin:$PATH
       fi
+
+      # Swift/Mint
+      export PATH=~/.mint/bin:$PATH
     '';
 
     # Called whenever zsh is initialized
