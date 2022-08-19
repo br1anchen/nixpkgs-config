@@ -36,7 +36,14 @@ let
     nix-shell --pure --run "$@"
   '';
 
-  scripts = [ depends git-hash run wo ];
+  ghpr = pkgs.writeScriptBin "ghpr" ''
+    GH_FORCE_TTY=100% gh pr list \
+    | fzf --ansi --preview 'GH_FORCE_TTY=100% gh pr view {1}' --preview-window down --header-lines 3 \
+    | awk '{print $1}' \
+    | xargs gh pr checkout
+  '';
+
+  scripts = [ depends git-hash run wo ghpr ];
 
   gitTools = with pkgs.gitAndTools; [ diff-so-fancy git-codeowners gitflow gh ];
 
@@ -83,7 +90,7 @@ in {
       wget
       xclip
       zoxide
-    ] ++ gitTools ++ lib.optionals pkgs.stdenv.isLinux [
+    ] ++ scripts ++ gitTools ++ lib.optionals pkgs.stdenv.isLinux [
       starship # Fancy shell that works with zsh
     ];
 
