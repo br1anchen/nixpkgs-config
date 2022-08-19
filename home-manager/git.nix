@@ -1,10 +1,11 @@
 # Git settings
 
 { config, lib, pkgs, ... }:
-
-let gitTools = with pkgs.gitAndTools; [ git-codeowners gitflow gh ];
+let
+  gitTools = with pkgs.gitAndTools; [ diff-so-fancy git-codeowners gitflow gh ];
 in {
-  home.packages = gitTools;
+
+  home.packages = with pkgs; gitTools;
 
   programs.git = {
     enable = true;

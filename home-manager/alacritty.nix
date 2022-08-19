@@ -5,7 +5,7 @@
 {
 
   xdg.configFile.alacritty = {
-    source = ./config/alacritty;
+    source = ../config/alacritty;
     recursive = true;
   };
 

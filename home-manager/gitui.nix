@@ -5,7 +5,7 @@
 {
 
   xdg.configFile.gitui = {
-    source = ./config/gitui;
+    source = ../config/gitui;
     recursive = true;
   };
 

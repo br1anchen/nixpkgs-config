@@ -7,7 +7,7 @@
   home.packages = with pkgs; [ lazygit ];
 
   xdg.configFile.lazygit = {
-    source = ./config/lazygit;
+    source = ../config/lazygit;
     recursive = true;
   };
 

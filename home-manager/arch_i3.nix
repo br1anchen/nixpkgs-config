@@ -2,17 +2,17 @@
 
 {
   xdg.configFile.i3 = {
-    source = ./config/i3-endeavouros;
+    source = ../config/i3-endeavouros;
     recursive = true;
   };
 
   xdg.configFile.polybar = {
-    source = ./config/polybar;
+    source = ../config/polybar;
     recursive = true;
   };
 
   xdg.configFile.dunst = {
-    source = ./config/dunst;
+    source = ../config/dunst;
     recursive = true;
   };
 

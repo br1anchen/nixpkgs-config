@@ -19,7 +19,7 @@
   ];
 
   xdg.configFile.nvim = {
-    source = ./config/neovim;
+    source = ../config/neovim;
     recursive = true;
   };
 
