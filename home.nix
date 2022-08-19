@@ -62,7 +62,7 @@ in {
 
   home.sessionVariables = {
     EDITOR = "nvim";
-    TERMINAL = "alacritty";
+    TERMINAL = "kitty";
   };
 
   home.packages = with pkgs;
