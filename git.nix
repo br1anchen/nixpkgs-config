@@ -2,7 +2,11 @@
 
 { config, lib, pkgs, ... }:
 
-{
+let
+  gitTools = with pkgs.gitAndTools; [ diff-so-fancy git-codeowners gitflow gh ];
+in {
+  home.packages = gitTools;
+
   programs.git = {
     enable = true;
     userName = "Brian Chen";

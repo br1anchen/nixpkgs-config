@@ -3,6 +3,33 @@
 { config, lib, pkgs, ... }:
 
 let
+  # Handly shell command to view the dependency tree of Nix packages
+  depends = pkgs.writeScriptBin "depends" ''
+    dep=$1
+    nix-store --query --requisites $(which $dep)
+  '';
+
+  git-hash = pkgs.writeScriptBin "git-hash" ''
+    nix-prefetch-url --unpack https://github.com/$1/$2/archive/$3.tar.gz
+  '';
+
+  wo = pkgs.writeScriptBin "wo" ''
+    readlink $(which $1)
+  '';
+
+  run = pkgs.writeScriptBin "run" ''
+    nix-shell --pure --run "$@"
+  '';
+
+  ghpr = pkgs.writeScriptBin "ghpr" ''
+    GH_FORCE_TTY=100% gh pr list \
+    | fzf --ansi --preview 'GH_FORCE_TTY=100% gh pr view {1}' --preview-window down --header-lines 3 \
+    | awk '{print $1}' \
+    | xargs gh pr checkout
+  '';
+
+  scripts = [ depends git-hash run wo ghpr ];
+
   # Set all shell aliases programatically
   shellAliases = {
     cat = "bat";
@@ -40,6 +67,7 @@ let
   };
 
 in {
+  home.packages = scripts;
   # Fancy filesystem navigator
   programs.broot = {
     enable = true;
