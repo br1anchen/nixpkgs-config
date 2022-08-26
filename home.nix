@@ -57,6 +57,7 @@ in {
       protobuf
       ripgrep # grep replacement written in Rust
       rustup
+      tree
       wget
       xclip
       zoxide
