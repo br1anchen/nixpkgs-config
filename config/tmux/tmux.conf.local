@@ -118,25 +118,25 @@ tmux_conf_theme_pane_border_style=thin
 
 # pane borders colours:
 tmux_conf_theme_pane_border="$thm_gray"
-tmux_conf_theme_pane_active_border="$thm_green"
+tmux_conf_theme_pane_active_border="$thm_blue"
 
 # pane indicator colours (when you hit <prefix> + q)
-tmux_conf_theme_pane_indicator="$thm_green"
-tmux_conf_theme_pane_active_indicator="$thm_green"
+tmux_conf_theme_pane_indicator="$thm_gray"
+tmux_conf_theme_pane_active_indicator="$thm_blue"
 
 # status line style
-tmux_conf_theme_message_fg="$thm_black4"
-tmux_conf_theme_message_bg="$thm_yellow"
+tmux_conf_theme_message_fg="$thm_cyan"
+tmux_conf_theme_message_bg="$thm_gray"
 tmux_conf_theme_message_attr="bold"
 
 # status line command style (<prefix> : Escape)
-tmux_conf_theme_message_command_fg="$thm_yellow"
-tmux_conf_theme_message_command_bg="$thm_black4"
+tmux_conf_theme_message_command_fg="$thm_cyan"
+tmux_conf_theme_message_command_bg="$thm_gray"
 tmux_conf_theme_message_command_attr="bold"
 
 # window modes style
-tmux_conf_theme_mode_fg="$thm_black4"
-tmux_conf_theme_mode_bg="$thm_yellow"
+tmux_conf_theme_mode_fg="$thm_pink"
+tmux_conf_theme_mode_bg="$thm_black4"
 tmux_conf_theme_mode_attr="bold"
 
 # status line style
