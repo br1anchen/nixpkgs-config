@@ -2,8 +2,7 @@
 
 { config, lib, pkgs, ... }:
 
-let
-  gitTools = with pkgs.gitAndTools; [ diff-so-fancy git-codeowners gitflow gh ];
+let gitTools = with pkgs.gitAndTools; [ git-codeowners gitflow gh ];
 in {
   home.packages = gitTools;
 
@@ -24,7 +23,7 @@ in {
       options = {
         navigate = true;
         line-numbers = true;
-        syntax-theme = "GitHub";
+        syntax-theme = "base16";
       };
     };
 
