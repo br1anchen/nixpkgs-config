@@ -23,4 +23,8 @@
     recursive = true;
   };
 
+  xdg.configFile."nvim/init.vim".text = ''
+    luafile ./init.lua
+  '';
+
 }
