@@ -18,6 +18,8 @@
   ] ++ lib.optionals pkgs.stdenv.isLinux [ ./arch_i3.nix ]
     ++ lib.optionals pkgs.stdenv.isDarwin [ ./mac.nix ];
 
+  fonts.fontconfig.enable = true;
+
   # Comment out if you wish to disable unfree packages for your system
   nixpkgs.config.allowUnfree = true;
   nixpkgs.config.allowBroken = true;
@@ -70,6 +72,7 @@
       wget
       xclip
       zoxide
+      (nerdfonts.override { fonts = [ "FiraCode" "JetBrainsMono" ]; })
     ] ++ lib.optionals pkgs.stdenv.isLinux [
       starship # Fancy shell that works with zsh
     ];
