@@ -15,8 +15,8 @@
     ./alacritty.nix
     ./lazygit.nix
     ./kitty.nix
-  ] ++ lib.optionals pkgs.stdenv.isLinux [ ./arch_i3.nix ]
-    ++ lib.optionals pkgs.stdenv.isDarwin [ ./mac.nix ];
+    ./arch_i3.nix
+  ];
 
   fonts.fontconfig.enable = true;
 

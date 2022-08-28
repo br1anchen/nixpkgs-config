@@ -28,6 +28,8 @@ git clone --recurse-submodules -j8 git@github.com:br1anchen/nixpkgs-config.git
 cd ~/.config
 rm -rf nixpkgs
 ln -s ~/nixpkgs-config nixpkgs
+rm -rf nvim
+ls -l ~/nixpkgs-config/config/neovim nvim
 ```
 
 ### Patch after macOS updates

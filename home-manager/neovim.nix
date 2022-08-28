@@ -18,13 +18,13 @@
     black
   ];
 
-  xdg.configFile.nvim = {
-    source = ../config/neovim;
-    recursive = true;
-  };
-
-  xdg.configFile."nvim/init.vim".text = ''
-    luafile ./init.lua
-  '';
+  # xdg.configFile.nvim = {
+  #   source = ../config/neovim;
+  #   recursive = true;
+  # };
+  #
+  # xdg.configFile."nvim/init.vim".text = ''
+  #   luafile ~/.config/nvim/init.lua
+  # '';
 
 }

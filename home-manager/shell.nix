@@ -29,7 +29,11 @@ let
     | xargs gh pr checkout
   '';
 
-  scripts = [ depends git-hash run wo ghpr ];
+  nixFlakes = pkgs.writeScriptBin "nixFlakes" ''
+    exec ${pkgs.nixUnstable}/bin/nix --experimental-features "nix-command flakes" "$@"
+  '';
+
+  scripts = [ depends git-hash run wo ghpr nixFlakes ];
 
   # Set all shell aliases programatically
   shellAliases = {
@@ -59,7 +63,7 @@ let
 
     # Reload home manager and zsh
     reload =
-      "home-manager switch --flake .#br1anchen && szenv && szsh && stmux";
+      "home-manager switch --extra-experimental-features 'flakes nix-command' && szenv && szsh && stmux";
 
     # Nix garbage collection
     garbage = "nix-collect-garbage -d && docker image prune --force";
@@ -92,9 +96,9 @@ in {
 
   home.packages = with pkgs; scripts;
 
-  home.file.".tool-versions".source = ./config/asdf/tool-versions;
+  home.file.".tool-versions".source = ../config/asdf/tool-versions;
 
-  xdg.configFile."starship.toml".source = ./config/starship.toml;
+  xdg.configFile."starship.toml".source = ../config/starship.toml;
 
   # zsh settings
   programs.zsh = {
