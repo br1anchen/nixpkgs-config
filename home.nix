@@ -20,6 +20,8 @@ let
 in {
   inherit imports;
 
+  fonts.fontconfig.enable = true;
+
   # Let Home Manager install and manage itself.
   programs.home-manager.enable = true;
 
@@ -61,6 +63,7 @@ in {
       wget
       xclip
       zoxide
+      (nerdfonts.override { fonts = [ "FiraCode" "JetBrainsMono" ]; })
     ] ++ lib.optionals pkgs.stdenv.isLinux [
       starship # Fancy shell that works with zsh
     ];
