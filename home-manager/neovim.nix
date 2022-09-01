@@ -18,11 +18,11 @@
     black
   ];
 
-  # xdg.configFile.nvim = {
-  #   source = ../config/neovim;
-  #   recursive = true;
-  # };
-  #
+  xdg.configFile.nvim = {
+    source = ~/nixpkgs-config/config/neovim;
+    recursive = true;
+  };
+
   # xdg.configFile."nvim/init.vim".text = ''
   #   luafile ~/.config/nvim/init.lua
   # '';

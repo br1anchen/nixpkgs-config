@@ -63,7 +63,7 @@ let
 
     # Reload home manager and zsh
     reload =
-      "home-manager switch --extra-experimental-features 'flakes nix-command' && szenv && szsh && stmux";
+      "home-manager switch --extra-experimental-features 'flakes nix-command' --impure && szenv && szsh && stmux";
 
     # Nix garbage collection
     garbage = "nix-collect-garbage -d && docker image prune --force";
