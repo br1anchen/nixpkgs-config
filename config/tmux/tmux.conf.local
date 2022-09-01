@@ -46,20 +46,20 @@ tmux_conf_new_session_prompt=true
 tmux_conf_theme_24b_colour=true
 set-option -sa terminal-overrides ',screen-256color:RGB'
 
-# --> Catppuccin
-thm_bg="#1e1e28"
-thm_fg="#dadae8"
-thm_cyan="#c2e7f0"
-thm_black="#15121c"
-thm_gray="#332e41"
-thm_magenta="#c6aae8"
-thm_pink="#e5b4e2"
-thm_red="#e38c8f"
-thm_green="#b1e3ad"
-thm_yellow="#ebddaa"
-thm_blue="#a4b9ef"
-thm_orange="#f9c096"
-thm_black4="#575268"
+# --> Catppuccin (Mocha)
+thm_bg="#11111b"
+thm_fg="#cdd6f4"
+thm_cyan="#89dceb"
+thm_black="#181825"
+thm_gray="#45475a"
+thm_magenta="#cba6f7"
+thm_pink="#f5c2e7"
+thm_red="#f38ba8"
+thm_green="#a6e3a1"
+thm_yellow="#f9e2af"
+thm_blue="#89b4fa"
+thm_orange="#fab387"
+thm_black4="#585b70"
 
 # default theme
 # tmux_conf_theme_colour_1="#1b1e28"    # dark gray
@@ -243,7 +243,7 @@ tmux_conf_theme_right_separator_sub="|"
 #     - #{username_ssh}
 
 # tmux_conf_theme_status_left=" ❐ #S | ↑#{?uptime_y, #{uptime_y}y,}#{?uptime_d, #{uptime_d}d,}#{?uptime_h, #{uptime_h}h,}#{?uptime_m, #{uptime_m}m,} "
-tmux_conf_theme_status_left=" | | #S "
+tmux_conf_theme_status_left=" | | #S "
 # tmux_conf_theme_status_right=" #{prefix}#{mouse}#{pairing}#{synchronized}#{?battery_status,#{battery_status},}#{?battery_bar, #{battery_bar},}#{?battery_percentage, #{battery_percentage},} , %R , %d %b | #{username}#{root} | #{hostname} "
 tmux_conf_theme_status_right=" #{prefix}#{mouse}#{pairing}#{synchronized}#{?battery_status,#{battery_status},}#{?battery_bar, #{battery_bar},}#{?battery_percentage, #{battery_percentage},} , %R , %d %b || | #{username}#{root} "
 
