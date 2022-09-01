@@ -24,6 +24,12 @@
   nixpkgs.config.allowUnfree = true;
   nixpkgs.config.allowBroken = true;
 
+  # nix settings...use only for single user installs
+  nix = {
+    package = pkgs.nixFlakes;
+    settings = { experimental-features = [ "nix-command" "flakes" ]; };
+  };
+
   home = {
     username = "br1anchen";
     homeDirectory =
