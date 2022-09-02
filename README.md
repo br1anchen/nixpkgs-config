@@ -29,3 +29,9 @@ cd ~/.config
 rm -rf nixpkgs
 ln -s ~/nixpkgs-config nixpkgs
 ```
+
+### Patch after macOS updates
+
+```bash
+sudo bash ./fix_macos_updated.sh
+```
