@@ -210,6 +210,12 @@ os:
   openCommand: open {{filename}}
   openLinkCommand: open {{link}}
 disableStartupPopups: false
-customCommands: []
+customCommands:
+  - key: "C"
+    command: "git cz c"
+    description: "commit with commitizen"
+    context: "files"
+    loadingText: "opening commitizen commit tool"
+    subprocess: true
 services: {}
 notARepository: prompt
