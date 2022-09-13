@@ -14,10 +14,10 @@
     statix
     code-minimap
     sqlfluff
+    jupyter
     black
     zathura
     python39Packages.pynvim
-    python39Packages.jupyter
     python39Packages.ueberzug
     python39Packages.pillow
     python39Packages.cairosvg
