@@ -420,6 +420,8 @@ exec --no-startup-id xautolock -time 10 -locker blurlock
 exec --no-startup-id pa-applet
 bindsym $mod+Ctrl+m exec pavucontrol
 
+exec --no-startup-id ulauncher
+
 ##################
 # floating rules #
 ##################
@@ -438,6 +440,7 @@ for_window [class="Bluetooth-sendto" instance="bluetooth-sendto"] floating enabl
 for_window [class="Pamac-manager"] floating enable
 for_window [window_role="About"] floating enable
 for_window [title="^Android Emulator*"] floating enable
+for_window [title="^Ulauncher*"] floating enable
 
 ######################################
 # color settings for bar and windows #
