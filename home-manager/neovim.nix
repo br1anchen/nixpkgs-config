@@ -5,17 +5,11 @@
 {
 
   home.packages = with pkgs; [
-    rnix-lsp
-    stylua
-    luajitPackages.luacheck
+    luajitPackages.luarocks
     nixfmt
-    shellcheck
-    shfmt
     statix
     code-minimap
-    sqlfluff
     jupyter
-    black
     zathura
     python39Packages.pynvim
     python39Packages.ueberzug
