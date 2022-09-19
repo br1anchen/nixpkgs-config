@@ -225,8 +225,8 @@ in {
       export PATH="$PATH":"$HOME/.pub-cache/bin"
 
       # GO
-      GO_PATH="$HOME/go/bin"
-      export PATH="$GO_PATH:$PATH"
+      export GOPATH="$HOME/go"
+      export PATH="$GOPATH/bin:$PATH"
 
       #Python
       export PATH=$(asdf where python)/bin:$PATH
