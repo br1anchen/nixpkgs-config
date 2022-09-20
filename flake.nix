@@ -74,6 +74,17 @@
             ./home-manager/home.nix
           ];
         };
+        "br1anchen@Brians-m1.local" =
+          home-manager.lib.homeManagerConfiguration {
+            pkgs = legacyPackages.aarch64-darwin;
+            extraSpecialArgs = {
+              inherit inputs;
+            }; # Pass flake inputs to our config
+            modules = (builtins.attrValues homeManagerModules) ++ [
+              # > Our main home-manager configuration file <
+              ./home-manager/home.nix
+            ];
+          };
       };
     };
 }
