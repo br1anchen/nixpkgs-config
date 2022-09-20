@@ -2,7 +2,7 @@
     selected_tab: Reset,
     command_fg: White,
     selection_bg: DarkGray,
-    cmdbar_extra_lines_bg: Red,
+    cmdbar_extra_lines_bg: DarkGray,
     disabled_fg: DarkGray,
     diff_line_add: Green,
     diff_line_delete: Red,

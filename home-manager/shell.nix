@@ -53,6 +53,7 @@ let
     vim = "nvim";
     vf = "nvim";
     vd = "nvim .";
+    gi = "gitui";
 
     # Reload zsh
     szsh = "source ~/.zshrc";
