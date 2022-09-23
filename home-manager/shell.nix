@@ -210,10 +210,6 @@ in {
         export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
         export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
-        #Cocoapods
-        export GEM_HOME=$HOME/.gem
-        export PATH=$GEM_HOME/ruby/2.7.0/bin:$PATH
-
       elif command -v pacman > /dev/null; then
         export ANDROID_SDK="$HOME/Android/Sdk"
         export ANDROID_NDK_HOME=$ANDROID_SDK/ndk
