@@ -42,7 +42,8 @@ let
     dk = "docker";
     find = "fd";
     grep = "grep --color=auto";
-    hms = "home-manager switch";
+    hms =
+      "home-manager switch --extra-experimental-features 'flakes nix-command' --impure";
     l = "exa";
     ll = "ls -lh";
     ls = "exa";
@@ -63,8 +64,7 @@ let
     stmux = "tmux source-file ~/.tmux.conf";
 
     # Reload home manager and zsh
-    reload =
-      "home-manager switch --extra-experimental-features 'flakes nix-command' --impure && szenv && szsh && stmux";
+    reload = "hms && szenv && szsh && stmux";
 
     # Nix garbage collection
     garbage = "nix-collect-garbage -d && docker image prune --force";
