@@ -242,6 +242,8 @@ in {
 
       # Swift/Mint
       export PATH=~/.mint/bin:$PATH
+
+      export PATH=$HOME/.local/bin:$PATH
     '';
 
     # Called whenever zsh is initialized

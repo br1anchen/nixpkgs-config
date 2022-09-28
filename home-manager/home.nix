@@ -59,16 +59,19 @@
       cheat
       curl # An old classic
       docker # World's #1 container tool
+      docker-compose
       exa # ls replacement written in Rust
       fd # find replacement written in Rust
       gitui
       glow
+      gnumake
       go
       htop # Resource monitoring
       # httpie # Like curl but more user friendly
       jq # JSON parsing for the CLI
       mcfly
       mdcat # Markdown converter/reader for the CLI
+      mkcert
       nix-prefetch-github
       ncdu
       procs
