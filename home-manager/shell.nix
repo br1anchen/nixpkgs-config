@@ -256,6 +256,8 @@ in {
       eval "$(zoxide init zsh)"
 
       eval "$(mcfly init zsh)"
+
+      eval "$(minikube docker-env)"
     '';
   };
 }

@@ -58,6 +58,7 @@
       cachix # Nix build cache
       cheat
       curl # An old classic
+      colima
       docker # World's #1 container tool
       docker-compose
       exa # ls replacement written in Rust
@@ -66,12 +67,15 @@
       glow
       gnumake
       go
+      getopt
       htop # Resource monitoring
       # httpie # Like curl but more user friendly
       jq # JSON parsing for the CLI
+      kubectl
       mcfly
       mdcat # Markdown converter/reader for the CLI
       mkcert
+      minikube
       nix-prefetch-github
       ncdu
       procs
