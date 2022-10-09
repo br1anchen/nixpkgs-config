@@ -23,6 +23,11 @@
     recursive = true;
   };
 
+  xdg.configFile.helix = {
+    source = ../config/helix;
+    recursive = true;
+  };
+
   # xdg.configFile."nvim/init.vim".text = ''
   #   luafile ~/.config/nvim/init.lua
   # '';
