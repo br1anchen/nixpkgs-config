@@ -16,6 +16,7 @@
     ./lazygit.nix
     ./kitty.nix
     ./arch_i3.nix
+    ./wezterm.nix
   ];
 
   fonts.fontconfig.enable = true;
