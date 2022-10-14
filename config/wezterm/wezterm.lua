@@ -8,5 +8,6 @@ end)
 
 return {
 	color_scheme = "Catppuccin Mocha",
+	font = wezterm.font("FiraCode Nerd Font"),
 	window_decorations = "RESIZE",
 }
