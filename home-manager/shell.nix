@@ -52,6 +52,7 @@ let
     md = "mdcat";
     start-docker = "docker-machine start default";
     vim = "nvim";
+    vimdiff = "nvim -d";
     vf = "nvim";
     vd = "nvim .";
     gi = "gitui";
