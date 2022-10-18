@@ -33,7 +33,15 @@ let
     exec ${pkgs.nixUnstable}/bin/nix --experimental-features "nix-command flakes" "$@"
   '';
 
-  scripts = [ depends git-hash run wo ghpr nixFlakes ];
+  gitWorkTreeInit = pkgs.writeScriptBin "gitWorkTreeInit" ''
+    git clone --bare --no-checkout $1 $2
+    cd $2
+    git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+    git fetch
+    git for-each-ref --format='%(refname:short)' refs/heads | xargs -n1 -I{} git branch --set-upstream-to=origin/{} {}
+  '';
+
+  scripts = [ depends git-hash run wo ghpr nixFlakes gitWorkTreeInit ];
 
   # Set all shell aliases programatically
   shellAliases = {
@@ -56,6 +64,7 @@ let
     vf = "nvim";
     vd = "nvim .";
     gi = "gitui";
+    gwt = "git worktree";
 
     # Reload zsh
     szsh = "source ~/.zshrc";
