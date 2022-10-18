@@ -107,6 +107,8 @@ in {
 
   home.packages = with pkgs; scripts;
 
+  programs.nushell = { enable = true; };
+
   home.file.".tool-versions".source = ../config/asdf/tool-versions;
 
   xdg.configFile."starship.toml".source = ../config/starship.toml;
