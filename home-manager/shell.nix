@@ -33,7 +33,7 @@ let
     exec ${pkgs.nixUnstable}/bin/nix --experimental-features "nix-command flakes" "$@"
   '';
 
-  gitWorkTreeInit = pkgs.writeScriptBin "gitWorkTreeInit" ''
+  gwtInit = pkgs.writeScriptBin "gwtInit" ''
     git clone --bare --no-checkout $1 $2
     cd $2
     git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
@@ -41,7 +41,12 @@ let
     git for-each-ref --format='%(refname:short)' refs/heads | xargs -n1 -I{} git branch --set-upstream-to=origin/{} {}
   '';
 
-  scripts = [ depends git-hash run wo ghpr nixFlakes gitWorkTreeInit ];
+  gwtAddBranch = pkgs.writeScriptBin "gwtAddBranch" ''
+    git worktree add -b $1 $1
+    git push -u origin $1
+  '';
+
+  scripts = [ depends git-hash run wo ghpr nixFlakes gwtInit gwtAddBranch ];
 
   # Set all shell aliases programatically
   shellAliases = {
