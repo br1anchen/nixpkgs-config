@@ -64,6 +64,7 @@
       docker-compose
       exa # ls replacement written in Rust
       fd # find replacement written in Rust
+      fswatch
       gitui
       glow
       gnumake
