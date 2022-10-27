@@ -41,12 +41,26 @@ let
     git for-each-ref --format='%(refname:short)' refs/heads | xargs -n1 -I{} git branch --set-upstream-to=origin/{} {}
   '';
 
+  gwtCheckoutBranch = pkgs.writeScriptBin "gwtCheckoutBranch" ''
+    git worktree add $1 $1
+  '';
+
   gwtAddBranch = pkgs.writeScriptBin "gwtAddBranch" ''
     git worktree add -b $1 $1
     git push -u origin $1
   '';
 
-  scripts = [ depends git-hash run wo ghpr nixFlakes gwtInit gwtAddBranch ];
+  scripts = [
+    depends
+    git-hash
+    run
+    wo
+    ghpr
+    nixFlakes
+    gwtInit
+    gwtAddBranch
+    gwtCheckoutBranch
+  ];
 
   # Set all shell aliases programatically
   shellAliases = {
