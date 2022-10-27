@@ -50,6 +50,11 @@ let
     git push -u origin $1
   '';
 
+  gwtDeleteBranch = pkgs.writeScriptBin "gwtDeleteBranch" ''
+    git worktree remove ./$1
+    git branch -D $1
+  '';
+
   scripts = [
     depends
     git-hash
@@ -60,6 +65,7 @@ let
     gwtInit
     gwtAddBranch
     gwtCheckoutBranch
+    gwtDeleteBranch
   ];
 
   # Set all shell aliases programatically
