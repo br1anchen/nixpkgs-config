@@ -34,8 +34,11 @@ let
   '';
 
   gwtInit = pkgs.writeScriptBin "gwtInit" ''
-    git clone --bare --no-checkout $1 $2
-    cd $2
+    url=$1
+    name=''${2:-$(basename $url)}
+
+    git clone --bare --no-checkout $url $name
+    cd $name
     git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
     git fetch
     git for-each-ref --format='%(refname:short)' refs/heads | xargs -n1 -I{} git branch --set-upstream-to=origin/{} {}
