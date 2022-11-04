@@ -54,8 +54,15 @@ let
   '';
 
   gwtDeleteBranch = pkgs.writeScriptBin "gwtDeleteBranch" ''
-    git worktree remove ./$1
+    git worktree remove --force ./$1
     git branch -D $1
+  '';
+
+  gwtCheckoutPR = pkgs.writeScriptBin "gwtCheckoutPR" ''
+    gh pr list \
+    | fzf --ansi --preview 'GH_FORCE_TTY=100% gh pr view {1}' --preview-window down \
+    | awk -F'\t' '{print $3}' \
+    | xargs -I{} git worktree add {} {}
   '';
 
   scripts = [
@@ -69,6 +76,7 @@ let
     gwtAddBranch
     gwtCheckoutBranch
     gwtDeleteBranch
+    gwtCheckoutPR
   ];
 
   # Set all shell aliases programatically
