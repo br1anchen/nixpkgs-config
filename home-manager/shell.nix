@@ -141,6 +141,8 @@ in {
     defaultCommand = "${pkgs.ripgrep}/bin/rg --files";
   };
 
+  programs.skim = { enable = true; };
+
   home.packages = with pkgs; scripts;
 
   programs.nushell = { enable = true; };
