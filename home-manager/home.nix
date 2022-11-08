@@ -86,6 +86,7 @@
       rustup
       wget
       xclip
+      xh
       zoxide
       (nerdfonts.override { fonts = [ "FiraCode" "JetBrainsMono" ]; })
     ] ++ lib.optionals pkgs.stdenv.isLinux [
