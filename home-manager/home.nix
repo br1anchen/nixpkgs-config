@@ -78,12 +78,14 @@
       mdcat # Markdown converter/reader for the CLI
       mkcert
       minikube
+      nerd-font-patcher
       nix-prefetch-github
       ncdu
       procs
       protobuf
       ripgrep # grep replacement written in Rust
       rustup
+      scientifica
       wget
       xclip
       xh
