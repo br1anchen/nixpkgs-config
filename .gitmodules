@@ -1,3 +1,6 @@
 [submodule "config/neovim"]
 	path = config/neovim
 	url = git@github.com:br1anchen/NvChad.git
+[submodule "config/lazyvim"]
+	path = config/lazyvim
+	url = git@github.com:br1anchen/vim-pajamas.git
