@@ -58,16 +58,13 @@ let
 
   gwtAddBranch = pkgs.writeScriptBin "gwtAddBranch" ''
     git worktree add -b $1 $1
-  '';
-
-  gwtAddBranchAndUpSync = pkgs.writeScriptBin "gwtAddBranchAndUpSync" ''
-    git worktree add -b $1 $1
     git push -u origin $1
   '';
 
   gwtDeleteBranch = pkgs.writeScriptBin "gwtDeleteBranch" ''
-    git worktree remove --force ./$1
-    git branch -D $1
+    branch=$(git worktree list | fzf --ansi | awk '{print $3}' | sed 's/.*\[\([^]]*\)].*/\1/')
+    git worktree remove --force ./$branch
+    git branch -D $branch
   '';
 
   gwtCheckoutPR = pkgs.writeScriptBin "gwtCheckoutPR" ''
@@ -88,7 +85,6 @@ let
     gwtBare
     gwtBranch
     gwtAddBranch
-    gwtAddBranchAndUpSync
     gwtDeleteBranch
     gwtCheckoutPR
   ];
@@ -115,6 +111,8 @@ let
     vd = "nvim .";
     gi = "gitui";
     gwt = "git worktree";
+    gtGWTBranch = "cd $(gwtBranch)";
+    gtGwtBare = "cd $(gwtBare)";
 
     # Reload zsh
     szsh = "source ~/.zshrc";
