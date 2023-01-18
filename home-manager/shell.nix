@@ -44,11 +44,23 @@ let
     git for-each-ref --format='%(refname:short)' refs/heads | xargs -n1 -I{} git branch --set-upstream-to=origin/{} {}
   '';
 
-  gwtCheckoutBranch = pkgs.writeScriptBin "gwtCheckoutBranch" ''
-    git worktree add $1 $1
+  gwtBare = pkgs.writeScriptBin "gwtBare" ''
+    git worktree list \
+    | grep 'bare'  \
+    | awk '{print $1}'
+  '';
+
+  gwtBranch = pkgs.writeScriptBin "gwtBranch" ''
+    git worktree list \
+    | fzf --ansi \
+    | awk '{print $1}'
   '';
 
   gwtAddBranch = pkgs.writeScriptBin "gwtAddBranch" ''
+    git worktree add -b $1 $1
+  '';
+
+  gwtAddBranchAndUpSync = pkgs.writeScriptBin "gwtAddBranchAndUpSync" ''
     git worktree add -b $1 $1
     git push -u origin $1
   '';
@@ -73,8 +85,10 @@ let
     ghpr
     nixFlakes
     gwtInit
+    gwtBare
+    gwtBranch
     gwtAddBranch
-    gwtCheckoutBranch
+    gwtAddBranchAndUpSync
     gwtDeleteBranch
     gwtCheckoutPR
   ];
@@ -296,6 +310,9 @@ in {
       export PATH=$HOME/.local/bin:$PATH
 
       export PATH=$HOME/.local/share/nvim/mason/bin/:$PATH
+
+      # Maestro
+      export PATH=$PATH:$HOME/.maestro/bin
     '';
 
     # Called whenever zsh is initialized
