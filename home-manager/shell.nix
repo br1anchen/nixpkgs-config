@@ -56,9 +56,16 @@ let
     | awk '{print $1}'
   '';
 
-  gwtAddBranch = pkgs.writeScriptBin "gwtAddBranch" ''
+  gwtNewBranch = pkgs.writeScriptBin "gwtNewBranch" ''
     git worktree add -b $1 $1
     git push -u origin $1
+  '';
+
+  gwtCheckoutBranch = pkgs.writeScriptBin "gwtCheckoutBranch" ''
+    remote=$(git remote -v | grep 'fetch' | awk '{print $1}')
+    branch=$(git branch -r | fzf --ansi | awk '{print $1}' | sed "s/$remote\/\(.*\)/\1/")
+
+    git worktree add -b $branch $branch
   '';
 
   gwtDeleteBranch = pkgs.writeScriptBin "gwtDeleteBranch" ''
@@ -84,7 +91,8 @@ let
     gwtInit
     gwtBare
     gwtBranch
-    gwtAddBranch
+    gwtNewBranch
+    gwtCheckoutBranch
     gwtDeleteBranch
     gwtCheckoutPR
   ];
