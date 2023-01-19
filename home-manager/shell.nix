@@ -56,12 +56,26 @@ let
     | awk '{print $1}'
   '';
 
+  checkBareRoot = ''
+    bare=$(git worktree list | grep 'bare' | awk '{print $1}')
+    current=$(pwd)
+    if [ "$current" != "$bare" ]; then
+      echo "Cannot run gwt command under directory other than bare repo root"
+      exit 1
+    fi
+
+  '';
+
   gwtNewBranch = pkgs.writeScriptBin "gwtNewBranch" ''
+    ${checkBareRoot}
+
     git worktree add -b $1 $1
     git push -u origin $1
   '';
 
   gwtCheckoutBranch = pkgs.writeScriptBin "gwtCheckoutBranch" ''
+    ${checkBareRoot}
+
     remote=$(git remote -v | grep 'fetch' | awk '{print $1}')
     branch=$(git branch -r | fzf --ansi | awk '{print $1}' | sed "s/$remote\/\(.*\)/\1/")
 
@@ -69,12 +83,16 @@ let
   '';
 
   gwtDeleteBranch = pkgs.writeScriptBin "gwtDeleteBranch" ''
+    ${checkBareRoot}
+
     branch=$(git worktree list | fzf --ansi | awk '{print $3}' | sed 's/.*\[\([^]]*\)].*/\1/')
     git worktree remove --force ./$branch
     git branch -D $branch
   '';
 
   gwtCheckoutPR = pkgs.writeScriptBin "gwtCheckoutPR" ''
+    ${checkBareRoot}
+
     gh pr list \
     | fzf --ansi --preview 'GH_FORCE_TTY=100% gh pr view {1}' --preview-window down \
     | awk -F'\t' '{print $3}' \
