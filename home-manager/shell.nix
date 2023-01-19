@@ -79,7 +79,7 @@ let
     remote=$(git remote -v | grep 'fetch' | awk '{print $1}')
     branch=$(git branch -r | fzf --ansi | awk '{print $1}' | sed "s/$remote\/\(.*\)/\1/")
 
-    git worktree add -b $branch $branch
+    git worktree add --track -b $branch $branch $remote/$branch
   '';
 
   gwtDeleteBranch = pkgs.writeScriptBin "gwtDeleteBranch" ''
@@ -137,8 +137,8 @@ let
     vd = "nvim .";
     gi = "gitui";
     gwt = "git worktree";
-    gtGWTBranch = "cd $(gwtBranch)";
-    gtGwtBare = "cd $(gwtBare)";
+    gwtt = "cd $(gwtBranch)";
+    gwtb = "cd $(gwtBare)";
 
     # Reload zsh
     szsh = "source ~/.zshrc";
