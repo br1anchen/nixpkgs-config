@@ -69,8 +69,11 @@ let
   gwtNewBranch = pkgs.writeScriptBin "gwtNewBranch" ''
     ${checkBareRoot}
 
-    git worktree add -b $1 $1
-    git push -u origin $1
+    branch=$1
+    baseBranch=$2
+
+    git worktree add -b $branch $branch $baseBranch
+    git push -u origin $branch
   '';
 
   gwtCheckoutBranch = pkgs.writeScriptBin "gwtCheckoutBranch" ''
