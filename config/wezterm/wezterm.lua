@@ -8,6 +8,7 @@ end)
 
 return {
 	color_scheme = "Catppuccin Mocha",
-	font = wezterm.font("Monocraft Nerd Font"),
+	font = wezterm.font("scientifica"),
+	font_size = 13.5,
 	window_decorations = "RESIZE",
 }
