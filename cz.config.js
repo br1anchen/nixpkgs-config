@@ -12,6 +12,7 @@ const defaultScopes = [
   "config/i3-endeavouros",
   "config/kitty",
   "config/lazygit",
+  "config/lazyvim",
   "config/neovim",
   "config/networkmanager-dmenu",
   "config/polybar",
