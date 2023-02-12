@@ -134,7 +134,6 @@ let
     lg = "lazygit";
     md = "mdcat";
     start-docker = "docker-machine start default";
-    vim = "nvim";
     vimdiff = "nvim -d";
     vf = "nvim";
     vd = "nvim .";
@@ -281,7 +280,7 @@ in {
         . ~/.env
       fi
 
-      if command -v pacman > /dev/null; then
+      if [ -e /opt/asdf-vm/asdf.sh ]; then
         . /opt/asdf-vm/asdf.sh
       else
         . $HOME/.asdf/asdf.sh
@@ -340,6 +339,12 @@ in {
 
       # Maestro
       export PATH=$PATH:$HOME/.maestro/bin
+
+      # distrobox
+      if [ -e $HOME/.distrobox ]; then
+        export PATH=$HOME/.distrobox/bin:$PATH
+        export PATH=$HOME/.distrobox/podman/bin:$PATH
+      fi
     '';
 
     # Called whenever zsh is initialized
