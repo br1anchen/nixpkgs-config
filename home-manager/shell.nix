@@ -188,6 +188,7 @@ in {
   programs.nushell = { enable = true; };
 
   home.file.".tool-versions".source = ../config/asdf/tool-versions;
+  home.file.".czrc".source = ../config/czrc;
 
   xdg.configFile."starship.toml".source = ../config/starship.toml;
 

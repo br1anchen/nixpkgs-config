@@ -22,6 +22,7 @@ const defaultScopes = [
   "config/wezterm",
   "config/yabai",
   "config/starship",
+  "config/czrc",
   "home-manager/alacritty",
   "home-manager/arch_i3",
   "home-manager/git",
