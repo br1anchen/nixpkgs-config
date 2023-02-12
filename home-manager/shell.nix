@@ -351,8 +351,8 @@ in {
       export GOPATH="$HOME/go"
       export PATH="$GO_PATH/bin:$PATH"
 
-      #Python
-      export PATH=$(asdf where python)/bin:$PATH
+      # Python
+      # export PATH=$(asdf where python)/bin:$PATH
 
       # Neovim
       if command -v pacman > /dev/null; then
