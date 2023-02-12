@@ -8,7 +8,7 @@
 
     # Feel free to split up your configuration and import pieces of it here.
     ./git.nix
-    ./neovim.nix
+    ./lazyvim.nix
     ./shell.nix
     ./tmux.nix
     ./gitui.nix
