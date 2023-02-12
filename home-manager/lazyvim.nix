@@ -9,6 +9,7 @@
     nixfmt
     statix
     code-minimap
+    tree-sitter
   ];
 
   xdg.configFile.nvim = {
