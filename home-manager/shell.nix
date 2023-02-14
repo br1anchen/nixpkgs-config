@@ -102,6 +102,13 @@ let
     | xargs -I{} git worktree add {} {}
   '';
 
+  ghClone = pkgs.writeScriptBin "ghClone" ''
+    gh repo list \
+    | fzf --ansi \
+    | awk '{print $1}' \
+    | xargs -I{} gh repo clone {}
+  '';
+
   scripts = [
     depends
     git-hash
@@ -116,6 +123,7 @@ let
     gwtCheckoutBranch
     gwtDeleteBranch
     gwtCheckoutPR
+    ghClone
   ];
 
   # Set all shell aliases programatically
@@ -346,6 +354,7 @@ in {
       if [ -e $HOME/.distrobox ]; then
         export PATH=$HOME/.distrobox/bin:$PATH
         export PATH=$HOME/.distrobox/podman/bin:$PATH
+        xhost +si:localuser:$USER
       fi
     '';
 
