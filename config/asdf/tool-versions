@@ -1,7 +1,7 @@
 dart 2.19.1
 flutter 3.7.1-stable
 golang 1.18.1
-gradle 7.3.3
+gradle 7.5
 java openjdk-18
 nodejs 19.6.0
 python 3.10.7
