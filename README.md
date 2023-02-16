@@ -41,3 +41,9 @@ git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.11.1
 ```bash
 sudo bash ./fix_macos_updated.sh
 ```
+
+### Git commit
+
+```bash
+npm install -g cz-git commitizen
+```
