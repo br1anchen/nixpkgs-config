@@ -51,9 +51,13 @@ let
   '';
 
   gwtBranch = pkgs.writeScriptBin "gwtBranch" ''
-    git worktree list \
-    | fzf --ansi \
-    | awk '{print $1}'
+    branch=$(git worktree list | fzf --ansi | awk '{print $1}')
+
+    if [[ -z "$branch" ]]; then
+      echo $(pwd)
+    else
+      echo $branch
+    fi
   '';
 
   checkBareRoot = ''
@@ -82,15 +86,26 @@ let
     remote=$(git remote -v | grep 'fetch' | awk '{print $1}')
     branch=$(git branch -r | fzf --ansi | awk '{print $1}' | sed "s/$remote\/\(.*\)/\1/")
 
-    git worktree add --track -b $branch $branch $remote/$branch
+    if [[ -z "$branch" ]]; then
+      echo "Missing branch"
+      exit 1
+    else
+      git worktree add --track -b $branch $branch $remote/$branch
+    fi
   '';
 
   gwtDeleteBranch = pkgs.writeScriptBin "gwtDeleteBranch" ''
     ${checkBareRoot}
 
     branch=$(git worktree list | fzf --ansi | awk '{print $3}' | sed 's/.*\[\([^]]*\)].*/\1/')
-    git worktree remove --force ./$branch
-    git branch -D $branch
+
+    if [[ -z "$branch" ]]; then
+      echo "Missing branch"
+      exit 1
+    else
+      git worktree remove --force ./$branch
+      git branch -D $branch
+    fi
   '';
 
   gwtCheckoutPR = pkgs.writeScriptBin "gwtCheckoutPR" ''
