@@ -83,6 +83,8 @@ let
   gwtCheckoutBranch = pkgs.writeScriptBin "gwtCheckoutBranch" ''
     ${checkBareRoot}
 
+    git fetch
+
     remote=$(git remote -v | grep 'fetch' | awk '{print $1}')
     branch=$(git branch -r | fzf --ansi | awk '{print $1}' | sed "s/$remote\/\(.*\)/\1/")
 
@@ -110,6 +112,8 @@ let
 
   gwtCheckoutPR = pkgs.writeScriptBin "gwtCheckoutPR" ''
     ${checkBareRoot}
+
+    git fetch
 
     gh pr list \
     | fzf --ansi --preview 'GH_FORCE_TTY=100% gh pr view {1}' --preview-window down \
