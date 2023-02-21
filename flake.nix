@@ -70,6 +70,17 @@
             inherit inputs;
           }; # Pass flake inputs to our config
           modules = (builtins.attrValues homeManagerModules) ++ [
+            {
+              home = {
+                username = "br1anchen";
+                homeDirectory = "/home/br1anchen";
+                stateVersion = "22.05";
+                sessionVariables = {
+                  EDITOR = "nvim";
+                  TERMINAL = "kitty";
+                };
+              };
+            }
             # > Our main home-manager configuration file <
             ./home-manager/home.nix
           ];
@@ -81,6 +92,17 @@
               inherit inputs;
             }; # Pass flake inputs to our config
             modules = (builtins.attrValues homeManagerModules) ++ [
+              {
+                home = {
+                  username = "br1anchen";
+                  homeDirectory = "/Users/br1anchen";
+                  stateVersion = "22.05";
+                  sessionVariables = {
+                    EDITOR = "nvim";
+                    TERMINAL = "kitty";
+                  };
+                };
+              }
               # > Our main home-manager configuration file <
               ./home-manager/home.nix
             ];
@@ -91,6 +113,17 @@
             inherit inputs;
           }; # Pass flake inputs to our config
           modules = (builtins.attrValues homeManagerModules) ++ [
+            {
+              home = {
+                username = "deck";
+                homeDirectory = "/home/deck";
+                stateVersion = "22.05";
+                sessionVariables = {
+                  EDITOR = "nvim";
+                  TERMINAL = "wezterm";
+                };
+              };
+            }
             # > Our main home-manager configuration file <
             ./home-manager/home.nix
           ];

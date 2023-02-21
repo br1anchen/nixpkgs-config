@@ -31,18 +31,6 @@
     settings = { experimental-features = [ "nix-command" "flakes" ]; };
   };
 
-  home = {
-    username = "deck";
-    homeDirectory =
-      if pkgs.stdenv.isDarwin then "/Users/br1anchen" else "/home/deck";
-    # https://nixos.wiki/wiki/FAQ/When_do_I_update_stateVersion
-    stateVersion = "22.05";
-    sessionVariables = {
-      EDITOR = "nvim";
-      TERMINAL = "kitty";
-    };
-  };
-
   # Add stuff for your user as you see fit:
   # programs.neovim.enable = true;
   # home.packages = with pkgs; [ steam ];
