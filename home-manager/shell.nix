@@ -373,7 +373,6 @@ in {
       if [ -e $HOME/.distrobox ]; then
         export PATH=$HOME/.distrobox/bin:$PATH
         export PATH=$HOME/.distrobox/podman/bin:$PATH
-        xhost +si:localuser:$USER
       fi
     '';
 
@@ -389,6 +388,11 @@ in {
       eval "$(mcfly init zsh)"
 
       eval "$(minikube docker-env)"
+
+      # distrobox
+      if [ -e $HOME/.distrobox ]; then
+        xhost +si:localuser:$USER
+      fi
     '';
   };
 }
