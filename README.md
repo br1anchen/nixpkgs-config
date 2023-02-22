@@ -36,6 +36,12 @@ ln -s ~/nixpkgs-config nixpkgs
 git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.11.1
 ```
 
+### Install Neovim
+
+```bash
+cargo install bob-nvim
+```
+
 ### Patch after macOS updates
 
 ```bash

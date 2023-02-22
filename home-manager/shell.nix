@@ -354,11 +354,6 @@ in {
       # Python
       # export PATH=$(asdf where python)/bin:$PATH
 
-      # Neovim
-      if command -v pacman > /dev/null; then
-        export PATH=~/.local/share/neovim/bin:$PATH
-      fi
-
       # Swift/Mint
       export PATH=~/.mint/bin:$PATH
 
