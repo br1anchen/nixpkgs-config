@@ -59,7 +59,7 @@ tmux_conf_24b_colour=auto
 # --> Catppuccin (Mocha)
 thm_bg="#1E1E2E"
 thm_fg="#cdd6f4"
-thm_cyan="#89dceb"
+thm_cyan="#94e2d5"
 thm_black="#181825"
 thm_gray="#45475a"
 thm_magenta="#cba6f7"
