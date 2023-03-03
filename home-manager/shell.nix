@@ -91,6 +91,8 @@ let
     if [[ -z "$branch" ]]; then
       echo "Missing branch"
       exit 1
+    elif git show-ref -q --heads "$branch"; then
+      git worktree add $branch $branch
     else
       git worktree add --track -b $branch $branch $remote/$branch
     fi
