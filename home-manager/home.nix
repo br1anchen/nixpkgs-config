@@ -78,6 +78,8 @@
       xclip
       xh
       zoxide
+      _1password
+      _1password-gui
       (nerdfonts.override { fonts = [ "FiraCode" "JetBrainsMono" ]; })
     ] ++ lib.optionals pkgs.stdenv.isLinux [
       starship # Fancy shell that works with zsh
