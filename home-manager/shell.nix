@@ -361,6 +361,10 @@ in {
 
       export PATH=$HOME/.local/share/nvim/mason/bin/:$PATH
 
+      # PNPM
+      export PNPM_HOME=$HOME/.local/share/pnpm
+      export PATH=$PNPM_HOME:$PATH
+
       # Maestro
       export PATH=$PATH:$HOME/.maestro/bin
 
