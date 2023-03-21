@@ -26,8 +26,12 @@ nix-shell '<home-manager>' -A install
 cd ~
 git clone --recurse-submodules -j8 git@github.com:br1anchen/nixpkgs-config.git
 cd ~/.config
-rm -rf nixpkgs
-ln -s ~/nixpkgs-config nixpkgs
+
+rm -rf home-manager
+ln -s ~/nixpkgs-config home-manager
+
+cd ~/.config/nixpkgs
+ln -s ~/nixpkgs-config/config.nix config.nix
 ```
 
 ### Install asdf
