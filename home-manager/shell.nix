@@ -130,6 +130,10 @@ let
     | xargs -I{} gh repo clone {}
   '';
 
+  killAllNvim = pkgs.writeScriptBin "killAllNvim" ''
+    ps -ef | grep "neovim" | grep -v grep | awk '{print $2}' | xargs kill -9
+  '';
+
   scripts = [
     depends
     git-hash
@@ -145,6 +149,7 @@ let
     gwtDeleteBranch
     gwtCheckoutPR
     ghClone
+    killAllNvim
   ];
 
   # Set all shell aliases programatically
