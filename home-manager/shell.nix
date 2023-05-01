@@ -359,7 +359,7 @@ in {
       export PATH="$GO_PATH/bin:$PATH"
 
       # Python
-      # export PATH=$(asdf where python)/bin:$PATH
+      export PATH=$(asdf where python)/bin:$PATH
 
       # Swift/Mint
       export PATH=~/.mint/bin:$PATH
