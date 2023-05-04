@@ -50,6 +50,7 @@
       colima
       docker # World's #1 container tool
       docker-compose
+      entr
       exa # ls replacement written in Rust
       fd # find replacement written in Rust
       fswatch
@@ -69,6 +70,7 @@
       nerd-font-patcher
       nix-prefetch-github
       ncdu
+      pandoc
       procs
       protobuf
       ripgrep # grep replacement written in Rust
