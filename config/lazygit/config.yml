@@ -206,9 +206,8 @@ keybinding:
     update: u
     bulkMenu: b
 os:
-  editCommandTemplate: "{{editor}} {{filename}}"
-  openCommand: open {{filename}}
-  openLinkCommand: open {{link}}
+  open: open {{filename}}
+  openLink: open {{link}}
 disableStartupPopups: false
 customCommands:
   - key: "C"
