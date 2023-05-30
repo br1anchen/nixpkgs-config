@@ -250,12 +250,22 @@ in {
 
     plugins = [
       {
+        name = "zsh-syntax-highlighting";
+        src = pkgs.fetchFromGitHub {
+          owner = "zsh-users";
+          repo = "zsh-syntax-highlighting";
+          rev = "0.7.1";
+          sha256 = "gOG0NLlaJfotJfs+SUhGgLTNOnGLjoqnUp54V9aFJg8=";
+          fetchSubmodules = true;
+        };
+      }
+      {
         name = "zsh-completions";
         src = pkgs.fetchFromGitHub {
           owner = "zsh-users";
           repo = "zsh-completions";
-          rev = "b3876c59827c0f3365ece26dbe7c0b0b886b63bb";
-          sha256 = "nfbOkHyH9wxcMF8V6zuDSFCyI8rqONEYrURogG3U9UA=";
+          rev = "0.34.0";
+          sha256 = "qSobM4PRXjfsvoXY6ENqJGI9NEAaFFzlij6MPeTfT0o=";
           fetchSubmodules = true;
         };
       }
@@ -264,18 +274,8 @@ in {
         src = pkgs.fetchFromGitHub {
           owner = "zsh-users";
           repo = "zsh-autosuggestions";
-          rev = "a411ef3e0992d4839f0732ebeb9823024afaaaa8";
+          rev = "v0.7.0";
           sha256 = "KLUYpUu4DHRumQZ3w59m9aTW6TBKMCXl2UcKi4uMd7w=";
-          fetchSubmodules = true;
-        };
-      }
-      {
-        name = "zsh-syntax-highlighting";
-        src = pkgs.fetchFromGitHub {
-          owner = "zsh-users";
-          repo = "zsh-syntax-highlighting";
-          rev = "c7caf57ca805abd54f11f756fda6395dd4187f8a";
-          sha256 = "YbNwQ960OTVuX+MBy5nFzFUlF0+HTSyoYtEg+/adSos=";
           fetchSubmodules = true;
         };
       }
@@ -366,6 +366,7 @@ in {
 
       export PATH=$HOME/.local/bin:$PATH
 
+      # mason.nvim installs
       export PATH=$HOME/.local/share/nvim/mason/bin/:$PATH
 
       # PNPM
@@ -384,6 +385,8 @@ in {
 
     # Called whenever zsh is initialized
     initExtra = ''
+      source ${pkgs.zsh-vi-mode}/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
+
       bindkey -e
 
       # Start up Starship shell
