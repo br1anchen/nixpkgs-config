@@ -183,8 +183,11 @@ let
     # Reload tmux
     stmux = "tmux source-file ~/.tmux.conf";
 
+    # Reload asdf-vm
+    iasdf = "asdf install";
+
     # Reload home manager and zsh
-    reload = "hms && szenv && szsh && stmux";
+    reload = "hms && szenv && szsh && stmux && iasdf";
 
     # Nix garbage collection
     garbage = "nix-collect-garbage -d && docker image prune --force";
