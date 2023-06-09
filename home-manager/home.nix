@@ -48,6 +48,7 @@
       cheat
       curl # An old classic
       colima
+      cocogitto
       docker # World's #1 container tool
       docker-compose
       entr
