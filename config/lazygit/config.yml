@@ -115,8 +115,8 @@ keybinding:
     scrollDownMain: <pgdown>
     scrollUpMain-alt1: K
     scrollDownMain-alt1: J
-    scrollUpMain-alt2: <c-u>
-    scrollDownMain-alt2: <c-d>
+    scrollUpMain-alt2: <c-U>
+    scrollDownMain-alt2: <c-D>
     executeCustomCommand: ":"
     createRebaseOptionsMenu: m
     pushFiles: P
@@ -179,8 +179,8 @@ keybinding:
     markCommitAsFixup: f
     createFixupCommit: F
     squashAboveCommits: S
-    moveDownCommit: <c-j>
-    moveUpCommit: <c-k>
+    moveDownCommit: <c-d>
+    moveUpCommit: <c-u>
     amendToCommit: A
     pickCommit: p
     revertCommit: t
