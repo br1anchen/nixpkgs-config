@@ -175,6 +175,7 @@ let
     gwt = "git worktree";
     gwtt = "cd $(gwtBranch)";
     gwtb = "cd $(gwtBare)";
+    vgwt = "nvim $(gwtBranch)";
 
     # Reload zsh
     szsh = "source ~/.zshrc";
