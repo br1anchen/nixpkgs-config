@@ -85,28 +85,27 @@
             ./home-manager/home.nix
           ];
         };
-        "br1anchen@Brians-m1.local" =
-          home-manager.lib.homeManagerConfiguration {
-            pkgs = legacyPackages.aarch64-darwin;
-            extraSpecialArgs = {
-              inherit inputs;
-            }; # Pass flake inputs to our config
-            modules = (builtins.attrValues homeManagerModules) ++ [
-              {
-                home = {
-                  username = "br1anchen";
-                  homeDirectory = "/Users/br1anchen";
-                  stateVersion = "22.05";
-                  sessionVariables = {
-                    EDITOR = "nvim";
-                    TERMINAL = "kitty";
-                  };
+        "br1anchen@brians-m1.lan" = home-manager.lib.homeManagerConfiguration {
+          pkgs = legacyPackages.aarch64-darwin;
+          extraSpecialArgs = {
+            inherit inputs;
+          }; # Pass flake inputs to our config
+          modules = (builtins.attrValues homeManagerModules) ++ [
+            {
+              home = {
+                username = "br1anchen";
+                homeDirectory = "/Users/br1anchen";
+                stateVersion = "22.05";
+                sessionVariables = {
+                  EDITOR = "nvim";
+                  TERMINAL = "kitty";
                 };
-              }
-              # > Our main home-manager configuration file <
-              ./home-manager/home.nix
-            ];
-          };
+              };
+            }
+            # > Our main home-manager configuration file <
+            ./home-manager/home.nix
+          ];
+        };
         "deck" = home-manager.lib.homeManagerConfiguration {
           pkgs = legacyPackages.x86_64-linux;
           extraSpecialArgs = {
