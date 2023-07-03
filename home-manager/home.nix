@@ -69,6 +69,7 @@
       mkcert
       minikube
       nerd-font-patcher
+      neofetch
       nix-prefetch-github
       ncdu
       pandoc
