@@ -159,8 +159,7 @@ let
     dk = "docker";
     find = "fd";
     grep = "grep --color=auto";
-    hms =
-      "home-manager switch --extra-experimental-features 'flakes nix-command' --impure";
+    hms = "home-manager switch --impure";
     l = "exa";
     ll = "ls -lh";
     ls = "exa";
