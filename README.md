@@ -8,16 +8,10 @@
 sh <(curl -L https://nixos.org/nix/install)
 ```
 
-### Install Home Manager
+### Install Home Manager [ref](https://nix-community.github.io/home-manager/index.html#ch-nix-flakes)
 
 ```bash
-nix-channel --add https://github.com/nix-community/home-manager/archive/master.tar.gz home-manager
-
-nix-channel --update
-
-export NIX_PATH=$HOME/.nix-defexpr/channels:/nix/var/nix/profiles/per-user/root/channels${NIX_PATH:+:$NIX_PATH}
-
-nix-shell '<home-manager>' -A install
+nix run home-manager/master -- init --switch
 ```
 
 ### Install configuration
@@ -43,7 +37,11 @@ git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.11.1
 ### Install Neovim
 
 ```bash
+mkdir ~/.local/share/bob
+rustup default stable
 cargo install bob-nvim
+bob install latest
+bob use latest
 ```
 
 ### Patch after macOS updates
