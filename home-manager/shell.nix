@@ -333,6 +333,9 @@ in {
       CARGO_PATH="$HOME/.cargo/bin"
       export PATH="$CARGO_PATH:$PATH"
 
+      # Bob
+      export PATH="$HOME/.local/share/bob/nvim-bin:$PATH"
+
       # Flutter/Android
       if command -v brew > /dev/null; then
         export ANDROID_HOME="$HOME/Library/Android/Sdk"
