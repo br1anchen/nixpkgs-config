@@ -359,6 +359,9 @@ in {
 
       # Dart
       export PATH="$PATH":"$HOME/.pub-cache/bin"
+      # Chinese dart mirrors
+      export PUB_HOSTED_URL=https://pub.flutter-io.cn
+      export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
 
       # GO
       export GOPATH="$HOME/go"
