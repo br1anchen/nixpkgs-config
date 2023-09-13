@@ -43,11 +43,9 @@ gui:
   showListFooter: true # for seeing the '5 of 20' message in list panels
   showRandomTip: true
   showBranchCommitHash: false # show commit hashes alongside branch names
-  experimentalShowBranchHeads: false # visualize branch heads with (*) in commits list
   showBottomLine: true # for hiding the bottom information line (unless it has important information to tell you)
   showCommandLog: true
-  showIcons: false # deprecated: use nerdFontsVersion instead
-  nerdFontsVersion: "" # nerd fonts version to use ("2" or "3"); empty means don't show nerd font icons
+  nerdFontsVersion: "3" # nerd fonts version to use ("2" or "3"); empty means don't show nerd font icons
   commandLogSize: 8
   splitDiff: "auto" # one of 'auto' | 'always'
   skipRewordInEditorWarning: false # for skipping the confirmation before launching the reword editor
@@ -130,7 +128,7 @@ keybinding:
     jumpToBlock: ["1", "2", "3", "4", "5"] # goto the Nth block / panel
     nextMatch: "n"
     prevMatch: "N"
-    optionMenu: "x" # show help menu
+    optionMenu: null # show help menu
     optionMenu-alt1: "?" # show help menu
     select: "<space>"
     goInto: "<enter>"
@@ -235,10 +233,10 @@ keybinding:
     init: "i"
     update: "u"
     bulkMenu: "b"
-  customCommands:
-    - key: "C"
-      command: "git cz"
-      description: "commit with commitizen"
-      context: "files"
-      loadingText: "opening commitizen commit tool"
-      subprocess: true
+customCommands:
+  - key: "C"
+    command: "git cz"
+    description: "commit with commitizen"
+    context: "files"
+    loadingText: "opening commitizen commit tool"
+    subprocess: true
