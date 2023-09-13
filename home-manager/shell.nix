@@ -160,9 +160,9 @@ let
     find = "fd";
     grep = "grep --color=auto";
     hms = "home-manager switch --impure";
-    l = "exa";
+    l = "eza";
     ll = "ls -lh";
-    ls = "exa";
+    ls = "eza";
     la = "ls -lha";
     lg = "lazygit";
     md = "mdcat";
@@ -360,8 +360,8 @@ in {
       # Dart
       export PATH="$PATH":"$HOME/.pub-cache/bin"
       # Chinese dart mirrors
-      export PUB_HOSTED_URL=https://pub.flutter-io.cn
-      export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn
+      # export PUB_HOSTED_URL=https://mirrors.tuna.tsinghua.edu.cn/dart-pub
+      # export FLUTTER_STORAGE_BASE_URL=https://mirrors.tuna.tsinghua.edu.cn/flutter
 
       # GO
       export GOPATH="$HOME/go"

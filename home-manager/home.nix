@@ -52,7 +52,7 @@
       docker # World's #1 container tool
       docker-compose
       entr
-      exa # ls replacement written in Rust
+      eza # ls replacement written in Rust
       fd # find replacement written in Rust
       fswatch
       gitui
