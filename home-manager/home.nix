@@ -44,6 +44,7 @@
 
   home.packages = with pkgs;
     [
+      bash
       cachix # Nix build cache
       cheat
       curl # An old classic

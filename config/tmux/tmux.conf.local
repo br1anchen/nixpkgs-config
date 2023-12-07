@@ -411,6 +411,16 @@ bind-key -T copy-mode-vi 'C-k' select-pane -U
 bind-key -T copy-mode-vi 'C-l' select-pane -R
 bind-key -T copy-mode-vi 'C-\' select-pane -l
 
+bind-key x kill-pane # skip "kill-pane 1? (y/n)" prompt
+set -g detach-on-destroy off  # don't exit from tmux when closing a session
+set -g @t-fzf-prompt '  '
+
+bind f display-popup -E "\
+  tmux list-panes -s -F '#{session_name}:#{window_index}.#{pane_index} #{pane_current_path} #{pane_current_command}' |\
+  sed '/^$/d' |\
+  fzf --reverse --header jump-to-pane |\
+  cut -d ' ' -f 1 |\
+  xargs tmux a -t"
 
 # -- tpm -----------------------------------------------------------------------
 
@@ -452,6 +462,7 @@ set -g @plugin 'tmux-plugins/tmux-cpu'
 set -g @plugin 'tmux-plugins/tmux-resurrect'
 set -g @plugin 'tmux-plugins/tmux-continuum'
 set -g @continuum-restore 'on'
+set -g @plugin 'joshmedeski/t-smart-tmux-session-manager'
 
 
 # -- custom variables ----------------------------------------------------------

@@ -390,6 +390,9 @@ in {
         export PATH=$HOME/.distrobox/bin:$PATH
         export PATH=$HOME/.distrobox/podman/bin:$PATH
       fi
+
+      # tmux-plugin-manager
+      export PATH=$HOME/.tmux/plugins/t-smart-tmux-session-manager/bin:$PATH
     '';
 
     # Called whenever zsh is initialized
