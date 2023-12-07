@@ -1,4 +1,4 @@
-flutter 3.13.0-stable
+flutter 3.16.2-stable
 golang 1.18.1
 gradle 7.5
 java openjdk-18
@@ -7,4 +7,4 @@ python 3.10.7
 ruby 2.7.2
 yarn 1.22.18
 pnpm 8.6.7
-bun 1.0.1
+bun 1.0.15
