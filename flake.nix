@@ -85,7 +85,7 @@
             ./home-manager/home.nix
           ];
         };
-        "br1anchen@brians-m1.lan" = home-manager.lib.homeManagerConfiguration {
+        "br1anchen" = home-manager.lib.homeManagerConfiguration {
           pkgs = legacyPackages.aarch64-darwin;
           extraSpecialArgs = {
             inherit inputs;

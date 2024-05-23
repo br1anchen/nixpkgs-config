@@ -30,7 +30,7 @@ let
   '';
 
   nixFlakes = pkgs.writeScriptBin "nixFlakes" ''
-    exec ${pkgs.nixUnstable}/bin/nix --experimental-features "nix-command flakes" "$@"
+    exec ${pkgs.nixVersions.latest}/bin/nix --experimental-features "nix-command flakes" "$@"
   '';
 
   gwtInit = pkgs.writeScriptBin "gwtInit" ''
@@ -233,7 +233,7 @@ in {
   programs.zsh = {
     inherit shellAliases;
     enable = true;
-    enableAutosuggestions = true;
+    autosuggestion = { enable = true; };
     enableCompletion = true;
     history.extended = true;
 

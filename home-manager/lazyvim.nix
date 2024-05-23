@@ -6,7 +6,7 @@
 
   home.packages = with pkgs; [
     luajitPackages.luarocks
-    nixfmt
+    nixfmt-rfc-style
     statix
     code-minimap
     tree-sitter
