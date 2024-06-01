@@ -1,7 +1,14 @@
 # This is your home-manager configuration file
 # Use this to configure your home environment (it replaces ~/.config/nixpkgs/home.nix)
 
-{ inputs, lib, config, pkgs, ... }: {
+{
+  inputs,
+  lib,
+  config,
+  pkgs,
+  ...
+}:
+{
   imports = [
     # If you want to use home-manager modules from other flakes (such as nix-colors), use something like:
     # inputs.nix-colors.homeManagerModule
@@ -28,7 +35,12 @@
   # nix settings...use only for single user installs
   nix = {
     package = pkgs.nixFlakes;
-    settings = { experimental-features = [ "nix-command" "flakes" ]; };
+    settings = {
+      experimental-features = [
+        "nix-command"
+        "flakes"
+      ];
+    };
   };
 
   # Add stuff for your user as you see fit:
@@ -42,7 +54,8 @@
   # Nicely reload system units when changing configs
   systemd.user.startServices = "sd-switch";
 
-  home.packages = with pkgs;
+  home.packages =
+    with pkgs;
     [
       bash
       cachix # Nix build cache
@@ -83,10 +96,17 @@
       xclip
       xh
       zoxide
+      zed-editor
       _1password
       _1password-gui
-      (nerdfonts.override { fonts = [ "FiraCode" "JetBrainsMono" ]; })
-    ] ++ lib.optionals pkgs.stdenv.isLinux [
+      (nerdfonts.override {
+        fonts = [
+          "FiraCode"
+          "JetBrainsMono"
+        ];
+      })
+    ]
+    ++ lib.optionals pkgs.stdenv.isLinux [
       starship # Fancy shell that works with zsh
     ];
 }
