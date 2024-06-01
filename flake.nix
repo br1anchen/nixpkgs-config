@@ -64,7 +64,7 @@
       };
 
       homeConfigurations = {
-        "br1anchen@brian-blade" = home-manager.lib.homeManagerConfiguration {
+        "brian" = home-manager.lib.homeManagerConfiguration {
           pkgs = legacyPackages.x86_64-linux;
           extraSpecialArgs = {
             inherit inputs;
@@ -72,8 +72,8 @@
           modules = (builtins.attrValues homeManagerModules) ++ [
             {
               home = {
-                username = "br1anchen";
-                homeDirectory = "/home/br1anchen";
+                username = "brian";
+                homeDirectory = "/home/brian";
                 stateVersion = "22.05";
                 sessionVariables = {
                   EDITOR = "nvim";
