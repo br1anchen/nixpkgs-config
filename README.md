@@ -31,7 +31,8 @@ ln -s ~/nixpkgs-config/config.nix config.nix
 ### Install asdf
 
 ```bash
-git clone https://github.com/asdf-vm/asdf.git ~/.asdf --branch v0.11.1
+bash ./config/asdf/setup.sh
+```
 ```
 
 ### Install Neovim
