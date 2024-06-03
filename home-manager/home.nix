@@ -96,7 +96,6 @@
       xclip
       xh
       zoxide
-      zed-editor
       _1password
       _1password-gui
       (nerdfonts.override {
@@ -107,6 +106,7 @@
       })
     ]
     ++ lib.optionals pkgs.stdenv.isLinux [
+      zed-editor
       starship # Fancy shell that works with zsh
     ];
 }
