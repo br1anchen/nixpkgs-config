@@ -24,6 +24,7 @@
     ./kitty.nix
     ./arch_i3.nix
     ./wezterm.nix
+    ./zed.nix
   ];
 
   fonts.fontconfig.enable = true;
@@ -106,7 +107,6 @@
       })
     ]
     ++ lib.optionals pkgs.stdenv.isLinux [
-      zed-editor
       starship # Fancy shell that works with zsh
     ];
 }
