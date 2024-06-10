@@ -1,9 +1,20 @@
 # Git settings
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 let
-  gitTools = with pkgs.gitAndTools; [ diff-so-fancy git-codeowners gitflow gh ];
-in {
+  gitTools = with pkgs.gitAndTools; [
+    diff-so-fancy
+    git-codeowners
+    gitflow
+    gh
+  ];
+in
+{
 
   home.packages = with pkgs; gitTools;
 
@@ -12,11 +23,22 @@ in {
     userName = "Brian Chen";
     userEmail = "brianchen8990@gmail.com";
     extraConfig = {
-      core = { editor = "nvim"; };
-      color = { ui = true; };
-      init = { defaultBranch = "main"; };
-      pull = { rebase = true; };
-      submodule = { recurse = true; };
+      core = {
+        editor = "nvim";
+        ignorecase = false;
+      };
+      color = {
+        ui = true;
+      };
+      init = {
+        defaultBranch = "main";
+      };
+      pull = {
+        rebase = true;
+      };
+      submodule = {
+        recurse = true;
+      };
     };
 
     delta = {
