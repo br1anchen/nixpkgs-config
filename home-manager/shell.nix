@@ -1,6 +1,11 @@
 # Shell configuration for zsh
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 let
 
@@ -78,6 +83,7 @@ let
 
     git worktree add -b $branch $branch $baseBranch
     git push -u origin $branch
+    cd $branch
   '';
 
   gwtCheckoutBranch = pkgs.writeScriptBin "gwtCheckoutBranch" ''
@@ -195,8 +201,8 @@ let
     # See which Nix packages are installed
     installed = "nix-env --query --installed";
   };
-
-in {
+in
+{
   # Fancy filesystem navigator
   programs.broot = {
     enable = true;
@@ -218,11 +224,15 @@ in {
     defaultCommand = "${pkgs.ripgrep}/bin/rg --files";
   };
 
-  programs.skim = { enable = true; };
+  programs.skim = {
+    enable = true;
+  };
 
   home.packages = with pkgs; scripts;
 
-  programs.nushell = { enable = true; };
+  programs.nushell = {
+    enable = true;
+  };
 
   home.file.".tool-versions".source = ../config/asdf/tool-versions;
   home.file.".czrc".source = ../config/czrc;
@@ -233,7 +243,9 @@ in {
   programs.zsh = {
     inherit shellAliases;
     enable = true;
-    autosuggestion = { enable = true; };
+    autosuggestion = {
+      enable = true;
+    };
     enableCompletion = true;
     history.extended = true;
 
@@ -301,8 +313,7 @@ in {
       EDITOR = "nvim";
       VISUAL = "nvim";
       NVIM_TUI_ENABLE_TRUE_COLOR = 1;
-      TERM =
-        if pkgs.stdenv.isDarwin then "screen-256color" else "tmux-256color";
+      TERM = if pkgs.stdenv.isDarwin then "screen-256color" else "tmux-256color";
       LANG = "en_US.UTF-8";
       LC_ALL = "en_US.UTF-8";
     };
