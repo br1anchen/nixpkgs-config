@@ -79,6 +79,7 @@
       # httpie # Like curl but more user friendly
       jq # JSON parsing for the CLI
       kubectl
+      kdoctor
       mcfly
       mdcat # Markdown converter/reader for the CLI
       mkcert
