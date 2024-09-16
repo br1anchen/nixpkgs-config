@@ -1,11 +1,6 @@
 # Shell configuration for zsh
 
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}:
+{ pkgs, ... }:
 
 let
 
@@ -203,232 +198,238 @@ let
   };
 in
 {
-  # Fancy filesystem navigator
-  programs.broot = {
-    enable = true;
-    enableZshIntegration = true;
-  };
+  programs = {
+    # Fancy filesystem navigator
+    broot = {
+      enable = true;
+      enableZshIntegration = true;
+    };
 
-  programs.bat = {
-    enable = true;
-    config = {
-      theme = "base16";
-      italic-text = "always";
+    bat = {
+      enable = true;
+      config = {
+        theme = "base16";
+        italic-text = "always";
+      };
+    };
+
+    fzf = {
+      enable = true;
+      enableBashIntegration = true;
+      enableZshIntegration = true;
+      defaultCommand = "${pkgs.ripgrep}/bin/rg --files";
+    };
+
+    skim = {
+      enable = true;
+    };
+
+    nushell = {
+      enable = true;
+    };
+
+    # zsh settings
+    zsh = {
+      inherit shellAliases;
+      enable = true;
+      autosuggestion = {
+        enable = true;
+      };
+      enableCompletion = true;
+      history.extended = true;
+
+      oh-my-zsh = {
+        enable = true;
+        plugins = [
+          "docker"
+          "docker-compose"
+          "dotenv"
+          "git"
+          "sudo"
+          "node"
+          "tmux"
+          "asdf"
+        ];
+      };
+
+      plugins = [
+        {
+          name = "zsh-syntax-highlighting";
+          src = pkgs.fetchFromGitHub {
+            owner = "zsh-users";
+            repo = "zsh-syntax-highlighting";
+            rev = "0.7.1";
+            sha256 = "gOG0NLlaJfotJfs+SUhGgLTNOnGLjoqnUp54V9aFJg8=";
+            fetchSubmodules = true;
+          };
+        }
+        {
+          name = "zsh-completions";
+          src = pkgs.fetchFromGitHub {
+            owner = "zsh-users";
+            repo = "zsh-completions";
+            rev = "0.34.0";
+            sha256 = "qSobM4PRXjfsvoXY6ENqJGI9NEAaFFzlij6MPeTfT0o=";
+            fetchSubmodules = true;
+          };
+        }
+        {
+          name = "zsh-autosuggestions";
+          src = pkgs.fetchFromGitHub {
+            owner = "zsh-users";
+            repo = "zsh-autosuggestions";
+            rev = "v0.7.0";
+            sha256 = "KLUYpUu4DHRumQZ3w59m9aTW6TBKMCXl2UcKi4uMd7w=";
+            fetchSubmodules = true;
+          };
+        }
+      ];
+
+      localVariables = {
+        # TMUX
+        # Automatically start tmux
+        ZSH_TMUX_AUTOSTART = true;
+
+        # Automatically connect to a previous session if it exists
+        ZSH_TMUX_AUTOCONNECT = true;
+
+        # Enable command auto-correction.
+        ENABLE_CORRECTION = "true";
+
+        # Display red dots whilst waiting for completion.
+        COMPLETION_WAITING_DOTS = "true";
+
+        EDITOR = "nvim";
+        VISUAL = "nvim";
+        NVIM_TUI_ENABLE_TRUE_COLOR = 1;
+        TERM = if pkgs.stdenv.isDarwin then "screen-256color" else "tmux-256color";
+        LANG = "en_US.UTF-8";
+        LC_ALL = "en_US.UTF-8";
+      };
+
+      envExtra = ''
+        # Nix setup (environment variables, etc.)
+        if [ -e ~/.nix-profile/etc/profile.d/nix.sh ]; then
+          . ~/.nix-profile/etc/profile.d/nix.sh
+        fi
+
+        # Load environment variables from a file; this approach allows me to not
+        # commit secrets like API keys to Git
+        if [ -e ~/.env ]; then
+          . ~/.env
+        fi
+
+        if [ -e /opt/asdf-vm/asdf.sh ]; then
+          . /opt/asdf-vm/asdf.sh
+        else
+          . $HOME/.asdf/asdf.sh
+        fi
+
+        if [ -e $HOME/.asdf/plugins/java/set-java-home.zsh ]; then
+          . $HOME/.asdf/plugins/java/set-java-home.zsh
+        fi
+
+        # Rust Cargo
+        CARGO_PATH="$HOME/.cargo/bin"
+        export PATH="$CARGO_PATH:$PATH"
+
+        # Bob
+        export PATH="$HOME/.local/share/bob/nvim-bin:$PATH"
+
+        # Flutter/Android
+        if command -v brew > /dev/null; then
+          export ANDROID_HOME="$HOME/Library/Android/Sdk"
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+          export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+
+        elif command -v pacman > /dev/null; then
+          export ANDROID_SDK="$HOME/Android/Sdk"
+          export ANDROID_NDK_HOME=$ANDROID_SDK/ndk
+          export PATH=$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH
+          export CHROME_EXECUTABLE=/usr/bin/chromium
+
+        elif command -v apt > /dev/null; then
+          # Export the Android SDK path
+          export ANDROID_HOME=~/Android/Sdk
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+          export CHROME_EXECUTABLE="/usr/bin/firefox"
+        else
+          echo 'Unknown OS to set Flutter/Android env!'
+        fi
+
+        # Dart
+        export PATH="$PATH":"$HOME/.pub-cache/bin"
+        # Chinese dart mirrors
+        # export PUB_HOSTED_URL=https://mirrors.tuna.tsinghua.edu.cn/dart-pub
+        # export FLUTTER_STORAGE_BASE_URL=https://mirrors.tuna.tsinghua.edu.cn/flutter
+
+        # GO
+        export GOPATH="$HOME/go"
+        export PATH="$GO_PATH/bin:$PATH"
+
+        # Python
+        export PATH=$(asdf where python)/bin:$PATH
+
+        # Swift/Mint
+        export PATH=~/.mint/bin:$PATH
+
+        export PATH=$HOME/.local/bin:$PATH
+
+        # mason.nvim installs
+        export PATH=$HOME/.local/share/nvim/mason/bin/:$PATH
+
+        # PNPM
+        export PNPM_HOME=$HOME/.local/share/pnpm
+        export PATH=$PNPM_HOME:$PATH
+
+        # Maestro
+        export PATH=$PATH:$HOME/.maestro/bin
+
+        # distrobox
+        if [ -e $HOME/.distrobox ]; then
+          export PATH=$HOME/.distrobox/bin:$PATH
+          export PATH=$HOME/.distrobox/podman/bin:$PATH
+        fi
+
+        # tmux-plugin-manager
+        export PATH=$HOME/.tmux/plugins/t-smart-tmux-session-manager/bin:$PATH
+
+        export OPEN_API_KEY=$(op read op://private/OpenAI_API/credential --no-newline)
+      '';
+
+      # Called whenever zsh is initialized
+      initExtra = ''
+        source ${pkgs.zsh-vi-mode}/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
+
+        bindkey -e
+
+        # Start up Starship shell
+        eval "$(starship init zsh)"
+
+        eval "$(zoxide init zsh)"
+
+        eval "$(mcfly init zsh)"
+
+        eval "$(minikube docker-env)"
+
+        if command -v op > /dev/null; then
+          eval "$(op signin)"
+        fi
+
+        # distrobox
+        if [ -e $HOME/.distrobox ]; then
+          xhost +si:localuser:$USER
+        fi
+      '';
     };
   };
 
-  programs.fzf = {
-    enable = true;
-    enableBashIntegration = true;
-    enableZshIntegration = true;
-    defaultCommand = "${pkgs.ripgrep}/bin/rg --files";
+  home = {
+    packages = scripts;
+
+    file.".tool-versions".source = ../config/asdf/tool-versions;
+    file.".czrc".source = ../config/czrc;
   };
-
-  programs.skim = {
-    enable = true;
-  };
-
-  home.packages = with pkgs; scripts;
-
-  programs.nushell = {
-    enable = true;
-  };
-
-  home.file.".tool-versions".source = ../config/asdf/tool-versions;
-  home.file.".czrc".source = ../config/czrc;
 
   xdg.configFile."starship.toml".source = ../config/starship.toml;
-
-  # zsh settings
-  programs.zsh = {
-    inherit shellAliases;
-    enable = true;
-    autosuggestion = {
-      enable = true;
-    };
-    enableCompletion = true;
-    history.extended = true;
-
-    oh-my-zsh = {
-      enable = true;
-      plugins = [
-        "docker"
-        "docker-compose"
-        "dotenv"
-        "git"
-        "sudo"
-        "node"
-        "tmux"
-        "asdf"
-      ];
-    };
-
-    plugins = [
-      {
-        name = "zsh-syntax-highlighting";
-        src = pkgs.fetchFromGitHub {
-          owner = "zsh-users";
-          repo = "zsh-syntax-highlighting";
-          rev = "0.7.1";
-          sha256 = "gOG0NLlaJfotJfs+SUhGgLTNOnGLjoqnUp54V9aFJg8=";
-          fetchSubmodules = true;
-        };
-      }
-      {
-        name = "zsh-completions";
-        src = pkgs.fetchFromGitHub {
-          owner = "zsh-users";
-          repo = "zsh-completions";
-          rev = "0.34.0";
-          sha256 = "qSobM4PRXjfsvoXY6ENqJGI9NEAaFFzlij6MPeTfT0o=";
-          fetchSubmodules = true;
-        };
-      }
-      {
-        name = "zsh-autosuggestions";
-        src = pkgs.fetchFromGitHub {
-          owner = "zsh-users";
-          repo = "zsh-autosuggestions";
-          rev = "v0.7.0";
-          sha256 = "KLUYpUu4DHRumQZ3w59m9aTW6TBKMCXl2UcKi4uMd7w=";
-          fetchSubmodules = true;
-        };
-      }
-    ];
-
-    localVariables = {
-      # TMUX
-      # Automatically start tmux
-      ZSH_TMUX_AUTOSTART = true;
-
-      # Automatically connect to a previous session if it exists
-      ZSH_TMUX_AUTOCONNECT = true;
-
-      # Enable command auto-correction.
-      ENABLE_CORRECTION = "true";
-
-      # Display red dots whilst waiting for completion.
-      COMPLETION_WAITING_DOTS = "true";
-
-      EDITOR = "nvim";
-      VISUAL = "nvim";
-      NVIM_TUI_ENABLE_TRUE_COLOR = 1;
-      TERM = if pkgs.stdenv.isDarwin then "screen-256color" else "tmux-256color";
-      LANG = "en_US.UTF-8";
-      LC_ALL = "en_US.UTF-8";
-    };
-
-    envExtra = ''
-      # Nix setup (environment variables, etc.)
-      if [ -e ~/.nix-profile/etc/profile.d/nix.sh ]; then
-        . ~/.nix-profile/etc/profile.d/nix.sh
-      fi
-
-      # Load environment variables from a file; this approach allows me to not
-      # commit secrets like API keys to Git
-      if [ -e ~/.env ]; then
-        . ~/.env
-      fi
-
-      if [ -e /opt/asdf-vm/asdf.sh ]; then
-        . /opt/asdf-vm/asdf.sh
-      else
-        . $HOME/.asdf/asdf.sh
-      fi
-
-      if [ -e $HOME/.asdf/plugins/java/set-java-home.zsh ]; then
-        . $HOME/.asdf/plugins/java/set-java-home.zsh
-      fi
-
-      # Rust Cargo
-      CARGO_PATH="$HOME/.cargo/bin"
-      export PATH="$CARGO_PATH:$PATH"
-
-      # Bob
-      export PATH="$HOME/.local/share/bob/nvim-bin:$PATH"
-
-      # Flutter/Android
-      if command -v brew > /dev/null; then
-        export ANDROID_HOME="$HOME/Library/Android/Sdk"
-        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
-        export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-
-      elif command -v pacman > /dev/null; then
-        export ANDROID_SDK="$HOME/Android/Sdk"
-        export ANDROID_NDK_HOME=$ANDROID_SDK/ndk
-        export PATH=$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH
-        export CHROME_EXECUTABLE=/usr/bin/chromium
-
-      elif command -v apt > /dev/null; then
-        # Export the Android SDK path
-        export ANDROID_HOME=~/Android/Sdk
-        export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
-        export CHROME_EXECUTABLE="/usr/bin/firefox"
-      else
-        echo 'Unknown OS to set Flutter/Android env!'
-      fi
-
-      # Dart
-      export PATH="$PATH":"$HOME/.pub-cache/bin"
-      # Chinese dart mirrors
-      # export PUB_HOSTED_URL=https://mirrors.tuna.tsinghua.edu.cn/dart-pub
-      # export FLUTTER_STORAGE_BASE_URL=https://mirrors.tuna.tsinghua.edu.cn/flutter
-
-      # GO
-      export GOPATH="$HOME/go"
-      export PATH="$GO_PATH/bin:$PATH"
-
-      # Python
-      export PATH=$(asdf where python)/bin:$PATH
-
-      # Swift/Mint
-      export PATH=~/.mint/bin:$PATH
-
-      export PATH=$HOME/.local/bin:$PATH
-
-      # mason.nvim installs
-      export PATH=$HOME/.local/share/nvim/mason/bin/:$PATH
-
-      # PNPM
-      export PNPM_HOME=$HOME/.local/share/pnpm
-      export PATH=$PNPM_HOME:$PATH
-
-      # Maestro
-      export PATH=$PATH:$HOME/.maestro/bin
-
-      # distrobox
-      if [ -e $HOME/.distrobox ]; then
-        export PATH=$HOME/.distrobox/bin:$PATH
-        export PATH=$HOME/.distrobox/podman/bin:$PATH
-      fi
-
-      # tmux-plugin-manager
-      export PATH=$HOME/.tmux/plugins/t-smart-tmux-session-manager/bin:$PATH
-    '';
-
-    # Called whenever zsh is initialized
-    initExtra = ''
-      source ${pkgs.zsh-vi-mode}/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
-
-      bindkey -e
-
-      # Start up Starship shell
-      eval "$(starship init zsh)"
-
-      eval "$(zoxide init zsh)"
-
-      eval "$(mcfly init zsh)"
-
-      eval "$(minikube docker-env)"
-
-      if command -v op > /dev/null; then
-        eval "$(op signin)"
-      fi
-
-      # distrobox
-      if [ -e $HOME/.distrobox ]; then
-        xhost +si:localuser:$USER
-      fi
-    '';
-  };
 }

@@ -1,6 +1,6 @@
 # Neovim settings
 
-{ config, lib, pkgs, ... }:
+{ pkgs, ... }:
 
 {
 
@@ -21,5 +21,4 @@
     source = ~/nixpkgs-config/config/lazyvim;
     recursive = true;
   };
-
 }

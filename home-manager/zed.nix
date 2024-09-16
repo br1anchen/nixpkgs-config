@@ -1,11 +1,6 @@
 # Lazygit settings
 
-{
-  config,
-  lib,
-  pkgs,
-  ...
-}:
+{ lib, pkgs, ... }:
 
 {
 

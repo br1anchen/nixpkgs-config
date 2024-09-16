@@ -1,6 +1,11 @@
 # Wezterm settings
 
-{ config, lib, pkgs, ... }:
+{
+  config,
+  lib,
+  pkgs,
+  ...
+}:
 
 {
 
@@ -10,3 +15,4 @@
   };
 
 }
+
