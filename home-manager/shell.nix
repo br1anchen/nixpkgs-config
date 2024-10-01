@@ -393,8 +393,6 @@ in
 
         # tmux-plugin-manager
         export PATH=$HOME/.tmux/plugins/t-smart-tmux-session-manager/bin:$PATH
-
-        export OPEN_API_KEY=$(op read op://private/OpenAI_API/credential --no-newline)
       '';
 
       # Called whenever zsh is initialized
