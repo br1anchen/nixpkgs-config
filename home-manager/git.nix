@@ -8,6 +8,8 @@ let
     gitflow
     gh
     git-cliff
+    jujutsu
+    lazyjj
   ];
 in
 {
