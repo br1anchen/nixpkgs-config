@@ -1,7 +1,11 @@
 # This is your home-manager configuration file
 # Use this to configure your home environment (it replaces ~/.config/nixpkgs/home.nix)
 
-{ lib, pkgs, ... }:
+{
+  lib,
+  pkgs,
+  ...
+}:
 {
   imports = [
     # If you want to use home-manager modules from other flakes (such as nix-colors), use something like:
@@ -19,6 +23,7 @@
     ./arch_i3.nix
     ./wezterm.nix
     ./zed.nix
+    ./ghostty.nix
   ];
 
   fonts.fontconfig.enable = true;
@@ -29,7 +34,7 @@
 
   # nix settings...use only for single user installs
   nix = {
-    package = pkgs.nixFlakes;
+    package = pkgs.nixVersions.stable;
     settings = {
       experimental-features = [
         "nix-command"
@@ -92,7 +97,7 @@
       xclip
       xh
       zoxide
-      _1password
+      _1password-cli
       _1password-gui
       (nerdfonts.override {
         fonts = [

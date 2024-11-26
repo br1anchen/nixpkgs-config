@@ -17,7 +17,13 @@
     # nix-colors.url = "github:misterio77/nix-colors";
   };
 
-  outputs = { self, nixpkgs, home-manager, ... }@inputs:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      home-manager,
+      ...
+    }@inputs:
     let
       forAllSystems = nixpkgs.lib.genAttrs systems;
       systems = [
@@ -27,9 +33,12 @@
         "aarch64-darwin"
         "x86_64-darwin"
       ];
-    in rec {
+    in
+    rec {
       # Your custom packages and modifications
-      overlays = { default = import ./overlay { inherit inputs; }; };
+      overlays = {
+        default = import ./overlay { inherit inputs; };
+      };
 
       # Reusable nixos modules you might want to export
       # These are usually stuff you would upstream into nixpkgs
@@ -46,16 +55,20 @@
 
       # Reexport nixpkgs with our overlays applied
       # Acessible on our configurations, and through nix build, shell, run, etc.
-      legacyPackages = forAllSystems (system:
+      legacyPackages = forAllSystems (
+        system:
         import inputs.nixpkgs {
           inherit system;
           overlays = builtins.attrValues overlays;
-        });
+        }
+      );
 
       nixosConfigurations = {
         "br1anchen@dune" = nixpkgs.lib.nixosSystem {
           pkgs = legacyPackages.x86_64-linux;
-          specialArgs = { inherit inputs; }; # Pass flake inputs to our config
+          specialArgs = {
+            inherit inputs;
+          }; # Pass flake inputs to our config
           modules = (builtins.attrValues nixosModules) ++ [
             # > Our main nixos configuration file <
             ./nixos/configuration.nix
@@ -77,7 +90,7 @@
                 stateVersion = "22.05";
                 sessionVariables = {
                   EDITOR = "nvim";
-                  TERMINAL = "kitty";
+                  TERMINAL = "wezterm";
                 };
               };
             }
@@ -98,7 +111,7 @@
                 stateVersion = "22.05";
                 sessionVariables = {
                   EDITOR = "nvim";
-                  TERMINAL = "kitty";
+                  TERMINAL = "wezterm";
                 };
               };
             }
