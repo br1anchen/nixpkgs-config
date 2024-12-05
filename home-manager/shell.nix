@@ -410,10 +410,6 @@ in
 
         eval "$(minikube docker-env)"
 
-        if command -v op > /dev/null; then
-          eval "$(op signin)"
-        fi
-
         # distrobox
         if [ -e $HOME/.distrobox ]; then
           xhost +si:localuser:$USER
