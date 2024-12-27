@@ -2,10 +2,10 @@
 
 ## Install
 
-### Install Nix
+### Install Nix [ref](https://zero-to-nix.com/start/install/#run)
 
 ```bash
-sh <(curl -L https://nixos.org/nix/install)
+curl --proto '=https' --tlsv1.2 -sSf -L https://install.determinate.systems/nix | sh -s -- install
 ```
 
 ### Install Home Manager [ref](https://nix-community.github.io/home-manager/index.xhtml#sec-install-standalone)
@@ -15,7 +15,7 @@ nix-channel --add https://github.com/nix-community/home-manager/archive/master.t
 
 nix-channel --update
 
-nix run home-manager/master -- init --switch
+nix run home-manager/master -- init --switch -b backup
 ```
 
 ### Install configuration
@@ -27,6 +27,7 @@ cd ~/.config
 
 rm -rf home-manager
 ln -s ~/nixpkgs-config home-manager
+home-manager --switch --impure -b backup
 
 cd ~/.config/nixpkgs
 ln -s ~/nixpkgs-config/config.nix config.nix
