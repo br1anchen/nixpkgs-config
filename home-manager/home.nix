@@ -19,10 +19,9 @@
     ./gitui.nix
     ./alacritty.nix
     ./lazygit.nix
+    ./hypr.nix
     ./kitty.nix
-    ./arch_i3.nix
     ./wezterm.nix
-    ./zed.nix
     ./ghostty.nix
   ];
 
@@ -78,7 +77,6 @@
       # httpie # Like curl but more user friendly
       jq # JSON parsing for the CLI
       kubectl
-      kdoctor
       mcfly
       mdcat # Markdown converter/reader for the CLI
       mkcert
