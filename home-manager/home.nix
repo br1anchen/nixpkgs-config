@@ -97,12 +97,7 @@
       zoxide
       _1password-cli
       _1password-gui
-      (nerdfonts.override {
-        fonts = [
-          "FiraCode"
-          "JetBrainsMono"
-        ];
-      })
+      nerd-fonts.fira-code
     ]
     ++ lib.optionals pkgs.stdenv.isLinux [
       starship # Fancy shell that works with zsh

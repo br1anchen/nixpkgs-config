@@ -382,6 +382,10 @@ in
         export PNPM_HOME=$HOME/.local/share/pnpm
         export PATH=$PNPM_HOME:$PATH
 
+        # BUN
+        export BUN_HOME=$HOME/.bun
+        export PATH=$BUN_HOME/bin:$PATH
+
         # Maestro
         export PATH=$PATH:$HOME/.maestro/bin
 
@@ -396,8 +400,12 @@ in
       '';
 
       # Called whenever zsh is initialized
-      initExtra = ''
+      initContent = ''
         source ${pkgs.zsh-vi-mode}/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
+
+        autoload -U compinit
+        compinit
+        source <(jj util completion zsh)
 
         bindkey -e
 
