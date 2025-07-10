@@ -1,4 +1,4 @@
-golang 1.18.1
+golang 1.23.4
 gradle 7.5
 java openjdk-18
 nodejs 23.11.0

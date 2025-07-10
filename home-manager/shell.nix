@@ -319,11 +319,10 @@ in
           . ~/.env
         fi
 
-        if [ -e /opt/asdf-vm/asdf.sh ]; then
-          . /opt/asdf-vm/asdf.sh
-        else
-          . $HOME/.asdf/asdf.sh
-        fi
+        # asdf
+        export ASDF_DIR="$HOME/.asdf"
+        export PATH="$ASDF_DIR:$PATH"
+        fpath=($ASDF_DIR/completions $fpath)
 
         if [ -e $HOME/.asdf/plugins/java/set-java-home.zsh ]; then
           . $HOME/.asdf/plugins/java/set-java-home.zsh
@@ -403,8 +402,7 @@ in
       initContent = ''
         source ${pkgs.zsh-vi-mode}/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
 
-        autoload -U compinit
-        compinit
+        autoload -Uz compinit && compinit
         source <(jj util completion zsh)
 
         bindkey -e
