@@ -1,0 +1,6 @@
+[ui]
+paginate = "never"
+
+[user]
+name = "Brian Chen"
+email = "brianchen8990@gmail.com"

@@ -4,7 +4,6 @@
 let
   gitTools = with pkgs.gitAndTools; [
     diff-so-fancy
-    git-codeowners
     gitflow
     gh
     git-cliff
@@ -83,5 +82,10 @@ in
       "_esy/"
       ".netrwhist"
     ];
+  };
+
+  xdg.configFile.jj = {
+    source = ../config/jj;
+    recursive = true;
   };
 }
