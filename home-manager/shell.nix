@@ -1,138 +1,252 @@
 # Shell configuration for zsh
+# Defines Zsh environment, aliases, and custom scripts for Git worktrees, Nix, and other tools.
 
 { pkgs, ... }:
 
 let
+  # Helper function to check if inside a bare Git repository
+  checkBareRoot = ''
+    if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+      echo "Not inside a Git repository" >&2
+      exit 1
+    fi
+    bare=$(git worktree list | grep 'bare' | awk '{print $1}')
+    if [[ -z "$bare" ]]; then
+      echo "No bare repository found" >&2
+      exit 1
+    fi
+    current=$(pwd)
+    if [[ "$current" != "$bare" ]]; then
+      echo "Cannot run gwt command outside bare repository root" >&2
+      exit 1
+    fi
+  '';
 
-  # Handly shell command to view the dependency tree of Nix packages
+  # View dependency tree of a Nix package
   depends = pkgs.writeScriptBin "depends" ''
-    dep=$1
-    nix-store --query --requisites $(which $dep)
+    if [[ -z "$1" ]]; then
+      echo "Usage: depends <command>" >&2
+      exit 1
+    fi
+    nix-store --query --requisites "$(which "$1")"
   '';
 
+  # Fetch Git hash for a GitHub repository
   git-hash = pkgs.writeScriptBin "git-hash" ''
-    nix-prefetch-url --unpack https://github.com/$1/$2/archive/$3.tar.gz
+    if [[ $# -ne 3 ]]; then
+      echo "Usage: git-hash <owner> <repo> <commit>" >&2
+      exit 1
+    fi
+    nix-prefetch-url --unpack "https://github.com/$1/$2/archive/$3.tar.gz"
   '';
 
+  # Show real path of a command
   wo = pkgs.writeScriptBin "wo" ''
-    readlink $(which $1)
+    if [[ -z "$1" ]]; then
+      echo "Usage: wo <command>" >&2
+      exit 1
+    fi
+    readlink "$(which "$1")"
   '';
 
+  # Run a command in a pure Nix shell
   run = pkgs.writeScriptBin "run" ''
+    if [[ $# -eq 0 ]]; then
+      echo "Usage: run <command>" >&2
+      exit 1
+    fi
     nix-shell --pure --run "$@"
   '';
 
+  # Checkout a GitHub PR using fzf
   ghpr = pkgs.writeScriptBin "ghpr" ''
+    if ! command -v gh >/dev/null 2>&1; then
+      echo "gh (GitHub CLI) not found" >&2
+      exit 1
+    fi
     GH_FORCE_TTY=100% gh pr list \
-    | fzf --ansi --preview 'GH_FORCE_TTY=100% gh pr view {1}' --preview-window down --header-lines 3 \
-    | awk '{print $1}' \
-    | xargs gh pr checkout
+      | fzf --ansi --preview 'GH_FORCE_TTY=100% gh pr view {1}' --preview-window down --header-lines 3 \
+      | awk '{print $1}' \
+      | xargs -r gh pr checkout
   '';
 
+  # Run nix with flakes support
   nixFlakes = pkgs.writeScriptBin "nixFlakes" ''
     exec ${pkgs.nixVersions.latest}/bin/nix --experimental-features "nix-command flakes" "$@"
   '';
 
+  # Initialize a bare Git repository with worktree support
   gwtInit = pkgs.writeScriptBin "gwtInit" ''
-    url=$1
-    name=''${2:-$(basename $url)}
+    if [[ -z "$1" ]]; then
+      echo "Usage: gwtInit <url> [name]" >&2
+      exit 1
+    fi
+    url="$1"
+    name=''${2:-$(basename "$url")}
 
-    git clone --bare --no-checkout $url $name
-    cd $name
+    if ! git clone --bare --no-checkout "$url" "$name"; then
+      echo "Failed to clone repository" >&2
+      exit 1
+    fi
+    cd "$name" || exit 1
     git config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
     git fetch
     git for-each-ref --format='%(refname:short)' refs/heads | xargs -n1 -I{} git branch --set-upstream-to=origin/{} {}
   '';
 
+  # Return path to bare repository
   gwtBare = pkgs.writeScriptBin "gwtBare" ''
     git worktree list \
-    | grep 'bare'  \
-    | awk '{print $1}'
+      | grep 'bare' \
+      | awk '{print $1}'
   '';
 
+  # Select a worktree branch using fzf
   gwtBranch = pkgs.writeScriptBin "gwtBranch" ''
     branch=$(git worktree list | fzf --ansi | awk '{print $1}')
-
     if [[ -z "$branch" ]]; then
-      echo $(pwd)
+      echo "$(pwd)"
     else
-      echo $branch
+      echo "$branch"
     fi
   '';
 
-  checkBareRoot = ''
-    bare=$(git worktree list | grep 'bare' | awk '{print $1}')
-    current=$(pwd)
-    if [ "$current" != "$bare" ]; then
-      echo "Cannot run gwt command under directory other than bare repo root"
-      exit 1
-    fi
-
-  '';
-
+  # Create a new Git worktree branch
   gwtNewBranch = pkgs.writeScriptBin "gwtNewBranch" ''
     ${checkBareRoot}
-
-    branch=$1
-    baseBranch=$2
-
-    git worktree add -b $branch $branch $baseBranch
-    git push -u origin $branch
-    cd $branch
+    if [[ -z "$1" || -z "$2" ]]; then
+      echo "Usage: gwtNewBranch <branch> <baseBranch>" >&2
+      exit 1
+    fi
+    branch="$1"
+    baseBranch="$2"
+    if ! git worktree add -b "$branch" "$branch" "$baseBranch"; then
+      echo "Failed to create worktree" >&2
+      exit 1
+    fi
+    if ! git push -u origin "$branch"; then
+      echo "Failed to push branch" >&2
+      exit 1
+    fi
+    echo "$(pwd)/$branch"
   '';
 
+  # Checkout an existing Git branch as a worktree
   gwtCheckoutBranch = pkgs.writeScriptBin "gwtCheckoutBranch" ''
     ${checkBareRoot}
-
-    git fetch
-
+    if ! command -v fzf >/dev/null 2>&1; then
+      echo "fzf not found" >&2
+      exit 1
+    fi
+    if ! git fetch; then
+      echo "Failed to fetch branches" >&2
+      exit 1
+    fi
     remote=$(git remote -v | grep 'fetch' | awk '{print $1}')
     branch=$(git branch -r | fzf --ansi | awk '{print $1}' | sed "s/$remote\/\(.*\)/\1/")
-
     if [[ -z "$branch" ]]; then
-      echo "Missing branch"
+      echo "Missing branch" >&2
       exit 1
-    elif git show-ref -q --heads "$branch"; then
-      git worktree add $branch $branch
-    else
-      git worktree add --track -b $branch $branch $remote/$branch
     fi
+    # If worktree for the branch already exists, return its path
+    existing_path=$(git worktree list | awk -v b="$branch" '$0 ~ "\\[" b "\\]" {print $1; exit}')
+    if [[ -n "$existing_path" ]]; then
+      echo "$existing_path"
+      exit 0
+    fi
+    if git show-ref -q --heads "$branch"; then
+      if ! git worktree add "$branch" "$branch"; then
+        echo "Failed to create worktree" >&2
+        exit 1
+      fi
+    else
+      if ! git worktree add --track -b "$branch" "$branch" "$remote/$branch"; then
+        echo "Failed to create worktree" >&2
+        exit 1
+      fi
+    fi
+    echo "$(pwd)/$branch"
   '';
 
+  # Delete a Git worktree and its branch
   gwtDeleteBranch = pkgs.writeScriptBin "gwtDeleteBranch" ''
     ${checkBareRoot}
-
-    branch=$(git worktree list | fzf --ansi | awk '{print $3}' | sed 's/.*\[\([^]]*\)].*/\1/')
-
-    if [[ -z "$branch" ]]; then
-      echo "Missing branch"
+    if ! command -v fzf >/dev/null 2>&1; then
+      echo "fzf not found" >&2
       exit 1
-    else
-      git worktree remove --force ./$branch
-      git branch -D $branch
     fi
+    branch=$(git worktree list | fzf --ansi | awk '{print $3}' | sed 's/.*\[\([^]]*\)].*/\1/')
+    if [[ -z "$branch" ]]; then
+      echo "Missing branch" >&2
+      exit 1
+    fi
+    if ! git worktree remove --force "./$branch"; then
+      echo "Failed to remove worktree" >&2
+      exit 1
+    fi
+    if ! git branch -D "$branch"; then
+      echo "Failed to delete branch" >&2
+      exit 1
+    fi
+    echo "$(pwd)"
   '';
 
+  # Checkout a GitHub PR as a worktree
   gwtCheckoutPR = pkgs.writeScriptBin "gwtCheckoutPR" ''
     ${checkBareRoot}
-
-    git fetch
-
-    gh pr list \
-    | fzf --ansi --preview 'GH_FORCE_TTY=100% gh pr view {1}' --preview-window down \
-    | awk -F'\t' '{print $3}' \
-    | xargs -I{} git worktree add {} {}
+    if ! command -v gh >/dev/null 2>&1; then
+      echo "gh (GitHub CLI) not found" >&2
+      exit 1
+    fi
+    if ! command -v fzf >/dev/null 2>&1; then
+      echo "fzf not found" >&2
+      exit 1
+    fi
+    if ! git fetch; then
+      echo "Failed to fetch PRs" >&2
+      exit 1
+    fi
+    pr_branch=$(gh pr list \
+      | fzf --ansi --preview 'GH_FORCE_TTY=100% gh pr view {1}' --preview-window down \
+      | awk -F'\t' '{print $3}')
+    if [[ -z "$pr_branch" ]]; then
+      echo "Missing PR branch" >&2
+      exit 1
+    fi
+    # If worktree for the PR branch already exists, cd to it
+    existing_path=$(git worktree list | awk -v b="$pr_branch" '$0 ~ "\\[" b "\\]" {print $1; exit}')
+    if [[ -n "$existing_path" ]]; then
+      echo "$existing_path"
+      exit 0
+    fi
+    if ! git worktree add "$pr_branch" "$pr_branch"; then
+      echo "Failed to create worktree" >&2
+      exit 1
+    fi
+    echo "$(pwd)/$pr_branch"
   '';
 
+  # Clone a GitHub repository using fzf
   ghClone = pkgs.writeScriptBin "ghClone" ''
-    gh repo list \
-    | fzf --ansi \
-    | awk '{print $1}' \
-    | xargs -I{} gh repo clone {}
+    if ! command -v gh >/dev/null 2>&1; then
+      echo "gh (GitHub CLI) not found" >&2
+      exit 1
+    fi
+    if ! command -v fzf >/dev/null 2>&1; then
+      echo "fzf not found" >&2
+      exit 1
+    fi
+    repo=$(gh repo list | fzf --ansi | awk '{print $1}')
+    if [[ -z "$repo" ]]; then
+      echo "No repository selected" >&2
+      exit 1
+    fi
+    gh repo clone "$repo"
   '';
 
+  # Safely terminate all Neovim processes
   killAllNvim = pkgs.writeScriptBin "killAllNvim" ''
-    ps -ef | grep "neovim" | grep -v grep | awk '{print $2}' | xargs kill -9
+    ps -u "$USER" | grep '[n]eovim' | awk '{print $2}' | xargs -r kill -TERM
   '';
 
   scripts = [
@@ -153,53 +267,56 @@ let
     killAllNvim
   ];
 
-  # Set all shell aliases programatically
+  # Shell aliases grouped by category
   shellAliases = {
+    # File and directory navigation
     cat = "bat";
-    dc = "docker-compose";
-    dk = "docker";
     find = "fd";
     grep = "grep --color=auto";
-    hms = "home-manager switch --impure";
     l = "eza";
     ll = "ls -lh";
     ls = "eza";
     la = "ls -lha";
-    lg = "lazygit";
     md = "mdcat";
+
+    # Docker
+    dc = "docker-compose";
+    dk = "docker";
     start-docker = "docker-machine start default";
+
+    # Editor
     vimdiff = "nvim -d";
     vf = "nvim";
     vd = "nvim .";
-    gi = "gitui";
-    gwt = "git worktree";
-    gwtt = "cd $(gwtBranch)";
-    gwtb = "cd $(gwtBare)";
-    vgwt = "cd $(gwtBranch) && nvim .";
 
-    # Reload zsh
+    # Git and worktrees
+    gi = "gitui";
+    lg = "lazygit";
+    gwt = "git worktree";
+    gwtls = "git worktree list";
+    gwtb = "cd \"$(gwtBare)\"";
+    gwtt = "cd \"$(gwtBranch)\"";
+    vgwt = "cd \"$(gwtBranch)\" && nvim .";
+    gwt-new = "gwt_new";
+    gwt-checkout = "cd \"$(gwtCheckoutBranch)\"";
+    gwt-pr = "cd \"$(gwtCheckoutPR)\"";
+    gwt-delete = "cd \"$(gwtDeleteBranch)\"";
+
+    # Nix
+    hms = "home-manager switch --impure";
+    garbage = "nix-collect-garbage -d && docker image prune --force";
+    installed = "nix-env --query --installed";
+
+    # Configuration reload
     szsh = "source ~/.zshrc";
     szenv = "source ~/.zshenv";
-
-    # Reload tmux
     stmux = "tmux source-file ~/.tmux.conf";
-
-    # Reload asdf-vm
     iasdf = "asdf install";
-
-    # Reload home manager and zsh
     reload = "hms && szenv && szsh && stmux && iasdf";
-
-    # Nix garbage collection
-    garbage = "nix-collect-garbage -d && docker image prune --force";
-
-    # See which Nix packages are installed
-    installed = "nix-env --query --installed";
   };
 in
 {
   programs = {
-    # Fancy filesystem navigator
     broot = {
       enable = true;
       enableZshIntegration = true;
@@ -228,13 +345,10 @@ in
       enable = true;
     };
 
-    # zsh settings
     zsh = {
       inherit shellAliases;
       enable = true;
-      autosuggestion = {
-        enable = true;
-      };
+      autosuggestion.enable = true;
       enableCompletion = true;
       history.extended = true;
 
@@ -257,8 +371,8 @@ in
           src = pkgs.fetchFromGitHub {
             owner = "zsh-users";
             repo = "zsh-syntax-highlighting";
-            rev = "0.7.1";
-            sha256 = "gOG0NLlaJfotJfs+SUhGgLTNOnGLjoqnUp54V9aFJg8=";
+            rev = "0.8.0";
+            sha256 = "hjwsrn0FQBwmNQDXtoYAJF7ZRsGyirTneG1e+ykViDg=";
             fetchSubmodules = true;
           };
         }
@@ -267,8 +381,8 @@ in
           src = pkgs.fetchFromGitHub {
             owner = "zsh-users";
             repo = "zsh-completions";
-            rev = "0.34.0";
-            sha256 = "qSobM4PRXjfsvoXY6ENqJGI9NEAaFFzlij6MPeTfT0o=";
+            rev = "0.35.0";
+            sha256 = "GFHlZjIHUWwyeVoCpszgn4AmLPSSE8UVNfRmisnhkpg=";
             fetchSubmodules = true;
           };
         }
@@ -277,27 +391,18 @@ in
           src = pkgs.fetchFromGitHub {
             owner = "zsh-users";
             repo = "zsh-autosuggestions";
-            rev = "v0.7.0";
-            sha256 = "KLUYpUu4DHRumQZ3w59m9aTW6TBKMCXl2UcKi4uMd7w=";
+            rev = "v0.7.1";
+            sha256 = "vpTyYq9ZgfgdDsWzjxVAE7FZH4MALMNZIFyEOBLm5Qo=";
             fetchSubmodules = true;
           };
         }
       ];
 
       localVariables = {
-        # TMUX
-        # Automatically start tmux
         ZSH_TMUX_AUTOSTART = true;
-
-        # Automatically connect to a previous session if it exists
         ZSH_TMUX_AUTOCONNECT = true;
-
-        # Enable command auto-correction.
         ENABLE_CORRECTION = "true";
-
-        # Display red dots whilst waiting for completion.
         COMPLETION_WAITING_DOTS = "true";
-
         EDITOR = "nvim";
         VISUAL = "nvim";
         NVIM_TUI_ENABLE_TRUE_COLOR = 1;
@@ -308,13 +413,12 @@ in
 
       envExtra = ''
         # Nix setup (environment variables, etc.)
-        if [ -e ~/.nix-profile/etc/profile.d/nix.sh ]; then
+        if [[ -e ~/.nix-profile/etc/profile.d/nix.sh ]]; then
           . ~/.nix-profile/etc/profile.d/nix.sh
         fi
 
-        # Load environment variables from a file; this approach allows me to not
-        # commit secrets like API keys to Git
-        if [ -e ~/.env ]; then
+        # Load environment variables from a file
+        if [[ -e ~/.env ]]; then
           . ~/.env
         fi
 
@@ -325,8 +429,7 @@ in
         export ASDF_DIR="$HOME/.asdf"
         export PATH="$ASDF_DIR:$PATH"
         fpath=($ASDF_DIR/completions $fpath)
-
-        if [ -e $HOME/.asdf/plugins/java/set-java-home.zsh ]; then
+        if [[ -e $HOME/.asdf/plugins/java/set-java-home.zsh ]]; then
           . $HOME/.asdf/plugins/java/set-java-home.zsh
         fi
 
@@ -338,90 +441,85 @@ in
         export PATH="$HOME/.local/share/bob/nvim-bin:$PATH"
 
         # Flutter/Android
-        if command -v brew > /dev/null; then
+        if command -v brew >/dev/null; then
           export ANDROID_HOME="$HOME/Library/Android/Sdk"
-          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
           export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-
-        elif command -v pacman > /dev/null; then
+        elif command -v pacman >/dev/null; then
           export ANDROID_SDK="$HOME/Android/Sdk"
-          export ANDROID_NDK_HOME=$ANDROID_SDK/ndk
-          export PATH=$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH
-          export CHROME_EXECUTABLE=/usr/bin/chromium
-
-        elif command -v apt > /dev/null; then
-          # Export the Android SDK path
-          export ANDROID_HOME=~/Android/Sdk
-          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+          export ANDROID_NDK_HOME="$ANDROID_SDK/ndk"
+          export PATH="$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH"
+          export CHROME_EXECUTABLE="/usr/bin/chromium"
+        elif command -v apt >/dev/null; then
+          export ANDROID_HOME="$HOME/Android/Sdk"
+          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
           export CHROME_EXECUTABLE="/usr/bin/firefox"
         else
-          echo 'Unknown OS to set Flutter/Android env!'
+          echo 'Unknown OS to set Flutter/Android env!' >&2
         fi
 
         # Dart
-        export PATH="$PATH":"$HOME/.pub-cache/bin"
-        # Chinese dart mirrors
-        # export PUB_HOSTED_URL=https://mirrors.tuna.tsinghua.edu.cn/dart-pub
-        # export FLUTTER_STORAGE_BASE_URL=https://mirrors.tuna.tsinghua.edu.cn/flutter
+        export PATH="$PATH:$HOME/.pub-cache/bin"
 
         # GO
         export GOPATH="$HOME/go"
-        export PATH="$GO_PATH/bin:$PATH"
+        export PATH="$GOPATH/bin:$PATH"
 
         # Python
-        export PATH=$(asdf where python)/bin:$PATH
+        if command -v asdf >/dev/null; then
+          export PATH="$(asdf where python)/bin:$PATH"
+        fi
 
         # Swift/Mint
-        export PATH=~/.mint/bin:$PATH
+        export PATH="$HOME/.mint/bin:$PATH"
 
-        export PATH=$HOME/.local/bin:$PATH
+        # Local bin
+        export PATH="$HOME/.local/bin:$PATH"
 
         # mason.nvim installs
-        export PATH=$HOME/.local/share/nvim/mason/bin/:$PATH
+        export PATH="$HOME/.local/share/nvim/mason/bin:$PATH"
 
         # PNPM
-        export PNPM_HOME=$HOME/.local/share/pnpm
-        export PATH=$PNPM_HOME:$PATH
+        export PNPM_HOME="$HOME/.local/share/pnpm"
+        export PATH="$PNPM_HOME:$PATH"
 
         # BUN
-        export BUN_HOME=$HOME/.bun
-        export PATH=$BUN_HOME/bin:$PATH
+        export BUN_HOME="$HOME/.bun"
+        export PATH="$BUN_HOME/bin:$PATH"
 
         # Maestro
-        export PATH=$PATH:$HOME/.maestro/bin
+        export PATH="$PATH:$HOME/.maestro/bin"
 
         # distrobox
-        if [ -e $HOME/.distrobox ]; then
-          export PATH=$HOME/.distrobox/bin:$PATH
-          export PATH=$HOME/.distrobox/podman/bin:$PATH
+        if [[ -e $HOME/.distrobox ]]; then
+          export PATH="$HOME/.distrobox/bin:$HOME/.distrobox/podman/bin:$PATH"
         fi
 
         # tmux-plugin-manager
-        export PATH=$HOME/.tmux/plugins/t-smart-tmux-session-manager/bin:$PATH
+        export PATH="$HOME/.tmux/plugins/t-smart-tmux-session-manager/bin:$PATH"
       '';
 
-      # Called whenever zsh is initialized
       initContent = ''
         source ${pkgs.zsh-vi-mode}/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
-
         autoload -Uz compinit && compinit
         source <(jj util completion zsh)
-
         bindkey -e
-
-        # Start up Starship shell
         eval "$(starship init zsh)"
-
         eval "$(zoxide init zsh)"
-
         eval "$(mcfly init zsh)"
-
         eval "$(minikube docker-env)"
-
-        # distrobox
-        if [ -e $HOME/.distrobox ]; then
+        if [[ -e $HOME/.distrobox ]]; then
           xhost +si:localuser:$USER
         fi
+
+        # Git worktree functions
+        gwt_new() {
+          if [[ -z "$1" || -z "$2" ]]; then
+            echo "Usage: gwt_new <branch> <baseBranch>" >&2
+            return 1
+          fi
+          gwtNewBranch "$1" "$2" && cd "$1"
+        }
       '';
     };
   };
