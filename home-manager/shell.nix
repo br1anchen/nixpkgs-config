@@ -248,7 +248,6 @@ in
           "sudo"
           "node"
           "tmux"
-          "asdf"
         ];
       };
 
@@ -320,6 +319,9 @@ in
         fi
 
         # asdf
+        if [ -e $HOME/.asdf ]; then
+          . $HOME/.asdf/asdf.sh
+        fi
         export ASDF_DIR="$HOME/.asdf"
         export PATH="$ASDF_DIR:$PATH"
         fpath=($ASDF_DIR/completions $fpath)
