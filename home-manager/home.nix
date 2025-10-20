@@ -98,6 +98,7 @@
       _1password-cli
       _1password-gui
       nerd-fonts.fira-code
+      watchexec
     ]
     ++ lib.optionals pkgs.stdenv.isLinux [
       starship # Fancy shell that works with zsh
