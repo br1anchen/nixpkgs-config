@@ -8,7 +8,7 @@ mouse-hide-while-typing = true
 mouse-scroll-multiplier = 2
 
 # Theme
-theme = catppuccin-mocha
+theme = Catppuccin Mocha
 cursor-invert-fg-bg = true
 background-opacity = 0.9
 window-theme = ghostty
