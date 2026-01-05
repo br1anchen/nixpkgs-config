@@ -142,7 +142,7 @@ let
       echo "Failed to fetch branches" >&2
       exit 1
     fi
-    remote=$(git remote -v | grep 'fetch' | awk '{print $1}')
+    remote=$(git remote -v | grep 'fetch' | head -n 1 | awk '{print $1}')
     branch=$(git branch -r | fzf --ansi | awk '{print $1}' | sed "s/$remote\/\(.*\)/\1/")
     if [[ -z "$branch" ]]; then
       echo "Missing branch" >&2
@@ -294,13 +294,13 @@ let
     lg = "lazygit";
     gwt = "git worktree";
     gwtls = "git worktree list";
-    gwtb = "cd \"$(gwtBare)\"";
-    gwtt = "cd \"$(gwtBranch)\"";
-    vgwt = "cd \"$(gwtBranch)\" && nvim .";
+    gwtb = "gwt_bare";
+    gwtt = "gwt_branch";
+    vgwt = "gwt_view";
     gwt-new = "gwt_new";
-    gwt-checkout = "cd \"$(gwtCheckoutBranch)\"";
-    gwt-pr = "cd \"$(gwtCheckoutPR)\"";
-    gwt-delete = "cd \"$(gwtDeleteBranch)\"";
+    gwt-checkout = "gwt_checkout";
+    gwt-pr = "gwt_pr";
+    gwt-delete = "gwt_delete";
 
     # Nix
     hms = "home-manager switch --impure";
@@ -438,7 +438,7 @@ in
         export PATH="$CARGO_PATH:$PATH"
 
         # Bob
-        export PATH="$HOME/.local/share/bob/nvim-bin:$PATH"
+        export PATH="$HOME/.local/share/bob/v0.11.5/bin:$PATH"
 
         # Flutter/Android
         if command -v brew >/dev/null; then
@@ -513,12 +513,36 @@ in
         fi
 
         # Git worktree functions
+        gwt_bare() {
+          local dir; dir=$(gwtBare)
+          [[ -n "$dir" ]] && cd "$dir"
+        }
+        gwt_branch() {
+          local dir; dir=$(gwtBranch)
+          [[ -n "$dir" ]] && cd "$dir"
+        }
+        gwt_view() {
+          local dir; dir=$(gwtBranch)
+          [[ -n "$dir" ]] && cd "$dir" && nvim .
+        }
         gwt_new() {
           if [[ -z "$1" || -z "$2" ]]; then
             echo "Usage: gwt_new <branch> <baseBranch>" >&2
             return 1
           fi
-          gwtNewBranch "$1" "$2" && cd "$1"
+          local dir; dir=$(gwtNewBranch "$1" "$2") && [[ -n "$dir" ]] && cd "$dir"
+        }
+        gwt_checkout() {
+          local dir; dir=$(gwtCheckoutBranch)
+          [[ -n "$dir" ]] && cd "$dir"
+        }
+        gwt_pr() {
+          local dir; dir=$(gwtCheckoutPR)
+          [[ -n "$dir" ]] && cd "$dir"
+        }
+        gwt_delete() {
+          local dir; dir=$(gwtDeleteBranch)
+          [[ -n "$dir" ]] && cd "$dir"
         }
       '';
     };
