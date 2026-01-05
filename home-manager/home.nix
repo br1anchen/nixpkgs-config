@@ -15,6 +15,7 @@
     ./git.nix
     ./lazyvim.nix
     ./shell.nix
+    ./codex.nix
     ./tmux.nix
     ./gitui.nix
     ./alacritty.nix
