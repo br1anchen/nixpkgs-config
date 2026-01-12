@@ -9,4 +9,9 @@
   };
 
   home.file.".gemini/GEMINI.md".source = ../config/gemini/GEMINI.md;
+
+  xdg.configFile.opencode = {
+    source = ../config/opencode;
+    recursive = true;
+  };
 }
