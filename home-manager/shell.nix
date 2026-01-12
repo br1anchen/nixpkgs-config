@@ -541,8 +541,7 @@ in
           [[ -n "$dir" ]] && cd "$dir"
         }
         gwt_delete() {
-          local dir; dir=$(gwtDeleteBranch)
-          [[ -n "$dir" ]] && cd "$dir"
+          gwtDeleteBranch
         }
       '';
     };
