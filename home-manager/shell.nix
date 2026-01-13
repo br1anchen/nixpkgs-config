@@ -438,7 +438,7 @@ in
         export PATH="$CARGO_PATH:$PATH"
 
         # Bob
-        export PATH="$HOME/.local/share/bob/v0.11.5/bin:$PATH"
+        export PATH="$HOME/.local/share/bob/nvim-bin:$PATH"
 
         # Flutter/Android
         if command -v brew >/dev/null; then
