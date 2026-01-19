@@ -303,7 +303,7 @@ let
     gwt-delete = "gwt_delete";
 
     # Nix
-    hms = "home-manager switch --impure";
+    hms = "home-manager switch --impure --flake ~/nixpkgs-config#$(if [[ $(uname) == 'Darwin' ]]; then echo 'darwin'; else echo 'linux'; fi)";
     garbage = "nix-collect-garbage -d && docker image prune --force";
     installed = "nix-env --query --installed";
 

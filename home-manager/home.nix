@@ -4,6 +4,7 @@
 {
   lib,
   pkgs,
+  isDarwin,
   ...
 }:
 {
@@ -24,13 +25,15 @@
     ./kitty.nix
     ./wezterm.nix
     ./ghostty.nix
+  ]
+  ++ lib.optionals isDarwin [
+    ./mac.nix
   ];
 
   fonts.fontconfig.enable = true;
 
   # Comment out if you wish to disable unfree packages for your system
   nixpkgs.config.allowUnfree = true;
-  nixpkgs.config.allowBroken = true;
 
   # nix settings...use only for single user installs
   nix = {

@@ -1,10 +1,9 @@
 {
-  description = "You new nix config";
+  description = "Brian's nixpkgs configuration for macOS and Arch Linux";
 
   inputs = {
     # Nixpkgs
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
-    hardware.url = "github:nixos/nixos-hardware";
 
     # Home manager
     home-manager.url = "github:nix-community/home-manager";
@@ -33,8 +32,26 @@
         "aarch64-darwin"
         "x86_64-darwin"
       ];
-    in
-    rec {
+
+      # Get current username from environment
+      currentUser = builtins.getEnv "USER";
+
+      # Determine home directory based on system type
+      mkHomeDirectory =
+        system: username:
+        if nixpkgs.lib.hasSuffix "darwin" system then "/Users/${username}" else "/home/${username}";
+
+      # Reexport nixpkgs with our overlays applied
+      # Accessible on our configurations, and through nix build, shell, run, etc.
+      legacyPackages = forAllSystems (
+        system:
+        import inputs.nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+          overlays = builtins.attrValues overlays;
+        }
+      );
+
       # Your custom packages and modifications
       overlays = {
         default = import ./overlay { inherit inputs; };
@@ -43,102 +60,83 @@
       # Reusable nixos modules you might want to export
       # These are usually stuff you would upstream into nixpkgs
       nixosModules = import ./modules/nixos;
+
       # Reusable home-manager modules you might want to export
       # These are usually stuff you would upstream into home-manager
       homeManagerModules = import ./modules/home-manager;
 
+      # Helper function to create home-manager configurations
+      mkHome =
+        {
+          username ? currentUser,
+          system,
+        }:
+        let
+          isDarwin = nixpkgs.lib.hasSuffix "darwin" system;
+        in
+        home-manager.lib.homeManagerConfiguration {
+          pkgs = legacyPackages.${system};
+          extraSpecialArgs = {
+            inherit inputs isDarwin;
+          };
+          modules = (builtins.attrValues homeManagerModules) ++ [
+            {
+              home = {
+                inherit username;
+                homeDirectory = mkHomeDirectory system username;
+                stateVersion = "22.05";
+                sessionVariables = {
+                  EDITOR = "nvim";
+                  TERMINAL = "ghostty";
+                };
+              };
+            }
+            ./home-manager/home.nix
+          ];
+        };
+    in
+    {
+      inherit
+        overlays
+        nixosModules
+        homeManagerModules
+        legacyPackages
+        ;
+
+      # Formatter for `nix fmt`
+      formatter = forAllSystems (system: legacyPackages.${system}.nixfmt-rfc-style);
+
       # Devshell for bootstrapping
-      # Acessible through 'nix develop' or 'nix-shell' (legacy)
+      # Accessible through 'nix develop' or 'nix-shell' (legacy)
       devShells = forAllSystems (system: {
         default = legacyPackages.${system}.callPackage ./shell.nix { };
       });
-
-      # Reexport nixpkgs with our overlays applied
-      # Acessible on our configurations, and through nix build, shell, run, etc.
-      legacyPackages = forAllSystems (
-        system:
-        import inputs.nixpkgs {
-          inherit system;
-          overlays = builtins.attrValues overlays;
-        }
-      );
 
       nixosConfigurations = {
         "br1anchen@dune" = nixpkgs.lib.nixosSystem {
           pkgs = legacyPackages.x86_64-linux;
           specialArgs = {
             inherit inputs;
-          }; # Pass flake inputs to our config
+          };
           modules = (builtins.attrValues nixosModules) ++ [
-            # > Our main nixos configuration file <
             ./nixos/configuration.nix
           ];
         };
       };
 
+      # Home configurations - uses current $USER by default
+      # Usage: home-manager switch --flake .#darwin (macOS)
+      #        home-manager switch --flake .#linux (Linux)
+      #        home-manager switch --flake .#deck (Steam Deck with explicit username)
       homeConfigurations = {
-        "brian" = home-manager.lib.homeManagerConfiguration {
-          pkgs = legacyPackages.x86_64-linux;
-          extraSpecialArgs = {
-            inherit inputs;
-          }; # Pass flake inputs to our config
-          modules = (builtins.attrValues homeManagerModules) ++ [
-            {
-              home = {
-                username = "brian";
-                homeDirectory = "/home/brian";
-                stateVersion = "22.05";
-                sessionVariables = {
-                  EDITOR = "nvim";
-                  TERMINAL = "wezterm";
-                };
-              };
-            }
-            # > Our main home-manager configuration file <
-            ./home-manager/home.nix
-          ];
-        };
-        "br1anchen" = home-manager.lib.homeManagerConfiguration {
-          pkgs = legacyPackages.aarch64-darwin;
-          extraSpecialArgs = {
-            inherit inputs;
-          }; # Pass flake inputs to our config
-          modules = (builtins.attrValues homeManagerModules) ++ [
-            {
-              home = {
-                username = "br1anchen";
-                homeDirectory = "/Users/br1anchen";
-                stateVersion = "22.05";
-                sessionVariables = {
-                  EDITOR = "nvim";
-                  TERMINAL = "wezterm";
-                };
-              };
-            }
-            # > Our main home-manager configuration file <
-            ./home-manager/home.nix
-          ];
-        };
-        "deck" = home-manager.lib.homeManagerConfiguration {
-          pkgs = legacyPackages.x86_64-linux;
-          extraSpecialArgs = {
-            inherit inputs;
-          }; # Pass flake inputs to our config
-          modules = (builtins.attrValues homeManagerModules) ++ [
-            {
-              home = {
-                username = "deck";
-                homeDirectory = "/home/deck";
-                stateVersion = "22.05";
-                sessionVariables = {
-                  EDITOR = "nvim";
-                  TERMINAL = "wezterm";
-                };
-              };
-            }
-            # > Our main home-manager configuration file <
-            ./home-manager/home.nix
-          ];
+        # Generic configurations that use current $USER
+        "darwin" = mkHome { system = "aarch64-darwin"; };
+        "linux" = mkHome { system = "x86_64-linux"; };
+
+        # Legacy/explicit configurations for specific users
+        "deck" = mkHome {
+          username = "deck";
+          system = "x86_64-linux";
         };
       };
     };
