@@ -514,31 +514,92 @@ in
 
         # Git worktree functions
         gwt_bare() {
-          local dir; dir=$(gwtBare)
-          [[ -n "$dir" ]] && cd "$dir"
+          local dir
+          dir=$(gwtBare)
+          local exit_code=$?
+          if [[ $exit_code -ne 0 ]]; then
+            return $exit_code
+          fi
+          if [[ -n "$dir" && -d "$dir" ]]; then
+            cd "$dir"
+          else
+            echo "Directory not found: $dir" >&2
+            return 1
+          fi
         }
         gwt_branch() {
-          local dir; dir=$(gwtBranch)
-          [[ -n "$dir" ]] && cd "$dir"
+          local dir
+          dir=$(gwtBranch)
+          local exit_code=$?
+          if [[ $exit_code -ne 0 ]]; then
+            return $exit_code
+          fi
+          if [[ -n "$dir" && -d "$dir" ]]; then
+            cd "$dir"
+          else
+            echo "Directory not found: $dir" >&2
+            return 1
+          fi
         }
         gwt_view() {
-          local dir; dir=$(gwtBranch)
-          [[ -n "$dir" ]] && cd "$dir" && nvim .
+          local dir
+          dir=$(gwtBranch)
+          local exit_code=$?
+          if [[ $exit_code -ne 0 ]]; then
+            return $exit_code
+          fi
+          if [[ -n "$dir" && -d "$dir" ]]; then
+            cd "$dir" && nvim .
+          else
+            echo "Directory not found: $dir" >&2
+            return 1
+          fi
         }
         gwt_new() {
           if [[ -z "$1" || -z "$2" ]]; then
             echo "Usage: gwt_new <branch> <baseBranch>" >&2
             return 1
           fi
-          local dir; dir=$(gwtNewBranch "$1" "$2") && [[ -n "$dir" ]] && cd "$dir"
+          local dir
+          dir=$(gwtNewBranch "$1" "$2")
+          local exit_code=$?
+          if [[ $exit_code -ne 0 ]]; then
+            return $exit_code
+          fi
+          if [[ -n "$dir" && -d "$dir" ]]; then
+            cd "$dir"
+          else
+            echo "Directory not found: $dir" >&2
+            return 1
+          fi
         }
         gwt_checkout() {
-          local dir; dir=$(gwtCheckoutBranch)
-          [[ -n "$dir" ]] && cd "$dir"
+          local dir
+          dir=$(gwtCheckoutBranch)
+          local exit_code=$?
+          if [[ $exit_code -ne 0 ]]; then
+            return $exit_code
+          fi
+          if [[ -n "$dir" && -d "$dir" ]]; then
+            cd "$dir"
+          else
+            echo "Directory not found: $dir" >&2
+            return 1
+          fi
         }
         gwt_pr() {
-          local dir; dir=$(gwtCheckoutPR)
-          [[ -n "$dir" ]] && cd "$dir"
+          local dir
+          dir=$(gwtCheckoutPR)
+          local exit_code=$?
+          if [[ $exit_code -ne 0 ]]; then
+            return $exit_code
+          fi
+          if [[ -n "$dir" && -d "$dir" ]]; then
+            cd "$dir"
+          else
+            echo "Directory not found: $dir" >&2
+            return 1
+          fi
         }
         gwt_delete() {
           gwtDeleteBranch
