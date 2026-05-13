@@ -70,6 +70,19 @@ let
       | xargs -r gh pr checkout
   '';
 
+  # Checkout a GitLab MR using fzf
+  glabmr = pkgs.writeScriptBin "glabmr" ''
+    if ! command -v glab >/dev/null 2>&1; then
+      echo "glab (GitLab CLI) not found" >&2
+      exit 1
+    fi
+    glab mr list \
+      | fzf --ansi --preview 'glab mr view {1}' --preview-window down \
+      | awk '{print $1}' \
+      | sed 's/^!//' \
+      | xargs -r glab mr checkout
+  '';
+
   # Run nix with flakes support
   nixFlakes = pkgs.writeScriptBin "nixFlakes" ''
     exec ${pkgs.nixVersions.latest}/bin/nix --experimental-features "nix-command flakes" "$@"
@@ -226,6 +239,77 @@ let
     echo "$(pwd)/$pr_branch"
   '';
 
+  # Checkout a GitLab MR as a worktree
+  gwtCheckoutMR = pkgs.writeScriptBin "gwtCheckoutMR" ''
+    ${checkBareRoot}
+    if ! command -v glab >/dev/null 2>&1; then
+      echo "glab (GitLab CLI) not found" >&2
+      exit 1
+    fi
+    if ! command -v fzf >/dev/null 2>&1; then
+      echo "fzf not found" >&2
+      exit 1
+    fi
+    if ! command -v jq >/dev/null 2>&1; then
+      echo "jq not found" >&2
+      exit 1
+    fi
+    if ! git fetch; then
+      echo "Failed to fetch MRs" >&2
+      exit 1
+    fi
+    mr_id=$(glab mr list \
+      | fzf --ansi --preview 'glab mr view {1}' --preview-window down \
+      | awk '{print $1}' \
+      | sed 's/^!//')
+    if [[ -z "$mr_id" ]]; then
+      echo "Missing MR id" >&2
+      exit 1
+    fi
+    mr_branch=$(glab mr view "$mr_id" -F json | jq -r '.source_branch')
+    if [[ -z "$mr_branch" || "$mr_branch" == "null" ]]; then
+      echo "Failed to resolve MR source branch" >&2
+      exit 1
+    fi
+    # If worktree for the MR branch already exists, return its path
+    existing_path=$(git worktree list | awk -v b="$mr_branch" '$0 ~ "\\[" b "\\]" {print $1; exit}')
+    if [[ -n "$existing_path" ]]; then
+      echo "$existing_path"
+      exit 0
+    fi
+    remote=$(git remote -v | grep 'fetch' | head -n 1 | awk '{print $1}')
+    if git show-ref -q --heads "$mr_branch"; then
+      if ! git worktree add "$mr_branch" "$mr_branch"; then
+        echo "Failed to create worktree" >&2
+        exit 1
+      fi
+    else
+      if ! git worktree add --track -b "$mr_branch" "$mr_branch" "$remote/$mr_branch"; then
+        echo "Failed to create worktree" >&2
+        exit 1
+      fi
+    fi
+    echo "$(pwd)/$mr_branch"
+  '';
+
+  # Clone a GitLab repository using fzf
+  glabClone = pkgs.writeScriptBin "glabClone" ''
+    if ! command -v glab >/dev/null 2>&1; then
+      echo "glab (GitLab CLI) not found" >&2
+      exit 1
+    fi
+    if ! command -v fzf >/dev/null 2>&1; then
+      echo "fzf not found" >&2
+      exit 1
+    fi
+    repo=$(glab repo list | fzf --ansi | awk '{print $1}')
+    if [[ -z "$repo" ]]; then
+      echo "No repository selected" >&2
+      exit 1
+    fi
+    glab repo clone "$repo"
+  '';
+
   # Clone a GitHub repository using fzf
   ghClone = pkgs.writeScriptBin "ghClone" ''
     if ! command -v gh >/dev/null 2>&1; then
@@ -249,12 +333,15 @@ let
     ps -u "$USER" | grep '[n]eovim' | awk '{print $2}' | xargs -r kill -TERM
   '';
 
+  safeChain = import ./safe-chain.nix { inherit pkgs; };
+
   scripts = [
     depends
     git-hash
     run
     wo
     ghpr
+    glabmr
     nixFlakes
     gwtInit
     gwtBare
@@ -263,8 +350,11 @@ let
     gwtCheckoutBranch
     gwtDeleteBranch
     gwtCheckoutPR
+    gwtCheckoutMR
     ghClone
+    glabClone
     killAllNvim
+    safeChain
   ];
 
   # Shell aliases grouped by category
@@ -300,12 +390,30 @@ let
     gwt-new = "gwt_new";
     gwt-checkout = "gwt_checkout";
     gwt-pr = "gwt_pr";
+    gwt-mr = "gwt_mr";
     gwt-delete = "gwt_delete";
 
     # Nix
     hms = "home-manager switch --impure --flake ~/nixpkgs-config#$(if [[ $(uname) == 'Darwin' ]]; then echo 'darwin'; else echo 'linux'; fi)";
     garbage = "nix-collect-garbage -d && docker image prune --force";
     installed = "nix-env --query --installed";
+
+    # Aikido Safe Chain — wraps package managers from ./config/asdf/tool-versions
+    # (nodejs, pnpm, bun, python) that safe-chain supports. Go/Deno/Zig skipped
+    # since safe-chain doesn't cover them.
+    npm = "aikido-npm";
+    npx = "aikido-npx";
+    yarn = "aikido-yarn";
+    pnpm = "aikido-pnpm";
+    pnpx = "aikido-pnpx";
+    bun = "aikido-bun";
+    bunx = "aikido-bunx";
+    pip = "aikido-pip";
+    pip3 = "aikido-pip3";
+    uv = "aikido-uv";
+    uvx = "aikido-uvx";
+    poetry = "aikido-poetry";
+    pipx = "aikido-pipx";
 
     # Configuration reload
     szsh = "source ~/.zshrc";
@@ -497,6 +605,11 @@ in
 
         # tmux-plugin-manager
         export PATH="$HOME/.tmux/plugins/t-smart-tmux-session-manager/bin:$PATH"
+
+        # local secrets
+        if [ -f "$HOME/.config/secrets/jotta-npm-token" ]; then
+          export NPM_TOKEN="$(cat "$HOME/.config/secrets/jotta-npm-token")"
+        fi
       '';
 
       initContent = ''
@@ -590,6 +703,20 @@ in
         gwt_pr() {
           local dir
           dir=$(gwtCheckoutPR)
+          local exit_code=$?
+          if [[ $exit_code -ne 0 ]]; then
+            return $exit_code
+          fi
+          if [[ -n "$dir" && -d "$dir" ]]; then
+            cd "$dir"
+          else
+            echo "Directory not found: $dir" >&2
+            return 1
+          fi
+        }
+        gwt_mr() {
+          local dir
+          dir=$(gwtCheckoutMR)
           local exit_code=$?
           if [[ $exit_code -ne 0 ]]; then
             return $exit_code

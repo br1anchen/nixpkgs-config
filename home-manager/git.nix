@@ -9,6 +9,7 @@ let
     git-cliff
     jujutsu
     lazyjj
+    glab
   ];
 in
 {
