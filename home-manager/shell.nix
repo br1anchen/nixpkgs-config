@@ -398,7 +398,7 @@ let
     garbage = "nix-collect-garbage -d && docker image prune --force";
     installed = "nix-env --query --installed";
 
-    # Aikido Safe Chain — wraps package managers from ./config/asdf/tool-versions
+    # Aikido Safe Chain — wraps package managers from ./config/mise/config.toml
     # (nodejs, pnpm, bun, python) that safe-chain supports. Go/Deno/Zig skipped
     # since safe-chain doesn't cover them.
     npm = "aikido-npm";
@@ -419,12 +419,18 @@ let
     szsh = "source ~/.zshrc";
     szenv = "source ~/.zshenv";
     stmux = "tmux source-file ~/.tmux.conf";
-    iasdf = "asdf install";
-    reload = "hms && szenv && szsh && stmux && iasdf";
+    imise = "mise install";
+    reload = "hms && szenv && szsh && stmux && imise";
   };
 in
 {
   programs = {
+    mise = {
+      enable = true;
+      enableZshIntegration = true;
+      enableBashIntegration = true;
+    };
+
     broot = {
       enable = true;
       enableZshIntegration = true;
@@ -530,16 +536,8 @@ in
           . ~/.env
         fi
 
-        # asdf
-        if [ -e $HOME/.asdf ]; then
-          . $HOME/.asdf/asdf.sh
-        fi
-        export ASDF_DIR="$HOME/.asdf"
-        export PATH="$ASDF_DIR:$PATH"
-        fpath=($ASDF_DIR/completions $fpath)
-        if [[ -e $HOME/.asdf/plugins/java/set-java-home.zsh ]]; then
-          . $HOME/.asdf/plugins/java/set-java-home.zsh
-        fi
+        # mise (runtime version manager - replaces asdf)
+        # Shell integration is handled by programs.mise.enableZshIntegration
 
         # Rust Cargo
         CARGO_PATH="$HOME/.cargo/bin"
@@ -574,8 +572,9 @@ in
         export PATH="$GOPATH/bin:$PATH"
 
         # Python
-        if command -v asdf >/dev/null; then
-          export PATH="$(asdf where python)/bin:$PATH"
+        if command -v mise >/dev/null; then
+          local python_path
+          python_path="$(mise where python 2>/dev/null)" && export PATH="$python_path/bin:$PATH"
         fi
 
         # Swift/Mint
@@ -738,9 +737,9 @@ in
   home = {
     packages = scripts;
 
-    file.".tool-versions".source = ../config/asdf/tool-versions;
     file.".czrc".source = ../config/czrc;
   };
 
+  xdg.configFile."mise/config.toml".source = ../config/mise/config.toml;
   xdg.configFile."starship.toml".source = ../config/starship.toml;
 }

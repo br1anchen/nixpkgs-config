@@ -1,0 +1,12 @@
+[tools]
+go = "1.23.4"
+node = "23.11.0"
+python = "3.12.10"
+yarn = "1.22.18"
+pnpm = "10.10.0"
+bun = "1.2.5"
+deno = "1.46.2"
+zig = "0.13.0"
+
+[settings]
+idiomatic_version_file_enable_tools = []

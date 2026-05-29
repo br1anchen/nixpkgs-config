@@ -33,10 +33,12 @@ cd ~/.config/nixpkgs
 ln -s ~/nixpkgs-config/config.nix config.nix
 ```
 
-### Install asdf
+### Install runtimes via mise
+
+Mise is installed via Nix/Home Manager. After switching, install configured tool versions:
 
 ```bash
-bash ./config/asdf/setup.sh
+mise install
 ```
 
 ````

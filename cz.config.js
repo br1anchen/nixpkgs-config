@@ -5,7 +5,7 @@ const { execSync } = require("child_process");
 
 const defaultScopes = [
   "config/alacritty",
-  "config/asdf",
+  "config/mise",
   "config/dunst",
   "config/gitui",
   "config/helix",
