@@ -5,7 +5,8 @@
 - `flake.nix`/`flake.lock` are the entrypoints; `shell.nix` provides a bootstrap shell.
 - NixOS modules live in `nixos/` (main file: `nixos/configuration.nix`) with reusable pieces in `modules/nixos/`.
 - Home Manager configuration is centered on `home-manager/home.nix`, with shared modules in `modules/home-manager/` and tool-specific files under `home-manager/` and `config/`.
-- Overlays and custom packages sit in `overlay/` and `pkgs/`; helper scripts (e.g., `fix_macos_updated.sh`, `config/asdf/setup.sh`) stay in `config/` or repo root.
+- Overlays and custom packages sit in `overlay/` and `pkgs/`; helper scripts (e.g., `fix_macos_updated.sh`) stay in `config/` or repo root.
+- Runtime version management uses mise (installed via Home Manager `programs.mise`); config lives at `config/mise/config.toml`.
 
 ## Build, Test, and Development Commands
 
@@ -13,7 +14,7 @@
 - `nix flake check` — evaluate the flake and run defined checks; add `--show-trace` if debugging.
 - Apply Home Manager configs: `home-manager switch --flake .#br1anchen` (macOS), `.#brian` (Linux), or `.#deck` (Steam Deck).
 - Build NixOS host: `sudo nixos-rebuild switch --flake .#br1anchen@dune`.
-- Tooling helpers: run `bash ./config/asdf/setup.sh` to install asdf; after macOS updates, run `sudo bash ./fix_macos_updated.sh`.
+- Tooling helpers: run `mise install` to install configured runtimes; after macOS updates, run `sudo bash ./fix_macos_updated.sh`.
 
 ## Coding Style & Naming Conventions
 
