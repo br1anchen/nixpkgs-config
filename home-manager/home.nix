@@ -93,6 +93,7 @@
     procs
     protobuf
     ripgrep # grep replacement written in Rust
+    rtk
     rustup
     scientifica
     wget

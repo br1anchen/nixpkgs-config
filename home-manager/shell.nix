@@ -333,7 +333,7 @@ let
     ps -u "$USER" | grep '[n]eovim' | awk '{print $2}' | xargs -r kill -TERM
   '';
 
-  safeChain = import ./safe-chain.nix { inherit pkgs; };
+  safeChain = pkgs."safe-chain";
 
   scripts = [
     depends
