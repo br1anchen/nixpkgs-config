@@ -6,6 +6,7 @@
   home.file.".codex" = {
     source = ../config/codex;
     recursive = true;
+    force = true;
   };
 
   home.file.".gemini/GEMINI.md".source = ../config/gemini/GEMINI.md;
