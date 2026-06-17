@@ -5,4 +5,5 @@
   # example = pkgs.callPackage ./example { };
   rtk = pkgs.callPackage ./rtk { };
   "safe-chain" = pkgs.callPackage ./safe-chain { };
+  weave = pkgs.callPackage ./weave { };
 }

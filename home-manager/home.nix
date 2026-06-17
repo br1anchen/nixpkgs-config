@@ -96,6 +96,7 @@
     rtk
     rustup
     scientifica
+    weave
     wget
     xclip
     xh
