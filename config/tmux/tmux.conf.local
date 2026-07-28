@@ -364,6 +364,9 @@ tmux_conf_copy_to_os_clipboard=true
 # start with mouse mode enabled
 set -g mouse on
 
+# Never retain this interactive-shell secret in the tmux server environment.
+set-environment -gu NPM_TOKEN
+
 # force Vi mode
 #   really you should export VISUAL or EDITOR environment variable, see manual
 set -g status-keys vi

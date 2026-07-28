@@ -1,0 +1,3 @@
+# Local environment and direnv state
+.env
+.direnv/

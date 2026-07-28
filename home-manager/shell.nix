@@ -431,6 +431,11 @@ in
       enableBashIntegration = true;
     };
 
+    direnv = {
+      enable = true;
+      enableZshIntegration = true;
+    };
+
     broot = {
       enable = true;
       enableZshIntegration = true;
@@ -471,7 +476,6 @@ in
         plugins = [
           "docker"
           "docker-compose"
-          "dotenv"
           "git"
           "sudo"
           "node"
@@ -529,11 +533,6 @@ in
         # Nix setup (environment variables, etc.)
         if [[ -e ~/.nix-profile/etc/profile.d/nix.sh ]]; then
           . ~/.nix-profile/etc/profile.d/nix.sh
-        fi
-
-        # Load environment variables from a file
-        if [[ -e ~/.env ]]; then
-          . ~/.env
         fi
 
         # mise (runtime version manager - replaces asdf)
@@ -605,9 +604,9 @@ in
         # tmux-plugin-manager
         export PATH="$HOME/.tmux/plugins/t-smart-tmux-session-manager/bin:$PATH"
 
-        # local secrets
-        if [ -f "$HOME/.config/secrets/jotta-npm-token" ]; then
-          export NPM_TOKEN="$(cat "$HOME/.config/secrets/jotta-npm-token")"
+        # Google Cloud CLI
+        if [[ -e /opt/homebrew/share/google-cloud-sdk ]]; then
+          export PATH=/opt/homebrew/share/google-cloud-sdk/bin:"$PATH"
         fi
       '';
 
@@ -622,6 +621,12 @@ in
         eval "$(minikube docker-env)"
         if [[ -e $HOME/.distrobox ]]; then
           xhost +si:localuser:$USER
+        fi
+
+        # Interactive shell secrets are loaded after tmux autostart so the
+        # long-lived tmux server does not retain them.
+        if [[ -r "$HOME/.config/secrets/jotta-npm-token" ]]; then
+          export NPM_TOKEN="$(< "$HOME/.config/secrets/jotta-npm-token")"
         fi
 
         # Git worktree functions
