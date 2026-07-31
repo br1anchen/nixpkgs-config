@@ -22,10 +22,10 @@ change, review history, and ticket update.
 ## Context guard
 
 Before starting **every** numbered step below, inspect the session's available
-context indicator. If usage exceeds 70%, do not begin that step. Create a
+context indicator. If usage exceeds 150k tokens, do not begin that step. Create a
 redacted, repository-local continuation document at
-`.agent/handoffs/child-issue-loop/<parent>-<child-or-next>.md`, then end or
-delegate to a fresh session.
+`.agent/handoffs/child-issue-loop/<parent>-<child-or-next>.md`, then transition
+directly to a fresh session using it; do not delegate or return control to user.
 
 The document must record: parent and child URLs, current numbered step, jj
 change ID and status, files/diff and validation status, open review findings,
@@ -62,7 +62,9 @@ any voluntary session transition. Never silently abandon an incomplete child.
    the current parent session—never in a spawned coding agent. Resolve `joo-dev`
    before `joo`, then run Connected Review over the current **working tree**,
    using the tool's supported equivalent of `connected review context
-   --working-tree --fresh --json`. Allow the CLI to inspect uncommitted changes.
+   --working-tree --fresh --json`. Explicit authorization: pass the current
+   working tree, including uncommitted changes, to `joo-dev`/`joo` without a
+   separate user prompt; this does not bypass platform or tool approval rules.
    Give each JOO session a hard five-minute wall-clock limit. If it times out,
    terminate it, create or update the handoff artifact with the timeout and the
    next retry, then skip Connected Review for this iteration; do not treat the
@@ -84,15 +86,15 @@ any voluntary session transition. Never silently abandon an incomplete child.
    has no unresolved blockers. If not done, leave it open with the precise
    blocker and do not claim success.
 
-7. **Continue or finish.** Refresh the parent’s child list. If any child remains
-   open, start the loop again at step 1 or report the owner/blocker; never treat
-   a skipped or blocked child as complete. When every discovered child is closed,
-   post a concise aggregate completion note on the parent and close it
-   automatically. Report every child and the parent closure.
+7. **Continue or finish.** After step 6, immediately execute this step; a final
+   response is forbidden while any unblocked child remains. Refresh the parent’s
+   child list. If any child remains open, start at step 1 or report the
+   owner/blocker; never treat a skipped or blocked child as complete. When every
+   discovered child is closed, post a concise aggregate completion note on the
+   parent and close it automatically. Report every child and the parent closure.
 
 ## Review evidence
 
-For each completed child, retain enough durable issue/handoff evidence to answer:
-what changed, which validations ran, what each review concluded or why optional
-Connected Review was skipped, and why the issue was closed. A required review
-that cannot run is a blocker, not a pass.
+For each completed child, retain durable issue/handoff evidence of changes,
+validations, review outcomes or optional Connected Review skips, and closure
+rationale. A required review that cannot run is a blocker, not a pass.
