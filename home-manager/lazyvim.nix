@@ -18,7 +18,7 @@
   };
 
   xdg.configFile.nvim = {
-    source = ~/nixpkgs-config/config/lazyvim;
+    source = ../config/lazyvim;
     recursive = true;
   };
 }
