@@ -25,6 +25,9 @@ let
 
     keys = {
       prefix = "ctrl+a";
+      previous_agent = "prefix+alt+p";
+      next_agent = "prefix+alt+n";
+      focus_agent = "prefix+alt+1..9";
       command = [
         {
           key = "ctrl+h";

@@ -55,9 +55,11 @@ Use Pi's `/tree` command to branch a conversation. Plannotator intercepts
 plans for review; run it explicitly for a final code or diff review before a
 commit or handoff.
 
-Herdr keeps `Ctrl-a` as its prefix. Direct `Ctrl-h/j/k/l` navigation crosses
-Neovim splits and Herdr panes. The same mappings fall back to tmux when tmux
-is launched manually.
+Herdr keeps `Ctrl-a` as its prefix. Press `Ctrl-a`, then `Alt-p` or `Alt-n` to
+cycle through detected agent sessions only; `Alt-1` through `Alt-9` focuses an
+agent by its sidebar index. Direct `Ctrl-h/j/k/l` navigation crosses Neovim
+splits and Herdr panes. The same mappings fall back to tmux when tmux is
+launched manually.
 
 Useful fallbacks:
 
