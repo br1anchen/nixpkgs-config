@@ -39,6 +39,11 @@
 
   # nix settings...use only for single user installs
   nix = {
+    gc = {
+      automatic = true;
+      dates = "daily";
+      options = "--delete-older-than 14d";
+    };
     package = pkgs.nixVersions.stable;
     settings = {
       experimental-features = [
