@@ -16,6 +16,26 @@
     force = true;
   };
 
+  home.file.".agents/skills/git-epic-worktree" = {
+    source = ../config/agents/skills/git-epic-worktree;
+    force = true;
+  };
+
+  home.file.".agents/skills/grill-with-types" = {
+    source = ../config/agents/skills/grill-with-types;
+    force = true;
+  };
+
+  home.file.".agents/skills/jj-epic-workspace" = {
+    source = ../config/agents/skills/jj-epic-workspace;
+    force = true;
+  };
+
+  home.file.".agents/skills/unit-testing-best-practices" = {
+    source = ../config/agents/skills/unit-testing-best-practices;
+    force = true;
+  };
+
   xdg.configFile.opencode = {
     source = ../config/opencode;
     recursive = true;
