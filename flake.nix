@@ -2,6 +2,8 @@
   description = "Brian's nixpkgs configuration for macOS and Arch Linux";
 
   inputs = {
+    self.submodules = true;
+
     # Nixpkgs
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
 
@@ -9,7 +11,18 @@
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
-    # TODO: Add any other flake you might need
+    # Agent workflow
+    herdr = {
+      url = "git+https://github.com/herdrdev/herdr?ref=refs/tags/v0.7.5&submodules=1";
+    };
+    plannotator-src = {
+      url = "github:backnotprop/plannotator/v0.25.1";
+      flake = false;
+    };
+    vim-herdr-navigation-src = {
+      url = "github:paulbkim-dev/vim-herdr-navigation/820d48f5d9c9a7dece6a4bebfa3982ec30bbfbb7";
+      flake = false;
+    };
 
     # Shameless plug: looking for a way to nixify your themes and make
     # everything match nicely? Try nix-colors!
@@ -32,9 +45,6 @@
         "aarch64-darwin"
         "x86_64-darwin"
       ];
-
-      # Get current username from environment
-      currentUser = builtins.getEnv "USER";
 
       # Determine home directory based on system type
       mkHomeDirectory =
@@ -68,8 +78,9 @@
       # Helper function to create home-manager configurations
       mkHome =
         {
-          username ? currentUser,
+          username,
           system,
+          agentWorkflow ? true,
         }:
         let
           isDarwin = nixpkgs.lib.hasSuffix "darwin" system;
@@ -77,7 +88,11 @@
         home-manager.lib.homeManagerConfiguration {
           pkgs = legacyPackages.${system};
           extraSpecialArgs = {
-            inherit inputs isDarwin;
+            inherit
+              agentWorkflow
+              inputs
+              isDarwin
+              ;
           };
           modules = (builtins.attrValues homeManagerModules) ++ [
             {
@@ -112,6 +127,33 @@
         default = legacyPackages.${system}.callPackage ./shell.nix { };
       });
 
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = legacyPackages.${system};
+          herdrSupported = builtins.elem system [
+            "aarch64-linux"
+            "x86_64-linux"
+            "aarch64-darwin"
+          ];
+          plannotatorSupported = builtins.elem system [
+            "aarch64-linux"
+            "x86_64-linux"
+            "aarch64-darwin"
+            "x86_64-darwin"
+          ];
+        in
+        {
+          inherit (pkgs) pi-coding-agent plannotator-pi-extension vim-herdr-navigation;
+        }
+        // nixpkgs.lib.optionalAttrs herdrSupported {
+          herdr = inputs.herdr.packages.${system}.herdr;
+        }
+        // nixpkgs.lib.optionalAttrs plannotatorSupported {
+          inherit (pkgs) plannotator;
+        }
+      );
+
       nixosConfigurations = {
         "br1anchen@dune" = nixpkgs.lib.nixosSystem {
           pkgs = legacyPackages.x86_64-linux;
@@ -124,19 +166,24 @@
         };
       };
 
-      # Home configurations - uses current $USER by default
+      # Home configurations use explicit usernames so pure evaluation works.
       # Usage: home-manager switch --flake .#darwin (macOS)
       #        home-manager switch --flake .#linux (Linux)
       #        home-manager switch --flake .#deck (Steam Deck with explicit username)
       homeConfigurations = {
-        # Generic configurations that use current $USER
-        "darwin" = mkHome { system = "aarch64-darwin"; };
-        "linux" = mkHome { system = "x86_64-linux"; };
+        "darwin" = mkHome {
+          username = "br1anchen";
+          system = "aarch64-darwin";
+        };
+        "linux" = mkHome {
+          username = "brian";
+          system = "x86_64-linux";
+        };
 
-        # Legacy/explicit configurations for specific users
         "deck" = mkHome {
           username = "deck";
           system = "x86_64-linux";
+          agentWorkflow = false;
         };
       };
     };

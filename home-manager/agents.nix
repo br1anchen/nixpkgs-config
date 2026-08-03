@@ -3,9 +3,13 @@
 { ... }:
 
 {
-  home.file.".codex" = {
-    source = ../config/codex;
-    recursive = true;
+  home.file.".codex/AGENTS.md" = {
+    source = ../config/codex/AGENTS.md;
+    force = true;
+  };
+
+  home.file.".codex/RTK.md" = {
+    source = ../config/codex/RTK.md;
     force = true;
   };
 
@@ -36,8 +40,6 @@
     force = true;
   };
 
-  xdg.configFile.opencode = {
-    source = ../config/opencode;
-    recursive = true;
-  };
+  xdg.configFile."opencode/AGENTS.md".source = ../config/opencode/AGENTS.md;
+  xdg.configFile."opencode/opencode.json".source = ../config/opencode/opencode.json;
 }

@@ -16,7 +16,9 @@
     ./git.nix
     ./lazyvim.nix
     ./shell.nix
+    ./worktrees.nix
     ./agents.nix
+    ./agent-workflow.nix
     ./tmux.nix
     ./gitui.nix
     ./alacritty.nix

@@ -1,16 +1,9 @@
 # Ghostty settings
 
-{
-  config,
-  lib,
-  ...
-}:
+{ ... }:
 
 {
 
-  xdg.configFile.ghostty = {
-    source = ../config/ghostty;
-    recursive = true;
-  };
+  xdg.configFile."ghostty/config".text = builtins.readFile ../config/ghostty/config;
 
 }

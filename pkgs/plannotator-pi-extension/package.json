@@ -1,0 +1,9 @@
+{
+  "name": "plannotator-pi-extension-env",
+  "version": "0.25.1",
+  "private": true,
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@plannotator/pi-extension": "0.25.1"
+  }
+}

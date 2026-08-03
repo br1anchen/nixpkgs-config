@@ -1,9 +1,18 @@
 # When you add custom packages, list them here
 # These are similar to nixpkgs packages
-{ pkgs }:
+{
+  inputs,
+  pkgs,
+}:
 {
   # example = pkgs.callPackage ./example { };
+  pi-coding-agent = pkgs.callPackage ./pi-coding-agent { };
+  plannotator = pkgs.callPackage ./plannotator { };
+  plannotator-pi-extension = pkgs.callPackage ./plannotator-pi-extension { };
   rtk = pkgs.callPackage ./rtk { };
   "safe-chain" = pkgs.callPackage ./safe-chain { };
+  vim-herdr-navigation = pkgs.callPackage ./vim-herdr-navigation {
+    src = inputs.vim-herdr-navigation-src;
+  };
   weave = pkgs.callPackage ./weave { };
 }
