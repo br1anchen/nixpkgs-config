@@ -25,8 +25,8 @@ let
 
     keys = {
       prefix = "ctrl+a";
-      previous_agent = "prefix+alt+p";
-      next_agent = "prefix+alt+n";
+      previous_agent = "prefix+[";
+      next_agent = "prefix+]";
       focus_agent = "prefix+alt+1..9";
       command = [
         {
@@ -56,7 +56,10 @@ let
       ];
     };
 
-    ui.copy_on_select = true;
+    ui = {
+      copy_on_select = true;
+      sidebar_start_collapsed = true;
+    };
 
     session.resume_agents_on_restore = true;
     worktrees.directory = "~/.herdr/worktrees";
