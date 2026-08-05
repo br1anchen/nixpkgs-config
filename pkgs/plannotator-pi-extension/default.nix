@@ -20,6 +20,17 @@ buildNpmPackage {
     runHook preInstall
     mkdir -p "$out/lib"
     cp -R node_modules "$out/lib/node_modules"
+
+    # Default review engine in plannotator's review UI currently starts at Claude.
+    # Keep this in sync with plannotator runtime defaults by forcing codex here.
+    local extension_dir="$out/lib/node_modules/@plannotator/pi-extension"
+    local review_ui="$extension_dir/review-editor.html"
+    if [ -f "$review_ui" ]; then
+      substituteInPlace "$review_ui" --replace \
+        'reviewEngine:"claude",reviewProfileByEngine' \
+        'reviewEngine:"codex",reviewProfileByEngine'
+    fi
+
     runHook postInstall
   '';
 
