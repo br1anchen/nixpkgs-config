@@ -113,5 +113,7 @@
     nerd-fonts.fira-code
     watchexec
     starship # Fancy shell that works with zsh
+    podman
+    tailscale
   ];
 }

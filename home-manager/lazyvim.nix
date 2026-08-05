@@ -7,6 +7,8 @@
   home.packages = with pkgs; [
     luajitPackages.luarocks
     nixfmt-rfc-style
+    pyright
+    ruff
     statix
     code-minimap
     tree-sitter
