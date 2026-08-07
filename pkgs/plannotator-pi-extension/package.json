@@ -3,7 +3,7 @@
   "version": "0.25.1",
   "private": true,
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "0.83.0",
+    "@earendil-works/pi-coding-agent": "0.84.1",
     "@plannotator/pi-extension": "0.25.1"
   }
 }

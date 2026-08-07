@@ -7,10 +7,26 @@
 }:
 
 let
-  version = "0.83.0";
+  version = "0.84.1";
+  srcHash = "sha512-ncAqFrG+iybuPGOhMiZoEHkEzTpJgz3guYD32pD+M7ucc0WeHmauP6wa7qwP8V/KWvsZDVNa5XGsdZ7fkC7w7A==";
+  # npm's shrinkwrap omits integrity fields for these workspace packages.
+  missingIntegrity = {
+    "@earendil-works/pi-agent-core" =
+      "sha512-evyzXYWCLQGmcaBYHlmSku02r8qoN4SGI60GZABo6iV+H+nqX+P9ud8fEZ4GmRq9mUSREvvfX+w9dA9ThF9C6w==";
+    "@earendil-works/pi-ai" =
+      "sha512-wMsAdJMxuNri08vLqTyYVI201DQQezGhPSTkzYsHdw5dYX3rCNwEmSvpaAwhi7ELKI/2tE/CEgSWg/6iRxSgdQ==";
+    "@earendil-works/pi-client" =
+      "sha512-/V5hGHE4Zq+jG0GtwIB9PyBUOGd6gBLZ7lkQYFKchKnxYHeH3rmWC5xw4kpnZKKBuBuFTdLVbU9vEjlAGMMb2A==";
+    "@earendil-works/pi-protocol" =
+      "sha512-Ox1pciyeSPGEEUcxvR0/dJcrY7C6hrEGA8y71rOsvSIUlXN1Cbp/be/eoL71OGDBk5O97TeQPfWN6Ju/2Ehjww==";
+    "@earendil-works/pi-telemetry" =
+      "sha512-180/xGJtsq7IoR3p9EKWjRd0e9M4DkxInhlo9xyD7prDC7Qrhqq+nhvwrW0lFjPfXcEI2FSHmGCSyvSJE9GsaQ==";
+    "@earendil-works/pi-tui" =
+      "sha512-udeXFbgEhJ6JiB0uguwNVNkDy2FENfmtQwPcY+/iJ8GWeq18wkal1tKqa5YyeH0IqtX1vG0cGh8zfSYzyzVuLA==";
+  };
   src = fetchurl {
     url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${version}.tgz";
-    hash = "sha512-uYhF+FsZxogoSX/AxBcUdiY+ZklubwaXyAoEGA2eQwsHcyEAhUYIKh/WLXe/a8+k8eTCmxb+ZN2Zo9mzQtzbWw==";
+    hash = srcHash;
   };
   patchPackage = ''
     node -e '
@@ -18,23 +34,24 @@ let
       const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
       delete pkg.devDependencies;
       fs.writeFileSync("package.json", JSON.stringify(pkg, null, 2));
+
+      const integrities = ${builtins.toJSON missingIntegrity};
+      let lockText = fs.readFileSync("npm-shrinkwrap.json", "utf8");
+      const lock = JSON.parse(lockText);
+      for (const [path, dependency] of Object.entries(lock.packages)) {
+        if (!dependency.resolved || dependency.integrity) continue;
+        const name = path.slice(path.lastIndexOf("node_modules/") + "node_modules/".length);
+        if (!integrities[name]) throw new Error("Missing integrity for " + name);
+        const resolved = "\"resolved\": \"" + dependency.resolved + "\",";
+        lockText = lockText.replace(resolved, resolved + " \"integrity\": \"" + integrities[name] + "\",");
+      }
+      fs.writeFileSync("package-lock.json", lockText);
     '
-    cp npm-shrinkwrap.json package-lock.json
-    substituteInPlace package-lock.json \
-      --replace-fail \
-        '"resolved": "https://registry.npmjs.org/@earendil-works/pi-agent-core/-/pi-agent-core-0.83.0.tgz",' \
-        '"resolved": "https://registry.npmjs.org/@earendil-works/pi-agent-core/-/pi-agent-core-0.83.0.tgz", "integrity": "sha512-RorGp9OH5l3ElpuC5a5ZQ2eWcchZGXflXRzVGkV99y3y6tT+LLNyxoYIdVKvTKWEObwhExeQbTH0fI2tE4iX4g==",' \
-      --replace-fail \
-        '"resolved": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.83.0.tgz",' \
-        '"resolved": "https://registry.npmjs.org/@earendil-works/pi-ai/-/pi-ai-0.83.0.tgz", "integrity": "sha512-m3IZD4g3er0V8TC9+Vpgw/sjTKqcJlkcIBy/JvsgRubuuik3tAVzyugUg4rVrShIkkOT69mEd34NEqKUIsl6JQ==",' \
-      --replace-fail \
-        '"resolved": "https://registry.npmjs.org/@earendil-works/pi-tui/-/pi-tui-0.83.0.tgz",' \
-        '"resolved": "https://registry.npmjs.org/@earendil-works/pi-tui/-/pi-tui-0.83.0.tgz", "integrity": "sha512-IoYrb0rORjELmEpNtoCA/U8je3KopMkRAVJRdSzvXRvgb+Huo1gNh8Q5CSZvNOiYtDxJdj2tYZZHZ4B3+IN3hA==",'
   '';
   npmDeps = fetchNpmDeps {
     name = "pi-coding-agent-${version}-npm-deps";
     inherit src;
-    hash = "sha256-wTCScQKzP5OBc9v/Q+JRhuu1HvN+UO4LhjW6c7dIty0=";
+    hash = "sha256-Iz4+IUuKP+wsMiO316ws6RxEo2magnQUXX8MvDOpkAM=";
     nativeBuildInputs = [ nodejs_24 ];
     postPatch = patchPackage;
   };
