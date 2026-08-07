@@ -7,6 +7,7 @@
 {
   # example = pkgs.callPackage ./example { };
   pi-coding-agent = pkgs.callPackage ./pi-coding-agent { };
+  prime-agent = pkgs.callPackage ./prime-agent { };
   plannotator = pkgs.callPackage ./plannotator { };
   plannotator-pi-extension = pkgs.callPackage ./plannotator-pi-extension { };
   rtk = pkgs.callPackage ./rtk { };
