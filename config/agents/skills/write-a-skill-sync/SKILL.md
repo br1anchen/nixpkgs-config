@@ -1,74 +1,79 @@
 ---
 name: write-a-skill-sync
-description: Creates or migrates agent skills into a versioned project or system location, then verifies their runtime exposure. Use when adding, writing, or migrating a Pi skill and choosing between project-level (`./.agent/skills`) and system-level (`~/nixpkgs-config/config/agents/skills`) placement.
+description: Creates or migrates agent skills into a versioned location and verifies how they are exposed. Use when adding a new Pi skill and choosing between project-level (`./.agent/skills`) and system-level (`~/nixpkgs-config/config/agents/skills`) placement.
 ---
 
 # Write a Skill and Sync It
 
 ## Choose scope first
 
-Before drafting, ask `project` or `system`. Do not infer scope unless the user
-explicitly names the destination.
+Before drafting, ask `project` or `system`.
 
 - **Project:** `./.agent/skills/<name>/`
 - **System:** `~/nixpkgs-config/config/agents/skills/<name>/`
 
 ## Gather requirements
 
-Ask for the task or domain, concrete triggers and use cases, required reference
-materials, and whether a deterministic helper script is needed. Inspect related
-skills before duplicating their scope.
+Ask for:
+- task/domain
+- concrete use cases
+- reference materials
+- whether a deterministic helper script is needed
+
+Inspect related skills before creating a duplicate.
 
 ## Draft the skill
 
-Use the scaffold when creating a new skill:
+Use this structure:
+
+```md
+name: skill-name
+description: "Clear one-line capability. Use when ..."
+```
+
+```text
+<skill-name>/
+├── SKILL.md           # required
+├── REFERENCE.md       # optional
+├── EXAMPLES.md        # optional
+└── scripts/           # optional deterministic helpers
+```
+
+### SKILL.md requirements
+- `name` must be lowercase hyphenated
+- `description` first sentence states capability; second sentence says `Use when ...`
+- `description` <= 1024 chars
+- Prefer concise, one-level split docs when needed
+- Add scripts only for deterministic, repeated operations
+
+## Deterministic scaffold
+
+Use:
 
 ```bash
 ~/nixpkgs-config/config/agents/skills/write-a-skill-sync/scripts/new-skill.sh \
   --scope <project|system> --name <slug>
 ```
 
-Keep the skill directory focused:
+## Scope behavior
 
-```text
-<skill-name>/
-├── SKILL.md           # required, concise instructions
-├── REFERENCE.md       # optional detailed material
-├── EXAMPLES.md        # optional examples
-└── scripts/           # optional deterministic helpers
-```
+### Project
+- write to `./.agent/skills/<name>/`
+- keep local to repo unless asked to promote
 
-`SKILL.md` must have frontmatter with a lowercase hyphenated `name` and a
-third-person `description` under 1024 characters. The description's first
-sentence states the capability; its second says `Use when ...` with specific
-triggers. It is the only text used to decide whether to load the skill.
+### System
+- write to `~/nixpkgs-config/config/agents/skills/<name>/`
+- ensure system wiring exports all `config/agents/skills/*` into `~/.agents/skills`
+- ensure symlinks:
+  - `~/.agent/skills -> ~/.agents/skills`
+  - `~/.claude/skills -> ~/.agents/skills`
+- then run:
+  - `home-manager switch --flake ~/nixpkgs-config#darwin` (or host profile)
 
-Keep `SKILL.md` under 100 lines when practical. Move distinct or rarely needed
-detail into a one-level-deep reference. Add scripts only for repeatable,
-deterministic work or explicit error handling.
+## Review and publish checklist
 
-## Review and publish
-
-Present the draft for user review: confirm covered use cases, unclear guidance,
-and missing edge cases. Then verify:
-
-- `SKILL.md` has a precise description and no time-sensitive instructions.
-- Terminology is consistent and examples are concrete.
-- Any referenced files exist and are only one level deep.
-- Scripts are executable and have a deterministic interface.
-
-For **system** scope, verify `home-manager/agents.nix` imports every directory
-under `config/agents/skills` into `~/.agents/skills` and creates
-`~/.agent/skills -> ~/.agents/skills`. Apply the configuration:
-
-```bash
-home-manager switch --flake ~/nixpkgs-config#darwin
-```
-
-Use the appropriate host profile when it is not `darwin`. Confirm the installed
-skill is visible under `~/.agents/skills/<name>/SKILL.md` and through the
-`~/.agent/skills` symlink.
-
-For **project** scope, confirm the repository's agent discovers
-`./.agent/skills/<name>/`; do not publish it to the system location unless the
-user asks.
+- [ ] Scope confirmed explicitly (`project` or `system`).
+- [ ] Skill written to selected path.
+- [ ] `description` includes clear capability + `Use when ...` and is <= 1024 chars.
+- [ ] `home-manager/agents.nix` wiring is present.
+- [ ] For system scope, both symlinks are in place (`~/.agent/skills`, `~/.claude/skills`).

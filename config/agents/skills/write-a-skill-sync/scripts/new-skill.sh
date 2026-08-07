@@ -10,7 +10,7 @@ Creates the skill scaffold under:
   project: ./.agent/skills/<skill-name>/
   system:  ~/nixpkgs-config/config/agents/skills/<skill-name>/
 
-After system scope, verifies/ensures ~/.agent/skills symlink to ~/.agents/skills.
+After system scope, verifies/ensures ~/.agent/skills and ~/.claude/skills symlink to ~/.agents/skills.
 EOF
 }
 
@@ -104,11 +104,16 @@ if [[ "$scope" == "system" ]]; then
     if ! grep -q 'ln -sfn "$HOME/.agents/skills" "$HOME/.agent/skills"' "$hm_file"; then
       echo "warning: agents.nix does not contain ~/.agent/skills symlink activation step." >&2
     fi
+    if ! grep -q 'ln -sfn "$HOME/.agents/skills" "$HOME/.claude/skills"' "$hm_file"; then
+      echo "warning: agents.nix does not contain ~/.claude/skills symlink activation step." >&2
+    fi
   fi
 
-  mkdir -p "$HOME/.agent"
+  mkdir -p "$HOME/.agent" "$HOME/.claude"
   ln -sfn "$HOME/.agents/skills" "$HOME/.agent/skills"
+  ln -sfn "$HOME/.agents/skills" "$HOME/.claude/skills"
   echo "Ensured ~/.agent/skills -> ~/.agents/skills"
+  echo "Ensured ~/.claude/skills -> ~/.agents/skills"
   echo "Run: home-manager switch --flake ~/nixpkgs-config#darwin (or host profile)"
 fi
 
