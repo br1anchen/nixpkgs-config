@@ -297,8 +297,10 @@ in
         CARGO_PATH="$HOME/.cargo/bin"
         export PATH="$CARGO_PATH:$PATH"
 
-        # Bob
-        export PATH="$HOME/.local/share/bob/nvim-bin:$PATH"
+        # Bob stores the active version in `used`; add that version's Neovim binary.
+        if [[ -f "$HOME/.local/share/bob/used" ]]; then
+          export PATH="$HOME/.local/share/bob/$(<"$HOME/.local/share/bob/used")/bin:$PATH"
+        fi
 
         # Flutter/Android
         if command -v brew >/dev/null; then
