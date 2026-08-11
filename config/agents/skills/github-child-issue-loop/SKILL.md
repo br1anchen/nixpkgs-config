@@ -1,6 +1,6 @@
 ---
 name: github-child-issue-loop
-description: Resolves every open GitHub child issue of a parent issue through implementation, review, jj commits, issue closure, and a forced fresh-session handoff after each closed child. Use when asked to work through a parent GitHub issue's child or sub-issues, execute an issue-resolution loop, or finish all child tickets.
+description: Resolves every open GitHub child issue of a parent issue through implementation, defensive-code cleanup, review, jj commits, issue closure, and a forced fresh-session handoff after each closed child. Use when asked to work through a parent GitHub issue's child or sub-issues, execute an issue-resolution loop, or finish all child tickets.
 ---
 
 # GitHub Child-Issue Loop
@@ -34,7 +34,8 @@ platform-specific launch rules in step 7.
 The document must record: parent and child URLs, current numbered step, jj
 change ID and status, files/diff and validation status, open review findings,
 the next exact action, and suggested skills (`github-child-issue-loop`,
-`onevcat-jj`, and any review skill still needed). Reference existing artifacts
+`onevcat-jj`, `defensive-code-cleaner` when its clean review is still pending,
+and any other review skill still needed). Reference existing artifacts
 instead of copying them and exclude secrets/PII. This intentionally adapts the
 `handoff` format for a repo-local artifact; commit it only when project policy
 calls for durable operational artifacts.
@@ -56,12 +57,18 @@ continue it over the limit in the old session.
    child fully, and run the smallest relevant validation. Keep unrelated working
    tree changes out of the child change; do not overwrite another agent's work.
 
-3. **Thermo-nuclear review loop.** Invoke
-   `thermo-nuclear-code-quality-review` against the current child change. Treat
-   structural findings as blockers: fix them, rerun relevant validation, and
-   review again. Repeat until a fresh review has no actionable findings. Do not
-   dismiss a finding merely to finish the loop; record a justified non-actionable
-   result when applicable.
+3. **Required review loops.** Invoke both
+   `thermo-nuclear-code-quality-review` and `defensive-code-cleaner` against the
+   current child change. The defensive-code review is read-only: evaluate its
+   proof chains and remove only high-confidence unnecessary defenses. Preserve
+   boundary validation, intentional assertions, narrowing, cleanup, telemetry,
+   and handling for real failure modes. Treat actionable structural findings and
+   proven high-confidence defensive-code findings as blockers. Fix them, rerun
+   relevant validation, then invoke both reviews again. Repeat until fresh
+   reviews report no actionable structural findings and no high-confidence
+   defensive-code removals. Do not dismiss a finding merely to finish the loop;
+   record justified non-actionable results and any medium- or low-confidence
+   candidates that still need verification.
 
 4. **Optional Connected Review loop.** When used, invoke `connected-review` in
    the child-owning coding session, never in a review subagent or transition
@@ -81,7 +88,8 @@ continue it over the limit in the old session.
    findings.
 
 5. **Commit.** Recheck the child acceptance criteria, validation, the clean
-   thermo-nuclear review outcome, and any completed Connected Review outcome.
+   thermo-nuclear and defensive-code review outcomes, and any completed
+   Connected Review outcome.
    Use `jj describe`/`jj commit` to finalize one focused change for the child.
    Inspect `jj log` and `jj diff` to verify it contains neither unrelated changes
    nor an empty implementation.
@@ -128,5 +136,6 @@ continue it over the limit in the old session.
 ## Review evidence
 
 For each completed child, retain durable issue/handoff evidence of changes,
-validations, review outcomes or optional Connected Review skips, and closure
-rationale. A required review that cannot run is a blocker, not a pass.
+validations, thermo-nuclear and defensive-code review outcomes, optional
+Connected Review outcomes or skips, and closure rationale. A required review
+that cannot run is a blocker, not a pass.
