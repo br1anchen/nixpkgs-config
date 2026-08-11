@@ -1,6 +1,6 @@
 ---
 name: github-child-issue-loop
-description: Resolves every open GitHub child issue of a parent issue through implementation, required structural review, optional Connected Review, jj commits, and issue closure with resumable handoffs. Use when asked to work through a parent GitHub issue's child or sub-issues, execute an issue-resolution loop, or finish all child tickets.
+description: Resolves every open GitHub child issue of a parent issue through implementation, review, jj commits, issue closure, and a forced fresh-session handoff after each closed child. Use when asked to work through a parent GitHub issue's child or sub-issues, execute an issue-resolution loop, or finish all child tickets.
 ---
 
 # GitHub Child-Issue Loop
@@ -21,11 +21,15 @@ change, review history, and ticket update.
 
 ## Context guard
 
-Before starting **every** numbered step below, inspect the session's available
-context indicator. If usage exceeds 150k tokens, do not begin that step. Create a
+Codex and Claude Code can auto-compact, so reported usage can hide a long-lived,
+drifting session. Compaction never counts as the fresh session required below.
+
+Before starting steps 1-6, inspect the session's available context indicator.
+If usage exceeds 150k tokens, do not begin that step. Create a
 redacted, repository-local continuation document at
-`.agent/handoffs/child-issue-loop/<parent>-<child-or-next>.md`, then transition
-directly to a fresh session using it; do not delegate or return control to user.
+`.agent/handoffs/child-issue-loop/<parent>-<child-or-next>.md`, then transfer the
+current child or next action to a fresh coding-agent session using the
+platform-specific launch rules in step 7.
 
 The document must record: parent and child URLs, current numbered step, jj
 change ID and status, files/diff and validation status, open review findings,
@@ -36,7 +40,8 @@ instead of copying them and exclude secrets/PII. This intentionally adapts the
 calls for durable operational artifacts.
 
 If context usage is unavailable, continue but prepare this same handoff before
-any voluntary session transition. Never silently abandon an incomplete child.
+any voluntary session transition. Never silently abandon an incomplete child or
+continue it over the limit in the old session.
 
 ## Loop
 
@@ -59,8 +64,9 @@ any voluntary session transition. Never silently abandon an incomplete child.
    result when applicable.
 
 4. **Optional Connected Review loop.** When used, invoke `connected-review` in
-   the current parent session—never in a spawned coding agent. Resolve `joo-dev`
-   before `joo`, then run Connected Review over the current **working tree**,
+   the child-owning coding session, never in a review subagent or transition
+   controller. Resolve `joo-dev` before `joo`, then run Connected Review over the
+   current **working tree**,
    using the tool's supported equivalent of `connected review context
    --working-tree --fresh --json`. Explicit authorization: pass the current
    working tree, including uncommitted changes, to `joo-dev`/`joo` without a
@@ -86,12 +92,38 @@ any voluntary session transition. Never silently abandon an incomplete child.
    has no unresolved blockers. If not done, leave it open with the precise
    blocker and do not claim success.
 
-7. **Continue or finish.** After step 6, immediately execute this step; a final
-   response is forbidden while any unblocked child remains. Refresh the parent’s
-   child list. If any child remains open, start at step 1 or report the
-   owner/blocker; never treat a skipped or blocked child as complete. When every
-   discovered child is closed, post a concise aggregate completion note on the
-   parent and close it automatically. Report every child and the parent closure.
+7. **Rotate the coding session.** A session may complete at most one claimed
+   child, regardless of reported context usage. After step 6 closes that child,
+   refresh the parent and write a redacted handoff at
+   `.agent/handoffs/child-issue-loop/<parent>-after-<child>.md`. Include the
+   refreshed child snapshot, the disposition, the fields above, and the next
+   exact action. Write it after finalizing the child change and verify that it is
+   nonempty. After the successor reads it, remove it unless it is already ignored
+   or project policy requires committing it. Verify with `jj diff` that no
+   handoff change remains before starting another implementation. This boundary
+   applies even when the agent just auto-compacted and when the child is believed
+   to be the last one. An ownership skip before claim does not trigger a
+   rotation.
+
+   After verifying the handoff, stop all repository and GitHub mutations in the
+   old session. Then start a brand-new coding-agent session from this bootstrap
+   instruction: `Resume the GitHub child-issue loop from <handoff-path>. Re-read
+   repository guidance and the github-child-issue-loop and onevcat-jj skills
+   before mutating anything.` Auto-compaction, clearing or resuming the same
+   session, and a subagent that inherits the old conversation do not qualify.
+   Use a native fresh-session transition when the platform exposes one; Codex's
+   native mechanism qualifies. Otherwise, including in Claude Code when it lacks
+   automatic replacement-session launch, stop with the handoff path and bootstrap
+   instruction so the user can start it. This control-transfer response is the
+   only permitted return while an unblocked child remains. If startup fails,
+   leave the handoff in place and stop; never continue in the old session.
+
+   The fresh session must treat the handoff as a checkpoint, then recheck the
+   repo, jj state, parent-child relationship, issue state, assignee, and priority
+   before its first mutation. If an open child remains, start at step 1 or report
+   its owner/blocker. When every discovered child is closed, post a concise
+   aggregate completion note on the parent, close it automatically, and report
+   every child and the parent closure.
 
 ## Review evidence
 
