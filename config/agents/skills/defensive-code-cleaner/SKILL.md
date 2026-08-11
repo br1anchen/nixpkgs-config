@@ -1,186 +1,75 @@
 ---
 name: defensive-code-cleaner
-description: Scans code in any programming language for unnecessary null checks, impossible error handling, redundant validation, and dead catch blocks, tracing data flow to prove each defense is unneeded before flagging it. Use when asked to find unnecessary defensive code, audit defensive programming, or remove validation noise without weakening boundary safety.
+description: Prevents and reviews unnecessary guards, nullable contracts, error paths, exports, and speculative abstractions in typed internal code across programming languages. Use when writing or reviewing defensive code, validation, fallbacks, optional values, or internal APIs.
 ---
 
 # Defensive code cleaner
 
-Identify defensive programming that adds complexity without protecting against a
-real risk. Support every programming language in the repository. Follow each
-language's actual type system, compiler or interpreter settings, error model,
-and framework contracts rather than assuming TypeScript semantics.
+Validate untrusted data once, convert it to a trusted representation, then trust the language's enforced internal contracts. Apply this skill while implementing code or as a read-only review. In review mode, report findings without editing.
 
-This is a read-only review. Never apply a removal automatically. Defensive-code
-cleanup has a high false-positive cost, so every finding needs a proof chain.
+## Core rule
 
-## What to find
+Before adding or keeping a defense, answer:
 
-1. Null, nil, `None`, missing-value, or optional checks on values proven present.
-2. Exception, error, or result handling around operations proven unable to fail.
-3. Validation repeated inside trusted code after an upstream boundary established
-   the same invariant.
-4. Empty or dead handlers that silently discard errors without an intentional
-   reason.
-5. Redundant boolean comparisons, default values, casts, assertions, and fallback
-   branches that cannot change behavior.
-6. Repeated guards made obsolete by control-flow narrowing, pattern matching,
-   constructors, validated types, or earlier checks.
+> What concrete runtime path can produce the invalid state this handles?
 
-Do not treat these patterns as findings until the surrounding data flow proves
-they are unnecessary.
+If no reachable path exists, do not add it. Recommend removal only when the configured toolchain and complete reachable data flow prove it unnecessary.
 
-## Review process
+## Trust model
 
-### 1. Discover the language guarantees
+Validate at real boundaries: user input, network data, deserialization, environment variables, files, IPC, FFI, unreliable libraries, plugins, and persisted data with an uncertain schema.
 
-Before scanning, inspect the repository and affected build targets:
-
-- Identify each language, version, compiler or interpreter, framework, and
-  relevant lint or static-analysis configuration.
-- Determine whether nullability, option types, exhaustiveness, checked errors,
-  contracts, assertions, and unreachable-code checks are enforced.
-- Read repository instructions and use the project's own tools. Prefer an AST,
-  language server, compiler, linter, or analyzer over text matching when one is
-  available.
-- Treat generated code, unsafe features, reflection, dynamic dispatch, foreign
-  function interfaces, deserialization, and unchecked casts as places where
-  compile-time guarantees may not hold at runtime.
-
-Examples of settings and models to inspect include strict nullability in
-TypeScript or Kotlin, nullable annotations in Java or C#, `Option` and `Result`
-in Rust, `Optional` and type-checker settings in Python, pointers and error
-returns in Go, optionals and throwing functions in Swift, and pointer ownership
-or exception settings in C and C++. This list is illustrative, not exhaustive.
-
-### 2. Scan for candidate patterns
-
-Adapt searches to the languages present. Candidate syntax often includes:
-
-| Pattern | Examples |
-|---------|----------|
-| Presence checks | `x != null`, `x is not None`, `if x != nil`, optional chaining, pointer checks, matching `Some`/`None` |
-| Error handling | `try`/`catch`, `try`/`except`, `do`/`catch`, ignored error returns, `match` on infallible results |
-| Empty handlers | empty `catch` or `except`, ignored `Result`, blank callbacks, catch-and-return-default |
-| Repeated validation | range, shape, state, type, or format checks already enforced by a caller or validated type |
-| Redundant expressions | `flag == true`, fallback on a required value, a cast to the inferred type, unreachable default branch |
-
-Text search only finds candidates. It does not prove redundancy. Avoid declaring
-code unnecessary from syntax alone.
-
-### 3. Trace data flow
-
-For every candidate:
-
-1. Read the declaration, type, constructor, schema, or contract that defines the
-   value or operation.
-2. Trace every reachable caller and producer. Record what they pass, return, or
-   guarantee.
-3. Check earlier guards, parsing, validation, pattern matching, and state
-   transitions along each path.
-4. Check framework and standard-library contracts for the exact configured
-   version.
-5. Identify trust boundaries such as user input, network responses, databases,
-   files, environment variables, IPC, plugins, and foreign code.
-6. Look for paths that bypass the claimed guarantee, including tests, reflection,
-   dependency injection, unsafe casts, mutation, concurrency, and partial
-   initialization.
-7. Confirm that removing the defense preserves observable behavior, including
-   logging, metrics, cleanup, retries, compatibility, and error translation.
-
-A type alone is not proof when runtime data can violate it. A caller-only proof
-is not enough if other callers can appear through a public API or dynamic
-mechanism.
-
-### 4. Classify the candidate
-
-| Evidence | Verdict |
-|----------|---------|
-| Language and control flow prove the value is present or the operation cannot fail; all paths are trusted | Flag as unnecessary |
-| The type or error model permits the checked case | Keep |
-| The value comes from an external or weakly typed boundary | Keep unless validated into a trusted representation first |
-| Compiler guarantees are disabled, bypassed, or contradicted by unsafe or dynamic code | Keep |
-| An upstream invariant covers every reachable path and cannot be bypassed | Flag as unnecessary |
-| The guard records telemetry, translates errors, performs cleanup, or documents a required assertion | Keep or report separately as intentional |
-| Evidence is incomplete | Do not recommend removal; list what must be verified |
-
-### 5. Score confidence
-
-- **High:** The language, configured tooling, and full call graph prove the
-  defense cannot affect behavior, with no external or unsafe path.
-- **Medium:** Strong evidence exists, but a public, dynamic, generated, or
-  boundary-adjacent path leaves a runtime assumption to verify.
-- **Low:** A heuristic suggests redundancy, but the data flow is incomplete or
-  crosses modules that cannot be inspected.
-
-Only recommend removal for high-confidence findings. Medium- and low-confidence
-candidates belong in a verification section, not a cleanup list.
-
-## Quality rules
-
-- Prove, do not guess. Show the declaration or contract, caller chain, configured
-  guarantee, and absence of a bypass.
-- Preserve validation at trust boundaries. Prefer parsing external data into a
-  validated domain type, then remove repeated checks only inside the trusted
-  region.
-- Distinguish narrowing from redundancy. Type tests, pattern matches, and
-  presence checks may establish the invariant used by later code.
-- Distinguish assertions from guards. An assertion may intentionally fail fast
-  or document a contract even when normal callers satisfy it.
-- Do not assume empty handlers are wrong. Optional features, best-effort cleanup,
-  probing, cancellation, and idempotent teardown may intentionally ignore an
-  error, though the intent should be clear.
-- Respect concurrency and mutation. A value proven valid at one point may change
-  before use.
-- Prefer the repository's terminology and language-specific idioms in suggested
-  code.
-
-## Report format
-
-````markdown
-## Defensive code report
-
-**Languages and guarantee settings:** <language/tooling summary>
-**Files scanned:** N
-**Findings:** N high-confidence removals
-
-### Flagged for review
-
-| File | Line | Pattern | Confidence | Proof |
-|------|------|---------|------------|-------|
-| path/to/file | 42 | `<exact code>` | High | <declaration -> callers -> configured guarantee -> no bypass> |
-
-### Verification needed
-
-- `path/to/file:line`: <candidate and the missing evidence preventing removal>
-
-### Intentionally kept
-
-- `path/to/file:line`: <defense> remains because <boundary, valid failure mode,
-  narrowing, side effect, or documented contract>.
-
-### Detailed reasoning
-
-**Finding:** `path/to/file:line`
-**Declaration or contract:** <evidence>
-**Callers and producers:** <evidence>
-**Toolchain guarantees:** <evidence>
-**Boundary and bypass check:** <evidence>
-**Behavior after removal:** <why behavior is unchanged>
-**Suggested removal:**
-
-```<language>
-<code after removal>
+```text
+untrusted value -> parse and validate -> trusted typed value -> internal code
 ```
 
-### Summary
+Inside compiler-checked code, trust non-null parameters, required fields, typed collections, enums, exhaustive matches, constructors, private functions, and values produced by validated boundaries. Do not spread uncertainty downstream through optional parameters, repeated guards, or fallback defaults.
 
-N findings, M high-confidence removals, K candidates needing verification, and
-J intentional defenses kept.
-````
+Trust only guarantees the project enforces. Account for permissive compiler settings, dynamic dispatch, reflection, unsafe casts, generated code, mutation, concurrency, and public extension points.
 
-If there are no proven removals, say so. Do not inflate the report with weak
-candidates.
+## Workflow
 
-Adapted from Jeremy Longshore's
-[`defensive-code-cleaner`](https://github.com/jeremylongshore/claude-code-plugins-plus-skills/blob/main/plugins/testing/code-cleanup/agents/defensive-code-cleaner.md)
-agent and rewritten as language-neutral guidance.
+1. **Inspect guarantees.** Identify languages, versions, compiler settings, error models, visibility rules, analyzers, and framework contracts. Prefer compilers, linters, language servers, or AST tools over text search.
+2. **Find candidates.** Check guards, validation, catches, defaults, optional values, error wrappers, exports, generic helpers, switches, overloads, compatibility paths, and abstractions.
+3. **Trace paths.** Read declarations, constructors, producers, and every reachable caller. Locate the claimed failure source and check for boundary, unsafe, dynamic, test, plugin, mutation, and concurrency bypasses.
+4. **Check behavior.** Preserve meaningful logging, metrics, cleanup, retries, compatibility, error translation, assertions, narrowing, and failure modes.
+5. **Classify.** Flag only high-confidence removals. Put incomplete proofs in "Verification needed" and state what evidence is missing.
+6. **Fix the contract.** Remove impossible-state handling, move validation to the boundary, require internal parameters, narrow visibility, or replace speculative abstractions with the smallest API current callers need. If runtime behavior contradicts the type, correct the type or boundary first.
+
+## Common findings
+
+- null checks, optional chaining, or defaults on guaranteed values
+- record, object, array, or primitive guards on already established types
+- `Option`, `Optional`, `Result`, or exception handling without a real absent or failure state
+- validation repeated after parsing into a trusted type
+- silent early returns or catch-all handlers for impossible states
+- optional parameters, switches, overloads, or generic helpers for hypothetical callers
+- exported symbols with no external consumer
+- assertions, casts, boolean comparisons, and fallbacks that cannot change reachable behavior
+
+For example, after `parse(raw) -> Config` validates a boundary, prefer `build(config: Config)` over `build(config?: Config)` plus another null check.
+
+## Language guidance
+
+Apply the rule idiomatically. Trust strict TypeScript types after parsing `unknown`; Rust structs, enums, ownership, and visibility; enforced non-null Kotlin, Swift, Java, and C# contracts; Go types and error returns; and configured Python type checkers. For C, C++, dynamic languages, FFI, or weak compiler settings, require stronger runtime evidence before removing a guard. Never assume one language's guarantees in another.
+
+## Valid exceptions
+
+Keep defenses for concrete risks such as unsafe code, unchecked casts, mutable shared state, old persisted schemas, partial migrations, runtime plugins, external interface implementations, known dependency violations, documented production failures, cancellation, or best-effort cleanup. Keep the check near the uncertainty and document how the invariant can fail when the reason is not obvious.
+
+## Review output
+
+Report:
+
+1. languages and enforced guarantee settings;
+2. high-confidence findings with file, line, exact code, contract, caller and producer chain, bypass check, behavior impact, and suggested fix;
+3. boundary or type corrections needed before cleanup;
+4. medium- or low-confidence candidates under "Verification needed";
+5. intentional defenses kept and the concrete risk each handles;
+6. totals for findings, verification items, and retained defenses.
+
+If nothing is proven unnecessary, say so. Do not inflate the report with syntax matches or hypothetical callers.
+
+Default to strong types, narrow contracts, boundary validation, and simple internal code. Add a branch, nullable value, fallback, export, or abstraction only when a current runtime path or requirement needs it.
+
+Adapted from Jeremy Longshore's [`defensive-code-cleaner`](https://github.com/jeremylongshore/claude-code-plugins-plus-skills/blob/main/plugins/testing/code-cleanup/agents/defensive-code-cleaner.md) and combined with `trust-internal-types` guidance.
