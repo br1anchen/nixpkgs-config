@@ -111,6 +111,20 @@ let
     ps -u "$USER" | grep '[n]eovim' | awk '{print $2}' | xargs -r kill -TERM
   '';
 
+  # Remove old temporary directories leaked by `nix develop`.
+  nixTempGc = pkgs.writeShellApplication {
+    name = "nix-temp-gc";
+    runtimeInputs =
+      with pkgs;
+      [
+        coreutils
+        findutils
+        lsof
+      ]
+      ++ lib.optionals stdenv.isLinux [ procps ];
+    text = builtins.readFile ../config/nix-temp-gc.sh;
+  };
+
   safeChain = pkgs."safe-chain";
 
   scripts = [
@@ -124,6 +138,7 @@ let
     ghClone
     glabClone
     killAllNvim
+    nixTempGc
     safeChain
   ];
 
@@ -155,7 +170,7 @@ let
 
     # Nix
     hms = "home-manager switch --flake ~/nixpkgs-config#$(if [[ $(uname) == 'Darwin' ]]; then echo 'darwin'; else echo 'linux'; fi)";
-    garbage = "nix-collect-garbage -d && docker image prune --force";
+    garbage = "nix-collect-garbage -d && nix-temp-gc && docker image prune --force";
     installed = "nix-env --query --installed";
 
     # Aikido Safe Chain — wraps package managers from ./config/mise/config.toml
