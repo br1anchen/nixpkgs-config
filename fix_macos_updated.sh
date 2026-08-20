@@ -24,4 +24,21 @@ configure_shell_profile() {
 	fi
 }
 
+bootstrap_launchd_services() {
+	local plist label
+	for label in org.nixos.darwin-store org.nixos.nix-daemon; do
+		plist="/Library/LaunchDaemons/$label.plist"
+		if [ -e "$plist" ] && ! launchctl print "system/$label" >/dev/null 2>&1; then
+			echo "Bootstrapping $label..."
+			launchctl bootstrap system "$plist"
+		fi
+	done
+}
+
 configure_shell_profile
+bootstrap_launchd_services
+
+echo
+echo "Done. Apply to current shell with:"
+echo "  . '$PROFILE_NIX_FILE'"
+echo "or start a fresh shell: exec \$SHELL -l"
