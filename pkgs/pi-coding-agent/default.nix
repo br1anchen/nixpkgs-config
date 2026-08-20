@@ -46,6 +46,7 @@ let
         lockText = lockText.replace(resolved, resolved + " \"integrity\": \"" + integrities[name] + "\",");
       }
       fs.writeFileSync("package-lock.json", lockText);
+      fs.writeFileSync("npm-shrinkwrap.json", lockText);
     '
   '';
   npmDeps = fetchNpmDeps {

@@ -4,7 +4,7 @@
 
 {
 
-  home.packages = with pkgs; lib.optionals pkgs.stdenv.isLinux [ zed-editor ];
+  home.packages = with pkgs; lib.optionals pkgs.stdenv.hostPlatform.isLinux [ zed-editor ];
 
   xdg.configFile.zed = {
     source = ../config/zed;

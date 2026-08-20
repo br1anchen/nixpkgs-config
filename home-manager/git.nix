@@ -2,7 +2,7 @@
 
 { pkgs, ... }:
 let
-  gitTools = with pkgs.gitAndTools; [
+  gitTools = with pkgs; [
     diff-so-fancy
     gitflow
     gh
@@ -18,9 +18,11 @@ in
 
   programs.git = {
     enable = true;
-    userName = "Brian Chen";
-    userEmail = "brianchen8990@gmail.com";
-    extraConfig = {
+    settings = {
+      user = {
+        name = "Brian Chen";
+        email = "brianchen8990@gmail.com";
+      };
       core = {
         editor = "nvim";
         ignorecase = false;
@@ -36,15 +38,6 @@ in
       };
       submodule = {
         recurse = true;
-      };
-    };
-
-    delta = {
-      enable = true;
-      options = {
-        navigate = true;
-        line-numbers = true;
-        syntax-theme = "base16";
       };
     };
 
@@ -83,6 +76,16 @@ in
       "_esy/"
       ".netrwhist"
     ];
+  };
+
+  programs.delta = {
+    enable = true;
+    enableGitIntegration = true;
+    options = {
+      navigate = true;
+      line-numbers = true;
+      syntax-theme = "base16";
+    };
   };
 
   xdg.configFile.jj = {

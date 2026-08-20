@@ -8,7 +8,7 @@
 }:
 
 let
-  herdr = inputs.herdr.packages.${pkgs.system}.herdr;
+  herdr = inputs.herdr.packages.${pkgs.stdenv.hostPlatform.system}.herdr;
   navigation = pkgs.vim-herdr-navigation;
   navigationRoot = "${navigation}/share/vim-herdr-navigation";
   plannotatorExtension = "${pkgs.plannotator-pi-extension}/lib/node_modules/@plannotator/pi-extension";

@@ -1,7 +1,7 @@
 # Shell configuration for zsh
 # Defines general Zsh environment, aliases, and custom scripts.
 
-{ pkgs, ... }:
+{ pkgs, inputs, ... }:
 
 let
   # View dependency tree of a Nix package
@@ -121,7 +121,7 @@ let
         findutils
         lsof
       ]
-      ++ lib.optionals stdenv.isLinux [ procps ];
+      ++ lib.optionals stdenv.hostPlatform.isLinux [ procps ];
     text = builtins.readFile ../config/nix-temp-gc.sh;
   };
 
@@ -169,7 +169,7 @@ let
     lg = "lazygit";
 
     # Nix
-    hms = "home-manager switch --flake ~/nixpkgs-config#$(if [[ $(uname) == 'Darwin' ]]; then echo 'darwin'; else echo 'linux'; fi)";
+    hms = "home-manager switch -b backup --flake ~/nixpkgs-config#$(if [[ $(uname) == 'Darwin' ]]; then echo 'darwin'; else echo 'linux'; fi)";
     garbage = "nix-collect-garbage -d && nix-temp-gc && docker image prune --force";
     installed = "nix-env --query --installed";
 
@@ -201,6 +201,10 @@ in
   programs = {
     mise = {
       enable = true;
+      # doCheck = false: brew cask tests fail in nix sandbox
+      package = inputs.mise-flake.packages.${pkgs.stdenv.hostPlatform.system}.mise.overrideAttrs (_: {
+        doCheck = false;
+      });
       enableZshIntegration = true;
       enableBashIntegration = true;
     };
@@ -376,6 +380,13 @@ in
         # Google Cloud CLI
         if [[ -e /opt/homebrew/share/google-cloud-sdk ]]; then
           export PATH=/opt/homebrew/share/google-cloud-sdk/bin:"$PATH"
+        fi
+      '';
+
+      profileExtra = ''
+        # Homebrew (was in hand-written ~/.zprofile before hm managed it)
+        if [ -e /opt/homebrew/bin/brew ]; then
+          eval "$(/opt/homebrew/bin/brew shellenv)"
         fi
       '';
 

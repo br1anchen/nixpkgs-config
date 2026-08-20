@@ -6,7 +6,7 @@
 
   home.packages = with pkgs; [
     luajitPackages.luarocks
-    nixfmt-rfc-style
+    nixfmt
     pyright
     ruff
     statix

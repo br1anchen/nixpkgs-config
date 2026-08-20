@@ -91,9 +91,9 @@
     mcfly
     mdcat # Markdown converter/reader for the CLI
     mkcert
-    minikube
+    (lib.lowPrio minikube) # its bundled kubectl collides with kubectl pkg
     nerd-font-patcher
-    neofetch
+    fastfetch
     nix-prefetch-github
     ncdu
     pandoc

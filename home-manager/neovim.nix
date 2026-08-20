@@ -6,7 +6,7 @@
 
   home.packages = with pkgs;
     [ luajitPackages.luarocks nixfmt statix code-minimap ]
-    ++ lib.optionals pkgs.stdenv.isLinux [
+    ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
       jupyter
       zathura
       python39Packages.pynvim

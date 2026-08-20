@@ -11,6 +11,12 @@
     home-manager.url = "github:nix-community/home-manager";
     home-manager.inputs.nixpkgs.follows = "nixpkgs";
 
+    # Latest mise (nixpkgs version lags)
+    mise-flake = {
+      url = "github:jdx/mise";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     # Agent workflow
     herdr = {
       url = "git+https://github.com/herdrdev/herdr?ref=refs/tags/v0.7.5&submodules=1";
@@ -119,7 +125,7 @@
         ;
 
       # Formatter for `nix fmt`
-      formatter = forAllSystems (system: legacyPackages.${system}.nixfmt-rfc-style);
+      formatter = forAllSystems (system: legacyPackages.${system}.nixfmt);
 
       # Devshell for bootstrapping
       # Accessible through 'nix develop' or 'nix-shell' (legacy)
