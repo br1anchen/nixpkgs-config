@@ -74,9 +74,10 @@ gui:
   skipRewordInEditorWarning: false # for skipping the confirmation before launching the reword editor
   border: "single" # one of 'single' | 'double' | 'rounded' | 'hidden'
 git:
-  paging:
-    colorArg: always
-    useConfig: false
+  diffRenderers:
+    - type: rawGit
+      colorArg: always
+      useConfig: false
   commit:
     signOff: false
   merging:
@@ -205,7 +206,7 @@ keybinding:
     viewResetOptions: "D"
     fetch: "f"
     toggleTreeView: "`"
-    openMergeTool: "M"
+    openMergeOptions: "M"
     openStatusFilter: "<c-b>"
   branches:
     createPullRequest: "o"
@@ -229,8 +230,8 @@ keybinding:
     markCommitAsFixup: "f"
     createFixupCommit: "F" # create fixup commit for this commit
     squashAboveCommits: "S"
-    moveDownCommit: "<c-D>" # move commit down one
-    moveUpCommit: "<c-U>" # move commit up one
+    moveDownCommit: "<c-j>" # move commit down one
+    moveUpCommit: "<c-k>" # move commit up one
     amendToCommit: "A"
     pickCommit: "p" # pick commit (when mid-rebase)
     revertCommit: "t"
@@ -238,7 +239,7 @@ keybinding:
     pasteCommits: "V"
     tagCommit: "T"
     checkoutCommit: "<space>"
-    resetCherryPick: "<c-R>"
+    resetCherryPick: "<c-r>"
     copyCommitAttributeToClipboard: "<c-y>"
     openLogMenu: "<c-l>"
     viewBisectOptions: "b"
