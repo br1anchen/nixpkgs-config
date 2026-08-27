@@ -8,6 +8,7 @@ let
     gh
     git-cliff
     jujutsu
+    jj-spr
     lazyjj
     glab
   ];

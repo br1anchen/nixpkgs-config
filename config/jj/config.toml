@@ -12,3 +12,6 @@ merge-args = ["$base", "$left", "$right", "-o", "$output", "-l", "$marker_length
 merge-conflict-exit-codes = [1]
 merge-tool-edits-conflict-markers = true
 conflict-marker-style = "git"
+
+[aliases]
+spr = ["util", "exec", "--", "jj-spr"]
