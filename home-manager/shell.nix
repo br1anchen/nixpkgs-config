@@ -405,8 +405,8 @@ in
 
         # Ghostty starts Herdr before this interactive shell initializes, so
         # the long-lived Herdr server does not retain shell-only secrets.
-        if [[ -r "$HOME/.config/secrets/jotta-npm-token" ]]; then
-          export NPM_TOKEN="$(< "$HOME/.config/secrets/jotta-npm-token")"
+        if command -v glab >/dev/null 2>&1; then
+          export NPM_TOKEN="$(glab config get token --host git.jotta.us 2>/dev/null)"
         fi
       '';
     };
