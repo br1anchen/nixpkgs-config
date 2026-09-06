@@ -9,7 +9,7 @@ buildNpmPackage {
   version = "0.25.1";
 
   src = ./.;
-  npmDepsHash = "sha256-dLLxzMnWwNAF4DJvOPKzORKbLGlEK8kQ+d98c2UZ5t4=";
+  npmDepsHash = "sha256-PGngNxkJDfIZWUUwi9OIX1Wxax0bs7RdrE/O6s9FAx8=";
   makeCacheWritable = true;
   npmRebuildFlags = [ "--ignore-scripts" ];
   dontNpmBuild = true;
