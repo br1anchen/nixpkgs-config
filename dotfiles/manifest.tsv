@@ -1,0 +1,28 @@
+# Shared dotfiles manifest — single source of truth.
+#
+# Read by BOTH home-manager/dotfiles.nix (to build macOS symlinks) and
+# scripts/dotfiles-sync.sh (to copy/diff on Omarchy). Keep it plain TSV so the
+# shell script works standalone, before nix is available.
+#
+# columns: repo_path <TAB> live_path (relative to $HOME) <TAB> kind <TAB> platforms
+# kind:      file | dir
+# platforms: both | darwin | omarchy
+#
+# Paths under ~/.config only. Files Omarchy never touches AND that live outside
+# ~/.config (~/.codex, ~/.gemini, ~/.agents/skills) stay home-manager-managed on
+# both platforms and are deliberately absent here.
+config/starship.toml	.config/starship.toml	file	both
+config/ghostty/config	.config/ghostty/config	file	both
+config/ghostty/platform.darwin	.config/ghostty/platform	file	darwin
+config/ghostty/platform.omarchy	.config/ghostty/platform	file	omarchy
+config/tmux/tmux.conf	.config/tmux/tmux.conf	file	both
+config/git/config	.config/git/config	file	both
+config/git/ignore	.config/git/ignore	file	both
+config/lazygit/config.yml	.config/lazygit/config.yml	file	both
+config/opencode/opencode.json	.config/opencode/opencode.json	file	both
+config/opencode/AGENTS.md	.config/opencode/AGENTS.md	file	both
+config/jj/config.toml	.config/jj/config.toml	file	both
+config/mise/config.toml	.config/mise/config.toml	file	both
+config/herdr/config.toml	.config/herdr/config.toml	file	both
+config/bob/config.json	.config/bob/config.json	file	both
+config/lazyvim	.config/nvim	dir	both
