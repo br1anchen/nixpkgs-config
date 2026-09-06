@@ -221,8 +221,20 @@ let
     reload = "hms && szenv && szsh && imise";
   };
 
+  # Omarchy's own ls family (`ls`, `lsa`, `lt`, `lta`) is eza with these flags.
+  # Reuse them so the listings added below look the same as the ones Omarchy
+  # ships rather than like a second, differently styled set.
+  ezaBase = "eza --group-directories-first --icons=auto";
+
   omarchyAliases = {
     reload = "hms && source ~/.bashrc && mise install";
+
+    # The macOS short/long/long-with-hidden trio. No collision with Omarchy,
+    # which leaves `l`, `ll` and `la` undefined; `ll` and `la` do overlap with
+    # its `ls` and `lsa`, and exist for parity with the zsh muscle memory.
+    l = ezaBase;
+    ll = "${ezaBase} -lh";
+    la = "${ezaBase} -lha";
   };
 
   # PATH and environment shared by both shells. Deliberately POSIX-compatible so
