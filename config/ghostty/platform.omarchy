@@ -1,0 +1,5 @@
+# Omarchy-only ghostty overrides.
+#
+# Intentionally empty: font size and family are managed by `omarchy font set`
+# and `omarchy display text-size`, which sed ~/.config/ghostty/config directly.
+# Changes they make are captured back into the repo by `dotfiles-sync pull`.
