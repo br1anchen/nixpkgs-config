@@ -62,6 +62,7 @@
   home.packages =
     with pkgs;
     [
+      bob-nvim # Neovim version manager; owns the nvim binary on both platforms
       cachix # Nix build cache
       cheat
       cocogitto

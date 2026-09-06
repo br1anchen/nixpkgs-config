@@ -231,8 +231,13 @@ let
     # Rust Cargo
     export PATH="$HOME/.cargo/bin:$PATH"
 
-    # Bob stores the active Neovim version in `used`.
-    if [ -f "$HOME/.local/share/bob/used" ]; then
+    # Bob-managed Neovim. config/bob/config.json sets installation_location to
+    # ~/.local/share/bob/nvim-bin, which is where the active binary lives; the
+    # `used` file is the older layout (~/.local/share/bob/<version>/bin) and is
+    # kept only as a fallback.
+    if [ -d "$HOME/.local/share/bob/nvim-bin" ]; then
+      export PATH="$HOME/.local/share/bob/nvim-bin:$PATH"
+    elif [ -f "$HOME/.local/share/bob/used" ]; then
       export PATH="$HOME/.local/share/bob/$(cat "$HOME/.local/share/bob/used")/bin:$PATH"
     fi
 

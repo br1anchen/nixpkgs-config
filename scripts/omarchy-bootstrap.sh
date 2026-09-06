@@ -56,9 +56,12 @@ else
 # PREPEND, never replace: Omarchy's env.d entry puts the mise shim dir and
 # /usr/share/omarchy/bin on PATH, and dropping those breaks omarchy-* scripts
 # and every mise-managed tool launched from a keybinding.
-export PATH="$HOME/.nix-profile/bin:$PATH"
+# bob's nvim-bin is included for the same reason: with pacman's neovim removed,
+# omarchy-launch-editor (SUPER+N and the menu) resolves `nvim` from the session
+# PATH, which never sources ~/.bashrc.
+export PATH="$HOME/.nix-profile/bin:$HOME/.local/share/bob/nvim-bin:$PATH"
 EOF
-  echo "[+] added ~/.nix-profile/bin to ~/.config/uwsm/env"
+  echo "[+] added ~/.nix-profile/bin and bob's nvim-bin to ~/.config/uwsm/env"
 fi
 
 # --- 3. drift-reporting post-update hook ------------------------------------
