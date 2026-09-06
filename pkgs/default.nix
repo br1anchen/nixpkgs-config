@@ -6,6 +6,7 @@
 }:
 {
   # example = pkgs.callPackage ./example { };
+  helium = pkgs.callPackage ./helium { };
   jj-spr = pkgs.callPackage ./jj-spr { };
   pi-coding-agent = pkgs.callPackage ./pi-coding-agent { };
   prime-agent = pkgs.callPackage ./prime-agent { };

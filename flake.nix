@@ -159,6 +159,11 @@
             "aarch64-darwin"
             "x86_64-darwin"
           ];
+          # Upstream only publishes Linux builds of Helium's Chromium fork.
+          heliumSupported = builtins.elem system [
+            "aarch64-linux"
+            "x86_64-linux"
+          ];
         in
         {
           inherit (pkgs)
@@ -173,6 +178,9 @@
         }
         // nixpkgs.lib.optionalAttrs plannotatorSupported {
           inherit (pkgs) plannotator;
+        }
+        // nixpkgs.lib.optionalAttrs heliumSupported {
+          inherit (pkgs) helium;
         }
       );
 
