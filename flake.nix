@@ -19,7 +19,12 @@
 
     # Agent workflow
     herdr = {
-      url = "git+https://github.com/herdrdev/herdr?ref=refs/tags/v0.7.5&submodules=1";
+      url = "git+https://github.com/herdrdev/herdr?ref=refs/tags/v0.8.2&submodules=1";
+      # Follow our nixpkgs deliberately. herdr pins an older nixpkgs whose Rust
+      # crate fetcher still uses https://crates.io/api/v1/..., and crates.io now
+      # returns 403 to curl's default User-Agent, so vendoring fails outright.
+      # Current nixpkgs fetches from static.crates.io, which works.
+      inputs.nixpkgs.follows = "nixpkgs";
     };
     plannotator-src = {
       url = "github:backnotprop/plannotator/v0.25.1";
@@ -73,15 +78,14 @@
         default = import ./overlay { inherit inputs; };
       };
 
-      # Reusable nixos modules you might want to export
-      # These are usually stuff you would upstream into nixpkgs
-      nixosModules = import ./modules/nixos;
-
       # Reusable home-manager modules you might want to export
       # These are usually stuff you would upstream into home-manager
       homeManagerModules = import ./modules/home-manager;
 
       # Helper function to create home-manager configurations
+      # Omarchy is the only supported Linux target, so any non-Darwin host is
+      # an Omarchy host. `isOmarchy` gates config delivery (copy-via-manifest
+      # instead of home-manager symlinks) and Linux-only package carve-outs.
       mkHome =
         {
           username,
@@ -90,6 +94,7 @@
         }:
         let
           isDarwin = nixpkgs.lib.hasSuffix "darwin" system;
+          isOmarchy = !isDarwin;
         in
         home-manager.lib.homeManagerConfiguration {
           pkgs = legacyPackages.${system};
@@ -98,6 +103,7 @@
               agentWorkflow
               inputs
               isDarwin
+              isOmarchy
               ;
           };
           modules = (builtins.attrValues homeManagerModules) ++ [
@@ -106,9 +112,15 @@
                 inherit username;
                 homeDirectory = mkHomeDirectory system username;
                 stateVersion = "22.05";
+                # EDITOR is deliberately unset on Omarchy: its bash env does
+                # EDITOR="${EDITOR:-omarchy-launch-editor --inline}" and derives
+                # SUDO_EDITOR from it. omarchy-launch-editor defaults to nvim
+                # anyway, so deferring costs nothing and keeps SUDO_EDITOR wired.
                 sessionVariables = {
-                  EDITOR = "nvim";
                   TERMINAL = "ghostty";
+                }
+                // nixpkgs.lib.optionalAttrs isDarwin {
+                  EDITOR = "nvim";
                 };
               };
             }
@@ -119,7 +131,6 @@
     {
       inherit
         overlays
-        nixosModules
         homeManagerModules
         legacyPackages
         ;
@@ -165,36 +176,22 @@
         }
       );
 
-      nixosConfigurations = {
-        "br1anchen@dune" = nixpkgs.lib.nixosSystem {
-          pkgs = legacyPackages.x86_64-linux;
-          specialArgs = {
-            inherit inputs;
-          };
-          modules = (builtins.attrValues nixosModules) ++ [
-            ./nixos/configuration.nix
-          ];
-        };
-      };
-
       # Home configurations use explicit usernames so pure evaluation works.
-      # Usage: home-manager switch --flake .#darwin (macOS)
-      #        home-manager switch --flake .#linux (Linux)
-      #        home-manager switch --flake .#deck (Steam Deck with explicit username)
+      # Usage: home-manager switch --flake .#darwin  (macOS)
+      #        home-manager switch --flake .#omarchy (Arch + Omarchy)
+      #
+      # There is a single Linux profile because Omarchy is the only supported
+      # Linux target and nothing in it is host-specific: monitor layout lives in
+      # ~/.config/hypr/monitors.lua, which Omarchy rewrites and we leave alone.
       homeConfigurations = {
         "darwin" = mkHome {
           username = "br1anchen";
           system = "aarch64-darwin";
         };
-        "linux" = mkHome {
-          username = "brian";
-          system = "x86_64-linux";
-        };
 
-        "deck" = mkHome {
-          username = "deck";
+        "omarchy" = mkHome {
+          username = "br1anchen";
           system = "x86_64-linux";
-          agentWorkflow = false;
         };
       };
     };
