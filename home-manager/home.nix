@@ -112,6 +112,7 @@
       nerd-fonts.fira-code
     ]
     ++ lib.optionals isOmarchy [
+      google-cloud-sdk # gcloud CLI; macOS gets it from Homebrew (see shell.nix)
       wl-clipboard # Wayland replacement for xclip
     ];
 }
