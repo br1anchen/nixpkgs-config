@@ -12,61 +12,10 @@ let
   navigation = pkgs.vim-herdr-navigation;
   navigationRoot = "${navigation}/share/vim-herdr-navigation";
   plannotatorExtension = "${pkgs.plannotator-pi-extension}/lib/node_modules/@plannotator/pi-extension";
-  herdrConfig = (pkgs.formats.toml { }).generate "herdr-config.toml" {
-    onboarding = false;
-
-    theme.name = "catppuccin";
-
-    terminal = {
-      default_shell = "${pkgs.zsh}/bin/zsh";
-      shell_mode = "login";
-      new_cwd = "follow";
-    };
-
-    keys = {
-      prefix = "ctrl+a";
-      previous_agent = "prefix+{";
-      next_agent = "prefix+}";
-      focus_agent = "prefix+alt+1..9";
-      command = [
-        {
-          key = "ctrl+h";
-          type = "plugin_action";
-          command = "vim-herdr-navigation.left";
-          description = "navigate left (vim/herdr)";
-        }
-        {
-          key = "ctrl+j";
-          type = "plugin_action";
-          command = "vim-herdr-navigation.down";
-          description = "navigate down (vim/herdr)";
-        }
-        {
-          key = "ctrl+k";
-          type = "plugin_action";
-          command = "vim-herdr-navigation.up";
-          description = "navigate up (vim/herdr)";
-        }
-        {
-          key = "ctrl+l";
-          type = "plugin_action";
-          command = "vim-herdr-navigation.right";
-          description = "navigate right (vim/herdr)";
-        }
-      ];
-    };
-
-    ui = {
-      copy_on_select = true;
-      sidebar_start_collapsed = true;
-    };
-
-    session.resume_agents_on_restore = true;
-    worktrees.directory = "~/.herdr/worktrees";
-    experimental.allow_nested = false;
-  };
+  # Use the user's login shell rather than a pinned nix zsh: that is bash on
+  # Omarchy and zsh on macOS.
   ghosttyShell = pkgs.writeShellScriptBin "ghostty-shell" ''
-    exec ghostty --command="${pkgs.zsh}/bin/zsh -l" "$@"
+    exec ghostty --command="''${SHELL:-/bin/sh} -l" "$@"
   '';
   codexHooks = (pkgs.formats.json { }).generate "codex-hooks.json" {
     description = "Herdr session reporting and Plannotator plan review.";
@@ -97,9 +46,12 @@ let
   };
 in
 lib.mkIf agentWorkflow {
+  # pi is deliberately absent: it is mise-managed (see config/mise/config.toml).
+  # mise's install dirs precede ~/.nix-profile/bin on PATH, so a nix pi could
+  # never win. The plannotator pi extension below is installed into
+  # ~/.pi/agent/extensions and works against whichever pi is on PATH.
   home.packages = [
     herdr
-    pkgs.pi-coding-agent
     pkgs.plannotator
     ghosttyShell
   ];
@@ -129,22 +81,22 @@ lib.mkIf agentWorkflow {
     };
   };
 
+  # Deliberate exceptions to "home-manager writes nothing under ~/.config on
+  # Omarchy": both paths are plugin drop-ins that Omarchy provably never touches,
+  # and their content is derived from flake inputs rather than hand-edited, so
+  # routing them through dotfiles-sync would be meaningless. The nvim drop-in
+  # survives `dotfiles-sync push` because directory pushes overlay rather than
+  # replace.
+  #
+  # herdr/config.toml is NOT here: it is a shared repo file now.
+  # ghostty's `command = herdr` is NOT here either: on Omarchy, herdr is launched
+  # by Omarchy's own SUPER+CTRL+RETURN binding (omarchy-launch-terminal-herdr),
+  # and forcing every ghostty window to run herdr would break the plain terminal.
+  # macOS keeps that behaviour via config/ghostty/platform.darwin.
   xdg.configFile = {
-    "herdr/config.toml".source = herdrConfig;
-    "ghostty/config".text = lib.mkAfter ''
-
-      # Agent workflow control plane
-      command = ${herdr}/bin/herdr
-    '';
     "nvim/after/plugin/herdr_nav.lua".source = "${navigationRoot}/editor/nvim.lua";
     "opencode/plugins/herdr-agent-state.js".source =
       "${inputs.herdr}/src/integration/assets/opencode/herdr-agent-state.js";
-  };
-
-  programs.zsh.shellAliases = {
-    hdr = "herdr";
-    herdr-reload = "herdr server reload-config";
-    gsh = "ghostty-shell";
   };
 
   home.activation = {

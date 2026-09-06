@@ -1,7 +1,26 @@
-# Shell configuration for zsh
-# Defines general Zsh environment, aliases, and custom scripts.
+# Shell configuration.
+#
+# One source of aliases and environment, rendered per shell:
+#   macOS   - zsh (programs.zsh), the normal home-manager path.
+#   Omarchy - bash. home-manager must NOT own ~/.bashrc there: Omarchy's own
+#             ~/.bashrc sources $OMARCHY_PATH/default/bash/rc, which exports
+#             OMARCHY_PATH and initialises mise, starship, zoxide, fzf and every
+#             Omarchy alias. Setting programs.bash.enable would delete that line
+#             and take the whole Omarchy shell layer with it.
+#
+# Instead the shared layer is installed into the profile at
+# ~/.nix-profile/etc/profile.d/shared-shell.sh (a stable path across rebuilds)
+# and ~/.bashrc gets a single `source` line, added once by
+# scripts/omarchy-bootstrap.sh.
 
-{ pkgs, inputs, ... }:
+{
+  lib,
+  pkgs,
+  inputs,
+  isDarwin,
+  isOmarchy,
+  ...
+}:
 
 let
   # View dependency tree of a Nix package
@@ -142,40 +161,41 @@ let
     safeChain
   ];
 
-  # Shell aliases grouped by category
-  shellAliases = {
-    # File and directory navigation
+
+  # Aliases Omarchy's bash layer does not already provide.
+  #
+  # Omarchy's aliases win on collision (Q24), so `ls`, `cd` (its zoxide `zd`
+  # wrapper), `d` (docker), `c` (opencode), `g` (git), `t` (tmux) and `h` (herdr)
+  # are deliberately absent here and only defined for macOS below.
+  sharedAliases = {
     cat = "bat";
     find = "fd";
     grep = "grep --color=auto";
-    l = "eza";
-    ll = "ls -lh";
-    ls = "eza";
-    la = "ls -lha";
     md = "mdcat";
 
-    # Docker
     dc = "docker-compose";
     dk = "docker";
-    start-docker = "docker-machine start default";
 
-    # Editor
     vimdiff = "nvim -d";
     vf = "nvim";
     vd = "nvim .";
 
-    # Git
-    gi = "gitui";
     lg = "lazygit";
 
-    # Nix
-    hms = "home-manager switch -b backup --flake ~/nixpkgs-config#$(if [[ $(uname) == 'Darwin' ]]; then echo 'darwin'; else echo 'linux'; fi)";
-    garbage = "nix-collect-garbage -d && nix-temp-gc && docker image prune --force";
-    installed = "nix-env --query --installed";
+    # herdr helpers. Previously defined under programs.zsh only, so on a bash
+    # login shell they never loaded at all.
+    hdr = "herdr";
+    herdr-reload = "herdr server reload-config";
+    gsh = "ghostty-shell";
 
-    # Aikido Safe Chain — wraps package managers from ./config/mise/config.toml
-    # (nodejs, pnpm, bun, python) that safe-chain supports. Go/Deno/Zig skipped
-    # since safe-chain doesn't cover them.
+    hms = "home-manager switch -b backup --flake ~/nixpkgs-config#$(if [[ $(uname) == 'Darwin' ]]; then echo 'darwin'; else echo 'omarchy'; fi)";
+    garbage = "nix-collect-garbage -d && nix-temp-gc && { command -v docker >/dev/null && docker image prune --force || true; }";
+    installed = "nix-env --query --installed";
+    imise = "mise install";
+    dots = "dotfiles-sync";
+
+    # Aikido Safe Chain. These were also zsh-only, which meant supply-chain
+    # interception was silently OFF on this bash-login-shell machine.
     npm = "aikido-npm";
     npx = "aikido-npx";
     yarn = "aikido-yarn";
@@ -189,61 +209,158 @@ let
     uvx = "aikido-uvx";
     poetry = "aikido-poetry";
     pipx = "aikido-pipx";
+  };
 
-    # Configuration reload
+  darwinAliases = {
+    l = "eza";
+    ls = "eza";
+    ll = "eza -lh";
+    la = "eza -lha";
     szsh = "source ~/.zshrc";
     szenv = "source ~/.zshenv";
-    imise = "mise install";
     reload = "hms && szenv && szsh && imise";
+  };
+
+  omarchyAliases = {
+    reload = "hms && source ~/.bashrc && mise install";
+  };
+
+  # PATH and environment shared by both shells. Deliberately POSIX-compatible so
+  # the bash layer can source it verbatim.
+  sharedEnv = ''
+    # Rust Cargo
+    export PATH="$HOME/.cargo/bin:$PATH"
+
+    # Bob stores the active Neovim version in `used`.
+    if [ -f "$HOME/.local/share/bob/used" ]; then
+      export PATH="$HOME/.local/share/bob/$(cat "$HOME/.local/share/bob/used")/bin:$PATH"
+    fi
+
+    # Flutter/Android
+    if command -v brew >/dev/null 2>&1; then
+      export ANDROID_HOME="$HOME/Library/Android/Sdk"
+      export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
+      export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    elif command -v pacman >/dev/null 2>&1; then
+      export ANDROID_SDK="$HOME/Android/Sdk"
+      export ANDROID_NDK_HOME="$ANDROID_SDK/ndk"
+      export PATH="$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH"
+      export CHROME_EXECUTABLE="/usr/bin/chromium"
+    fi
+
+    # Dart / Go / Swift
+    export PATH="$PATH:$HOME/.pub-cache/bin"
+    export GOPATH="$HOME/go"
+    export PATH="$GOPATH/bin:$PATH"
+    export PATH="$HOME/.mint/bin:$PATH"
+
+    # mason.nvim installs
+    export PATH="$HOME/.local/share/nvim/mason/bin:$PATH"
+
+    # PNPM / BUN / Maestro
+    export PNPM_HOME="$HOME/.local/share/pnpm"
+    export PATH="$PNPM_HOME:$PATH"
+    export BUN_HOME="$HOME/.bun"
+    export PATH="$BUN_HOME/bin:$PATH"
+    export PATH="$PATH:$HOME/.maestro/bin"
+
+    # Local bin
+    export PATH="$HOME/.local/bin:$PATH"
+  '';
+
+  renderAliases =
+    aliases:
+    lib.concatStringsSep "\n" (
+      lib.mapAttrsToList (k: v: "alias ${k}=${lib.escapeShellArg v}") aliases
+    );
+
+  # The Omarchy bash layer. Installed into the profile rather than written to
+  # ~/.bashrc, so the path stays stable across rebuilds and Omarchy keeps
+  # ownership of ~/.bashrc.
+  #
+  # Note what is NOT here: starship, zoxide, mise and fzf initialisation.
+  # Omarchy's default/bash/init already does all four, and doing them again
+  # would double-initialise every interactive shell.
+  sharedShellInit = pkgs.writeTextFile {
+    name = "shared-shell-init";
+    destination = "/etc/profile.d/shared-shell.sh";
+    text = ''
+      # Shared shell layer, generated by nixpkgs-config (home-manager/shell.nix).
+      # Sourced from ~/.bashrc by scripts/omarchy-bootstrap.sh.
+
+      ${sharedEnv}
+
+      ${renderAliases (sharedAliases // omarchyAliases)}
+
+      # direnv and broot are not part of Omarchy's shell layer, so they are
+      # initialised here. starship/zoxide/mise/fzf deliberately are not.
+      if command -v direnv >/dev/null 2>&1; then
+        eval "$(direnv hook bash)"
+      fi
+      if [ -r "$HOME/.config/broot/launcher/bash/br" ]; then
+        . "$HOME/.config/broot/launcher/bash/br"
+      fi
+
+      # Ghostty starts herdr before this interactive shell initialises, so the
+      # long-lived herdr server does not retain shell-only secrets.
+      if command -v glab >/dev/null 2>&1; then
+        NPM_TOKEN="$(glab config get token --host git.jotta.us 2>/dev/null)"
+        export NPM_TOKEN
+      fi
+    '';
   };
 in
 {
   programs = {
-    mise = {
+    # macOS only. On Omarchy, mise is pacman's `mise-bin`: Omarchy's
+    # default/bash/init runs `mise activate bash` and `omarchy update` runs
+    # `omarchy-update-mise`, so the distro owns the binary. Shipping a second
+    # mise from nix put it ahead on PATH and left a flake bump silently
+    # changing the tool Omarchy depends on, against shared state in
+    # ~/.local/share/mise. The tool *versions* are still ours, via
+    # config/mise/config.toml.
+    mise = lib.mkIf isDarwin {
       enable = true;
       # doCheck = false: brew cask tests fail in nix sandbox
       package = inputs.mise-flake.packages.${pkgs.stdenv.hostPlatform.system}.mise.overrideAttrs (_: {
         doCheck = false;
       });
       enableZshIntegration = true;
-      enableBashIntegration = true;
     };
 
     direnv = {
       enable = true;
-      enableZshIntegration = true;
+      enableZshIntegration = isDarwin;
     };
 
     broot = {
       enable = true;
-      enableZshIntegration = true;
+      enableZshIntegration = isDarwin;
     };
 
     bat = {
       enable = true;
       config = {
-        theme = "base16";
+        # "ansi" rather than a pinned scheme, so bat follows the terminal
+        # palette. Omarchy exports BAT_THEME=ansi, and env beats this file --
+        # pinning base16 gave different highlighting in bash vs zsh.
+        theme = "ansi";
         italic-text = "always";
       };
     };
 
     fzf = {
       enable = true;
-      enableBashIntegration = true;
-      enableZshIntegration = true;
+      # Omarchy sources /usr/share/fzf/{completion,key-bindings}.bash itself.
+      enableBashIntegration = false;
+      enableZshIntegration = isDarwin;
       defaultCommand = "${pkgs.ripgrep}/bin/rg --files";
     };
 
-    skim = {
-      enable = true;
-    };
+    skim.enable = true;
 
-    nushell = {
-      enable = true;
-    };
-
-    zsh = {
-      inherit shellAliases;
+    zsh = lib.mkIf isDarwin {
+      shellAliases = sharedAliases // darwinAliases;
       enable = true;
       autosuggestion.enable = true;
       enableCompletion = true;
@@ -309,72 +426,11 @@ in
           . ~/.nix-profile/etc/profile.d/nix.sh
         fi
 
-        # mise (runtime version manager - replaces asdf)
-        # Shell integration is handled by programs.mise.enableZshIntegration
+        ${sharedEnv}
 
-        # Rust Cargo
-        CARGO_PATH="$HOME/.cargo/bin"
-        export PATH="$CARGO_PATH:$PATH"
-
-        # Bob stores the active version in `used`; add that version's Neovim binary.
-        if [[ -f "$HOME/.local/share/bob/used" ]]; then
-          export PATH="$HOME/.local/share/bob/$(<"$HOME/.local/share/bob/used")/bin:$PATH"
-        fi
-
-        # Flutter/Android
-        if command -v brew >/dev/null; then
-          export ANDROID_HOME="$HOME/Library/Android/Sdk"
-          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
-          export CHROME_EXECUTABLE="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-        elif command -v pacman >/dev/null; then
-          export ANDROID_SDK="$HOME/Android/Sdk"
-          export ANDROID_NDK_HOME="$ANDROID_SDK/ndk"
-          export PATH="$ANDROID_SDK/platform-tools:$ANDROID_SDK/cmdline-tools/latest/bin:$PATH"
-          export CHROME_EXECUTABLE="/usr/bin/chromium"
-        elif command -v apt >/dev/null; then
-          export ANDROID_HOME="$HOME/Android/Sdk"
-          export PATH="$PATH:$ANDROID_HOME/cmdline-tools/latest/bin"
-          export CHROME_EXECUTABLE="/usr/bin/firefox"
-        else
-          echo 'Unknown OS to set Flutter/Android env!' >&2
-        fi
-
-        # Dart
-        export PATH="$PATH:$HOME/.pub-cache/bin"
-
-        # GO
-        export GOPATH="$HOME/go"
-        export PATH="$GOPATH/bin:$PATH"
-
-        # Python
+        # Python (mise-managed)
         if command -v mise >/dev/null; then
-          local python_path
           python_path="$(mise where python 2>/dev/null)" && export PATH="$python_path/bin:$PATH"
-        fi
-
-        # Swift/Mint
-        export PATH="$HOME/.mint/bin:$PATH"
-
-        # Local bin
-        export PATH="$HOME/.local/bin:$PATH"
-
-        # mason.nvim installs
-        export PATH="$HOME/.local/share/nvim/mason/bin:$PATH"
-
-        # PNPM
-        export PNPM_HOME="$HOME/.local/share/pnpm"
-        export PATH="$PNPM_HOME:$PATH"
-
-        # BUN
-        export BUN_HOME="$HOME/.bun"
-        export PATH="$BUN_HOME/bin:$PATH"
-
-        # Maestro
-        export PATH="$PATH:$HOME/.maestro/bin"
-
-        # distrobox
-        if [[ -e $HOME/.distrobox ]]; then
-          export PATH="$HOME/.distrobox/bin:$HOME/.distrobox/podman/bin:$PATH"
         fi
 
         # Google Cloud CLI
@@ -384,7 +440,6 @@ in
       '';
 
       profileExtra = ''
-        # Homebrew (was in hand-written ~/.zprofile before hm managed it)
         if [ -e /opt/homebrew/bin/brew ]; then
           eval "$(/opt/homebrew/bin/brew shellenv)"
         fi
@@ -394,17 +449,11 @@ in
         source ${pkgs.zsh-vi-mode}/share/zsh-vi-mode/zsh-vi-mode.plugin.zsh
         autoload -Uz compinit && compinit
         source <(jj util completion zsh)
-        bindkey -e
         eval "$(starship init zsh)"
         eval "$(zoxide init zsh)"
-        eval "$(mcfly init zsh)"
-        eval "$(minikube docker-env)"
-        if [[ -e $HOME/.distrobox ]]; then
-          xhost +si:localuser:$USER
-        fi
 
-        # Ghostty starts Herdr before this interactive shell initializes, so
-        # the long-lived Herdr server does not retain shell-only secrets.
+        # Ghostty starts herdr before this interactive shell initialises, so the
+        # long-lived herdr server does not retain shell-only secrets.
         if command -v glab >/dev/null 2>&1; then
           export NPM_TOKEN="$(glab config get token --host git.jotta.us 2>/dev/null)"
         fi
@@ -413,11 +462,8 @@ in
   };
 
   home = {
-    packages = scripts;
+    packages = scripts ++ lib.optionals isOmarchy [ sharedShellInit ];
 
     file.".czrc".source = ../config/czrc;
   };
-
-  xdg.configFile."mise/config.toml".source = ../config/mise/config.toml;
-  xdg.configFile."starship.toml".source = ../config/starship.toml;
 }

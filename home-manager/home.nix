@@ -1,18 +1,25 @@
-# This is your home-manager configuration file
-# Use this to configure your home environment (it replaces ~/.config/nixpkgs/home.nix)
+# Home-manager entrypoint.
+#
+# Layering rule for this repo: the cross-platform ("shared") layer — dev and
+# application-level packages and config that exist on both macOS and Omarchy —
+# is owned here. The Linux OS layer (Hyprland, bar, terminals-as-system, fonts,
+# daemons) belongs to Omarchy and is not managed from Nix.
+#
+# Delivery differs per platform: macOS gets home-manager symlinks; Omarchy gets
+# real file copies pushed by ./scripts/dotfiles-sync.sh, because Omarchy's own
+# write paths (`cp -f` in `omarchy refresh config`, `sed -i` in migrations) do
+# not respect symlinks and corrupt them silently.
 
 {
   lib,
   pkgs,
   isDarwin,
+  isOmarchy,
   ...
 }:
 {
   imports = [
-    # If you want to use home-manager modules from other flakes (such as nix-colors), use something like:
-    # inputs.nix-colors.homeManagerModule
-
-    # Feel free to split up your configuration and import pieces of it here.
+    ./dotfiles.nix
     ./git.nix
     ./lazyvim.nix
     ./shell.nix
@@ -20,25 +27,20 @@
     ./agents.nix
     ./agent-workflow.nix
     ./tmux.nix
-    ./gitui.nix
-    ./alacritty.nix
     ./lazygit.nix
-    ./hypr.nix
-    ./kitty.nix
-    ./wezterm.nix
-    ./ghostty.nix
-  ]
-  ++ lib.optionals isDarwin [
-    ./mac.nix
   ];
 
-  fonts.fontconfig.enable = true;
+  # Omarchy owns fonts on Linux (ttf-jetbrains-mono-nerd-basic, which its themes
+  # reference) and writes ~/.config/fontconfig/fonts.conf wholesale via
+  # `omarchy font set`. Registering a second nix fontconfig path there fights it.
+  fonts.fontconfig.enable = isDarwin;
 
-  # Comment out if you wish to disable unfree packages for your system
   nixpkgs.config.allowUnfree = true;
 
-  # nix settings...use only for single user installs
-  nix = {
+  # Single-user nix settings only. On Omarchy nix comes from pacman and runs as a
+  # multi-user daemon, so gc lives in a systemd timer and experimental-features
+  # in /etc/nix/nix.conf; setting them here would fight the system installation.
+  nix = lib.mkIf isDarwin {
     gc = {
       automatic = true;
       dates = "daily";
@@ -53,68 +55,62 @@
     };
   };
 
-  # Add stuff for your user as you see fit:
-  # programs.neovim.enable = true;
-  # home.packages = with pkgs; [ steam ];
-
-  # Enable home-manager and git
   programs.home-manager.enable = true;
-  programs.git.enable = true;
 
-  # Nicely reload system units when changing configs
   systemd.user.startServices = "sd-switch";
 
-  home.packages = with pkgs; [
-    bash
-    cachix # Nix build cache
-    cheat
-    curl # An old classic
-    colima
-    cocogitto
-    docker # World's #1 container tool
-    docker-compose
-    entr
-    eza # ls replacement written in Rust
-    fd # find replacement written in Rust
-    fswatch
-    gitui
-    glow
-    gnumake
-    gnutar
-    gnupg
-    go
-    getopt
-    htop # Resource monitoring
-    # httpie # Like curl but more user friendly
-    jq # JSON parsing for the CLI
-    kubectl
-    mcfly
-    mdcat # Markdown converter/reader for the CLI
-    mkcert
-    (lib.lowPrio minikube) # its bundled kubectl collides with kubectl pkg
-    nerd-font-patcher
-    fastfetch
-    nix-prefetch-github
-    ncdu
-    pandoc
-    procs
-    prime-agent
-    protobuf
-    ripgrep # grep replacement written in Rust
-    rtk
-    rustup
-    scientifica
-    weave
-    wget
-    xclip
-    xh
-    zoxide
-    _1password-cli
-    _1password-gui
-    nerd-fonts.fira-code
-    watchexec
-    starship # Fancy shell that works with zsh
-    podman
-    tailscale
-  ];
+  home.packages =
+    with pkgs;
+    [
+      cachix # Nix build cache
+      cheat
+      cocogitto
+      eza # ls replacement written in Rust
+      fd # find replacement written in Rust
+      gnumake
+      jq # JSON parsing for the CLI
+      mdcat # Markdown converter/reader for the CLI
+      mkcert
+      fastfetch
+      nix-prefetch-github
+      ncdu
+      pandoc
+      procs
+      prime-agent
+      protobuf
+      ripgrep # grep replacement written in Rust
+      rtk
+      rustup
+      starship
+      watchexec
+      weave
+      wget
+      xh
+      zoxide
+      _1password-cli
+    ]
+    ++ lib.optionals isDarwin [
+      # Carve-out: these shadow system binaries that Omarchy's shell chain and
+      # scripts depend on (bash is the login shell; omarchy scripts call
+      # util-linux getopt; gnupg bakes agent socket paths at build time), so on
+      # Linux they stay with pacman.
+      bash
+      curl
+      getopt
+      gnupg
+      gnutar
+
+      # Daemon-backed: need systemd units, /etc/containers, subuid/subgid or a
+      # socket that a non-NixOS nix profile cannot provide. pacman owns these
+      # on Omarchy.
+      docker
+      docker-compose
+      podman
+      tailscale
+
+      nerd-fonts.fira-code
+    ]
+    ++ lib.optionals isOmarchy [
+      wl-clipboard # Wayland replacement for xclip
+    ];
 }

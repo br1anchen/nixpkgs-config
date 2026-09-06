@@ -1,96 +1,24 @@
-# Git settings
+# Git tooling.
+#
+# Config content lives in config/git/{config,ignore} and is delivered by
+# ./dotfiles.nix (symlink on macOS, dotfiles-sync push on Omarchy). The
+# programs.git / programs.delta modules are NOT used: they render into
+# ~/.config/git/config, which on Omarchy is the file `git config --global`
+# resolves to (there is no ~/.gitconfig) and which Omarchy's installer writes.
 
 { pkgs, ... }:
-let
-  gitTools = with pkgs; [
+{
+  home.packages = with pkgs; [
+    git
+    delta
     diff-so-fancy
     gitflow
-    gh
     git-cliff
     jujutsu
     jj-spr
     lazyjj
     glab
+    # `gh` is deliberately absent: Omarchy installs it as a global mise tool and
+    # mise's shim dir is PREPENDED to PATH, so a nix gh could never win anyway.
   ];
-in
-{
-
-  home.packages = gitTools;
-
-  programs.git = {
-    enable = true;
-    settings = {
-      user = {
-        name = "Brian Chen";
-        email = "brianchen8990@gmail.com";
-      };
-      core = {
-        editor = "nvim";
-        ignorecase = false;
-      };
-      color = {
-        ui = true;
-      };
-      init = {
-        defaultBranch = "main";
-      };
-      pull = {
-        rebase = true;
-      };
-      submodule = {
-        recurse = true;
-      };
-    };
-
-    ignores = [
-      "*.com"
-      "*.class"
-      "*.dll"
-      "*.exe"
-      "*.o"
-      "*.so"
-      "*.7z"
-      "*.dmg"
-      "*.gz"
-      "*.iso"
-      "*.jar"
-      "*.rar"
-      "*.tar"
-      "*.zip"
-      "log/"
-      "*.log"
-      ".DS_Store"
-      ".DS_Store?"
-      "._*"
-      ".Spotlight-V100"
-      ".Trashes"
-      "ehthumbs.db"
-      "Thumbs.db"
-      "npm-debug.log"
-      ".tern-project"
-      "*~"
-      ".vim/"
-      "tags"
-      "tags*"
-      ".vscode/"
-      ".elixir_ls/"
-      "_esy/"
-      ".netrwhist"
-    ];
-  };
-
-  programs.delta = {
-    enable = true;
-    enableGitIntegration = true;
-    options = {
-      navigate = true;
-      line-numbers = true;
-      syntax-theme = "base16";
-    };
-  };
-
-  xdg.configFile.jj = {
-    source = ../config/jj;
-    recursive = true;
-  };
 }
