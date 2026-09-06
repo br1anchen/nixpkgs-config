@@ -112,7 +112,6 @@
       nerd-fonts.fira-code
     ]
     ++ lib.optionals isOmarchy [
-      helium # Chromium fork; upstream ships Linux builds only
       wl-clipboard # Wayland replacement for xclip
     ];
 }
