@@ -13,6 +13,9 @@
 #   3. post-update hook
 #                     - Omarchy's migrations SILENTLY SKIP files you have edited.
 #                       This surfaces the resulting drift right when it happens.
+#   4. chromium search policy
+#                     - lives in /etc, not $HOME, so home-manager cannot own it.
+#                       Needs sudo.
 #
 # Safe to re-run.
 
@@ -79,6 +82,21 @@ exec "\$HOME/.nix-profile/bin/dotfiles-sync" pull --report
 EOF
 chmod 755 "$HOOK"
 echo "[+] installed $HOOK"
+
+# --- 4. chromium default search provider ------------------------------------
+# Chromium on Linux reads enterprise policy only from /etc/chromium/policies;
+# there is no per-user policy directory, so this cannot be a home-manager path.
+# The DefaultSearchProvider* policies are mandatory-only (Chromium does not
+# honour them under policies/recommended), which is why the engine shows up as
+# "managed by your organization" and is not switchable from chrome://settings.
+POLICY_SRC="$REPO/config/chromium/policies/search-provider.json"
+POLICY_DST="/etc/chromium/policies/managed/search-provider.json"
+if cmp -s "$POLICY_SRC" "$POLICY_DST" 2>/dev/null; then
+  echo "[=] $POLICY_DST already matches the repo"
+else
+  sudo install -Dm644 "$POLICY_SRC" "$POLICY_DST"
+  echo "[+] installed $POLICY_DST (restart chromium to pick it up)"
+fi
 
 echo
 echo "done. Repo: $REPO"
