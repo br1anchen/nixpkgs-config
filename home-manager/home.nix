@@ -22,7 +22,7 @@
     ./dotfiles.nix
     ./git.nix
     ./lazyvim.nix
-    ./shell.nix
+    ./shell
     ./worktrees.nix
     ./agents.nix
     ./pstack.nix
@@ -113,7 +113,7 @@
       nerd-fonts.fira-code
     ]
     ++ lib.optionals isOmarchy [
-      google-cloud-sdk # gcloud CLI; macOS gets it from Homebrew (see shell.nix)
+      google-cloud-sdk # gcloud CLI; macOS gets it from Homebrew (see shell/darwin.nix)
       wl-clipboard # Wayland replacement for xclip
     ];
 }
