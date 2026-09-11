@@ -1,0 +1,259 @@
+{
+  "upstream": {
+    "repository": "https://github.com/cursor/plugins",
+    "revision": "7366ac128bdf95f45e6734f412b49a4031800169",
+    "version": "0.15.1"
+  },
+  "inspiration": {
+    "repository": "https://github.com/michael-denyer/pstack-claude",
+    "revision": "5d8752c3dd620f344ed8f87ec47fbf3b1fb90b7e"
+  },
+  "skills": {
+    "architect": "pstack/skills/architect",
+    "arena": "pstack/skills/arena",
+    "automate-me": "pstack/skills/automate-me",
+    "blast-radius": "pstack/skills/blast-radius",
+    "bro": "pstack/skills/bro",
+    "create-verification-skill": "pstack/skills/create-verification-skill",
+    "figure-it-out": "pstack/skills/figure-it-out",
+    "how": "pstack/skills/how",
+    "interrogate": "pstack/skills/interrogate",
+    "maintain-verification-skill": "pstack/skills/maintain-verification-skill",
+    "make-bot-ui": "pstack/skills/make-bot-ui",
+    "no-comments": "pstack/skills/no-comments",
+    "poteto-mode": "pstack/skills/poteto-mode",
+    "principle-attack-the-premise": "pstack/skills/principle-attack-the-premise",
+    "principle-boundary-discipline": "pstack/skills/principle-boundary-discipline",
+    "principle-build-the-lever": "pstack/skills/principle-build-the-lever",
+    "principle-encode-lessons-in-structure": "pstack/skills/principle-encode-lessons-in-structure",
+    "principle-exhaust-the-design-space": "pstack/skills/principle-exhaust-the-design-space",
+    "principle-experience-first": "pstack/skills/principle-experience-first",
+    "principle-fix-root-causes": "pstack/skills/principle-fix-root-causes",
+    "principle-foundational-thinking": "pstack/skills/principle-foundational-thinking",
+    "principle-guard-the-context-window": "pstack/skills/principle-guard-the-context-window",
+    "principle-laziness-protocol": "pstack/skills/principle-laziness-protocol",
+    "principle-make-operations-idempotent": "pstack/skills/principle-make-operations-idempotent",
+    "principle-migrate-callers-then-delete-legacy-apis": "pstack/skills/principle-migrate-callers-then-delete-legacy-apis",
+    "principle-minimize-reader-load": "pstack/skills/principle-minimize-reader-load",
+    "principle-model-the-domain": "pstack/skills/principle-model-the-domain",
+    "principle-never-block-on-the-human": "pstack/skills/principle-never-block-on-the-human",
+    "principle-outcome-oriented-execution": "pstack/skills/principle-outcome-oriented-execution",
+    "principle-prove-it-works": "pstack/skills/principle-prove-it-works",
+    "principle-redesign-from-first-principles": "pstack/skills/principle-redesign-from-first-principles",
+    "principle-separate-before-serializing-shared-state": "pstack/skills/principle-separate-before-serializing-shared-state",
+    "principle-sequence-verifiable-units": "pstack/skills/principle-sequence-verifiable-units",
+    "principle-subtract-before-you-add": "pstack/skills/principle-subtract-before-you-add",
+    "principle-test-behavior-not-implementation": "pstack/skills/principle-test-behavior-not-implementation",
+    "principle-type-system-discipline": "pstack/skills/principle-type-system-discipline",
+    "recall": "pstack/skills/recall",
+    "reflect": "pstack/skills/reflect",
+    "setup-pstack": "pstack/skills/setup-pstack",
+    "show-me-your-work": "pstack/skills/show-me-your-work",
+    "swarm": "pstack/skills/swarm",
+    "pstack-tdd": "local customization",
+    "pstack-teach": "local customization",
+    "technical-writing": "pstack/skills/technical-writing",
+    "typescript-best-practices": "pstack/skills/typescript-best-practices",
+    "unslop": "pstack/skills/unslop",
+    "why": "pstack/skills/why",
+    "reproduce-and-fix-issues": "pstack/automations/benny/skills/reproduce-and-fix-issues",
+    "setup-benny": "pstack/automations/benny/skills/setup-benny",
+    "triage-issue-reports": "pstack/automations/benny/skills/triage-issue-reports",
+    "pstack": "local portable entry point",
+    "ask-poteto": "local scenario advisor"
+  },
+  "previous_install": {
+    "architect": {
+      "kind": "directory",
+      "skill_sha256": "9dc60bcf8d8d09000cdd88636ddb7371c576282880a8bb17993d2a1ea1900285"
+    },
+    "arena": {
+      "kind": "directory",
+      "skill_sha256": "c090878efc50d71605e8be518d12e71d00b451b76c2fd38ea9e0bb2a3e2f6cda"
+    },
+    "automate-me": {
+      "kind": "directory",
+      "skill_sha256": "34e7eab6f495093d474817bc4c13f26bcf5fafa439f2761b8c1ec72b07487764"
+    },
+    "blast-radius": {
+      "kind": "directory",
+      "skill_sha256": "b060df3ca85803eabbce9fab53f5cc024ca8d784bdde5513c1c1a784947523f8"
+    },
+    "bro": {
+      "kind": "directory",
+      "skill_sha256": "aa329d0ceeeecb6822a7174ad76bb07a7826a3c52ceb6a588dec4138815084bb"
+    },
+    "create-verification-skill": {
+      "kind": "directory",
+      "skill_sha256": "644f2551403c1bca01a2855b34611b6e7be0ce0dc5b204514c376c0f6a6e6ac4"
+    },
+    "figure-it-out": {
+      "kind": "directory",
+      "skill_sha256": "548616d04909de854f36869af2af127ce321fc6aaf95ea5a626997709fd46a2a"
+    },
+    "how": {
+      "kind": "directory",
+      "skill_sha256": "3a554ff564d66a4200a07e20164558e820ea7a9795beb98a4a06546146c98f5f"
+    },
+    "interrogate": {
+      "kind": "directory",
+      "skill_sha256": "c9a42c706a84cab50d3cf1c7cf91149bac2e0d2ad24da2b8ff518ea0918ae3bb"
+    },
+    "maintain-verification-skill": {
+      "kind": "directory",
+      "skill_sha256": "515c0eaa054b3f6be1b1fb06f2c2f173c80fddb58bbcac57576f89c479bc68e8"
+    },
+    "make-bot-ui": {
+      "kind": "directory",
+      "skill_sha256": "ad19d0bc6764287ec08c2521701974e7dac941f72e4d0fe81a24f4614494586f"
+    },
+    "no-comments": {
+      "kind": "directory",
+      "skill_sha256": "72d3b153712ab641875f1d7424de0f77375af1cec03707935f08fa7d8f17bbf3"
+    },
+    "poteto-mode": {
+      "kind": "directory",
+      "skill_sha256": "7ef5b905064937bed7b3290642cce0a8cae17bf8e75b7b1537d2062e7e52352d"
+    },
+    "principle-boundary-discipline": {
+      "kind": "directory",
+      "skill_sha256": "ab3c690ce361542ca00446b8406f5afd47776f544b8ce06a9ef2eaa2338bde6d"
+    },
+    "principle-build-the-lever": {
+      "kind": "directory",
+      "skill_sha256": "3a0b02b1b890538810f27d00c525b2e677bb5d931f602fd7a774d5cd13b61c93"
+    },
+    "principle-encode-lessons-in-structure": {
+      "kind": "directory",
+      "skill_sha256": "4acdb3f466efd0a433899aafce3e0f100566228b63ccff43f363a83e80624d81"
+    },
+    "principle-exhaust-the-design-space": {
+      "kind": "directory",
+      "skill_sha256": "8583310d7297b7823d75494faa57b003564d436807febecdecbd8321abe5cf6e"
+    },
+    "principle-experience-first": {
+      "kind": "directory",
+      "skill_sha256": "f8d643ddf2f6aa91d9607d1bb340fd2baf227d702e9738848b85312a312bb971"
+    },
+    "principle-fix-root-causes": {
+      "kind": "directory",
+      "skill_sha256": "cfae13b5a3e27bc88d069092cae97b3e95246879d5bf14f0e9a4db719c781952"
+    },
+    "principle-foundational-thinking": {
+      "kind": "directory",
+      "skill_sha256": "a522488c9d4481e8bfcbe35cbf3838169c8e3801ee0738ae2859067684144579"
+    },
+    "principle-guard-the-context-window": {
+      "kind": "directory",
+      "skill_sha256": "291d0125125eabbc2109c880b1c1083aa95826187119a648b26c1c8ea6367179"
+    },
+    "principle-laziness-protocol": {
+      "kind": "directory",
+      "skill_sha256": "8999fda9fde65fd905835c86e3bfc64190369a84bba30b1e93769f39ad6580fe"
+    },
+    "principle-make-operations-idempotent": {
+      "kind": "directory",
+      "skill_sha256": "540738217c3da7bf513b9886924ad6a2bc77e58be867f5bd2e1831c74bf2ce70"
+    },
+    "principle-migrate-callers-then-delete-legacy-apis": {
+      "kind": "directory",
+      "skill_sha256": "e29b6b6534a23dcaf8c7e16fc25d6484000d7b6e289c48eb0a32a97280633c5d"
+    },
+    "principle-minimize-reader-load": {
+      "kind": "directory",
+      "skill_sha256": "480f4ddec29e7e3058a8f17eb97c0cec4a2c8b4b33ba6401e960167c1fc95a81"
+    },
+    "principle-model-the-domain": {
+      "kind": "directory",
+      "skill_sha256": "6b359783c5c9be87860d0999321e864940ff17729b9f9a27f38abae449640022"
+    },
+    "principle-never-block-on-the-human": {
+      "kind": "directory",
+      "skill_sha256": "f656f3b7581df55e79f53cc47df93905c3a940b822c25071ba95f40e530d102a"
+    },
+    "principle-outcome-oriented-execution": {
+      "kind": "directory",
+      "skill_sha256": "beedcaed75572a6a1662d47f16da203c2bd2c9dbffbbd678d4ba187d67b7e670"
+    },
+    "principle-prove-it-works": {
+      "kind": "directory",
+      "skill_sha256": "9bbe6138505be34d81e9395d95d3639b384f71d71d65cc1903075126e1da1508"
+    },
+    "principle-redesign-from-first-principles": {
+      "kind": "directory",
+      "skill_sha256": "9ae97b35d6338cc9e34c7023c995a39cb7afdaf4bfd41e1d3d665da04d7515d5"
+    },
+    "principle-separate-before-serializing-shared-state": {
+      "kind": "directory",
+      "skill_sha256": "5b14fd656441580061f760968c828f3f4ba034242d8fa06b544763efb25e89ee"
+    },
+    "principle-sequence-verifiable-units": {
+      "kind": "directory",
+      "skill_sha256": "7478f8160ba5701ca40c742a81e90aff12d45f53ac9191e80ad79b9763e4489f"
+    },
+    "principle-subtract-before-you-add": {
+      "kind": "directory",
+      "skill_sha256": "3999888dc21ced33b86054c2ffde1a3cb438e16bed1213f5dab2b5c000446292"
+    },
+    "principle-type-system-discipline": {
+      "kind": "directory",
+      "skill_sha256": "662ed1ad53fb491e97b9c4eac7317fba8ec5ed722fec8d71beb94da0111619cf"
+    },
+    "recall": {
+      "kind": "directory",
+      "skill_sha256": "90d290daec500f548a167bbd20d69a3a248e345c546ca847ca12967d1c99cbf3"
+    },
+    "reflect": {
+      "kind": "directory",
+      "skill_sha256": "5c0fd61b383a2cf98dfd597544c6fc0fdd6eb90802f1ada4f92fa0762c323ebc"
+    },
+    "setup-pstack": {
+      "kind": "directory",
+      "skill_sha256": "6ed4840c3005fd455e347d2a97d7fc271df7e21ecadf3298a7e2b3d46dc58701"
+    },
+    "show-me-your-work": {
+      "kind": "directory",
+      "skill_sha256": "b99833c41a8781a6af191487f1af37711a3198b98f9373e3c02292b8a6e09aba"
+    },
+    "swarm": {
+      "kind": "directory",
+      "skill_sha256": "8e6494e296af5496cacb0fb83f33f647c84286d2e1d1b85580bc0f0f577a81cd"
+    },
+    "pstack-tdd": {
+      "kind": "directory",
+      "skill_sha256": "ddd662911731b31da08836142bd53d6f7d73dd7e2aac853721121c31ab60f72d"
+    },
+    "pstack-teach": {
+      "kind": "directory",
+      "skill_sha256": "6ac35d5135a6dd6b192a2bd401e94008d53768e724f892a1a08ee5836e08e5bf"
+    },
+    "technical-writing": {
+      "kind": "directory",
+      "skill_sha256": "bd0cb21034f4fe6695cfdf8cd3561026eec943f0bb6e9300bc78a2b3340865a7"
+    },
+    "typescript-best-practices": {
+      "kind": "directory",
+      "skill_sha256": "b854da40f946f1cd4681785d3e802a2a592322d351f770f5057b56430edb35d0"
+    },
+    "unslop": {
+      "kind": "directory",
+      "skill_sha256": "2789ab80477b7e382292e4d7acca1057784df19713fffb74622ff0f83b2f3733"
+    },
+    "why": {
+      "kind": "directory",
+      "skill_sha256": "a9423bb7bab7c3280d17478ebe97bb283ea6ed12d9dcae590fc2f81f41660990"
+    },
+    "reproduce-and-fix-issues": {
+      "kind": "directory",
+      "skill_sha256": "1363cc07343fe86aab42853b1bd4563288cbcbdf12f1c265b3b3b1afa25c09cb"
+    },
+    "setup-benny": {
+      "kind": "directory",
+      "skill_sha256": "5a3cbe63360c9f6373b6cb6c79a1eaf7e0eba181bfaa1577e2e6431af3407282"
+    },
+    "triage-issue-reports": {
+      "kind": "directory",
+      "skill_sha256": "216a758b8711e64d19a55e6032c496527daac6364d010611040f3c04ef1a448f"
+    }
+  }
+}

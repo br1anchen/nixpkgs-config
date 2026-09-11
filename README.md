@@ -43,6 +43,9 @@ mise install
 
 ## Agent workflow
 
+[Pstack](config/pstack/README.md) is synced for Claude Code, Codex, Pi, and Grok Build.
+Use `ask-poteto` for workflow advice; see the [scenario tutorial](config/pstack/skills/ask-poteto/references/scenarios.md).
+
 Ghostty starts Herdr as the default control plane. Herdr opens login zsh
 shells, stores worktrees under `~/.herdr/worktrees`, and restores supported
 agent sessions. Start a plan-gated Pi session with:

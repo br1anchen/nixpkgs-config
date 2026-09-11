@@ -25,6 +25,7 @@
     ./shell.nix
     ./worktrees.nix
     ./agents.nix
+    ./pstack.nix
     ./agent-workflow.nix
     ./tmux.nix
     ./lazygit.nix
