@@ -7,22 +7,15 @@
 }:
 
 let
-  version = "0.84.1";
-  srcHash = "sha512-ncAqFrG+iybuPGOhMiZoEHkEzTpJgz3guYD32pD+M7ucc0WeHmauP6wa7qwP8V/KWvsZDVNa5XGsdZ7fkC7w7A==";
+  version = "0.85.1";
+  srcHash = "sha512-FGRN+OHbWaefBPGaTggAdLjrIHW+s2PzLyglz/5dfLzb9of7uuXMXYC0fJIeZTw+shS32o2cuQ9jF7YSDuL/oQ==";
   # npm's shrinkwrap omits integrity fields for these workspace packages.
   missingIntegrity = {
-    "@earendil-works/pi-agent-core" =
-      "sha512-evyzXYWCLQGmcaBYHlmSku02r8qoN4SGI60GZABo6iV+H+nqX+P9ud8fEZ4GmRq9mUSREvvfX+w9dA9ThF9C6w==";
-    "@earendil-works/pi-ai" =
-      "sha512-wMsAdJMxuNri08vLqTyYVI201DQQezGhPSTkzYsHdw5dYX3rCNwEmSvpaAwhi7ELKI/2tE/CEgSWg/6iRxSgdQ==";
-    "@earendil-works/pi-client" =
-      "sha512-/V5hGHE4Zq+jG0GtwIB9PyBUOGd6gBLZ7lkQYFKchKnxYHeH3rmWC5xw4kpnZKKBuBuFTdLVbU9vEjlAGMMb2A==";
-    "@earendil-works/pi-protocol" =
-      "sha512-Ox1pciyeSPGEEUcxvR0/dJcrY7C6hrEGA8y71rOsvSIUlXN1Cbp/be/eoL71OGDBk5O97TeQPfWN6Ju/2Ehjww==";
-    "@earendil-works/pi-telemetry" =
-      "sha512-180/xGJtsq7IoR3p9EKWjRd0e9M4DkxInhlo9xyD7prDC7Qrhqq+nhvwrW0lFjPfXcEI2FSHmGCSyvSJE9GsaQ==";
-    "@earendil-works/pi-tui" =
-      "sha512-udeXFbgEhJ6JiB0uguwNVNkDy2FENfmtQwPcY+/iJ8GWeq18wkal1tKqa5YyeH0IqtX1vG0cGh8zfSYzyzVuLA==";
+    "@earendil-works/chord" = "sha512-VDlkEC3dhCzQ5fcyH1OhG19dq+6jCn+rqc/iXFivwDYGR5anwo2RCiXij9PpHhqNR5GuhhE+Er69Zi1Sn4eY6w==";
+    "@earendil-works/pi-agent-core" = "sha512-hIXIP3eAWueAYiAl8aMvWCvvZ8Q5gT3Dip5bE5uJyIGh4+YlWRjtMLI4BaeoXoSs93zndjue61u1B/vhefLnuA==";
+    "@earendil-works/pi-ai" = "sha512-+VgVIJDkDO2efYJKEEqvPTH4zmnIaXdAppGbO+vKFA9qy5PdhFiAenuFAkU+oiCSfOC4dMHDyrjdQeL4ZoC5CQ==";
+    "@earendil-works/pi-telemetry" = "sha512-Bg/YN6kA7Swja/NQxka8xFdecb4E/auIEGF2G5A25EaQXhRnPj300/7/KpgsDDMYUzHTDAv4RyUxaQPJKW81Rw==";
+    "@earendil-works/pi-tui" = "sha512-OIzw9efInmO4WOBnD4TxcTdBjmzvYJpzslkgoUro946nEGoYWg5rwv1p4fDt3/JvMx9QybryUCUwlm7j8Dreig==";
   };
   src = fetchurl {
     url = "https://registry.npmjs.org/@earendil-works/pi-coding-agent/-/pi-coding-agent-${version}.tgz";
@@ -52,7 +45,7 @@ let
   npmDeps = fetchNpmDeps {
     name = "pi-coding-agent-${version}-npm-deps";
     inherit src;
-    hash = "sha256-Iz4+IUuKP+wsMiO316ws6RxEo2magnQUXX8MvDOpkAM=";
+    hash = "sha256-HF3Anl4xnnb6tVQM7u90N7TzWAtiBZ4sU1jxMHWwYr4=";
     nativeBuildInputs = [ nodejs_24 ];
     postPatch = patchPackage;
   };

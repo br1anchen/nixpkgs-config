@@ -1,4 +1,9 @@
-# Neovim settings
+# Neovim (LazyVim).
+#
+# The config itself is the config/lazyvim submodule, delivered by ./dotfiles.nix.
+# Omarchy's own `omarchy-nvim` package is removed on this host: while installed,
+# it owns ~9,982 files under /etc/skel and `omarchy reinstall configs`
+# (`cp -af /etc/skel/. ~/`) would bulldoze this config.
 
 { pkgs, ... }:
 
@@ -8,7 +13,6 @@ let
   neovimPython = pkgs.python3.withPackages (ps: [ ps.pynvim ]);
 in
 {
-
   home.packages = with pkgs; [
     lua5_1 # lazy.nvim/luarocks need a 5.1 interpreter
     luajitPackages.luarocks
@@ -27,15 +31,5 @@ in
   home.sessionVariables = {
     NVIM_NODE_HOST_PROG = "${pkgs.neovim-node-client}/bin/neovim-node-host";
     NVIM_PYTHON3_HOST_PROG = "${neovimPython}/bin/python3";
-  };
-
-  xdg.configFile.bob = {
-    source = ../config/bob;
-    recursive = true;
-  };
-
-  xdg.configFile.nvim = {
-    source = ../config/lazyvim;
-    recursive = true;
   };
 }

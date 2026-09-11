@@ -1,0 +1,22 @@
+# macOS-only ghostty overrides.
+#
+# font-size is platform-specific: Omarchy runs 9 against a 1.5x scaled display,
+# which is roughly 13 unscaled on the Mac.
+font-size = 13
+background-opacity = 0.9
+shell-integration = zsh
+
+# Command-key bindings. Deliberately NOT preceded by `keybind = clear`: clearing
+# would also drop shift+insert/control+insert, which Omarchy's universal
+# copy/paste (SUPER+C / SUPER+V) drives by sending those exact keys.
+keybind = super+shift+t=new_tab
+keybind = super+shift+enter=new_split:right
+keybind = super+shift+c=copy_to_clipboard
+keybind = super+shift+v=paste_from_clipboard
+keybind = super+shift+comma=previous_tab
+keybind = super+shift+period=next_tab
+
+# Agent workflow control plane. On Omarchy this is NOT set: herdr is launched
+# there by Omarchy's own SUPER+CTRL+RETURN binding, and making every ghostty
+# window run herdr would break the plain terminal (SUPER+RETURN).
+command = herdr

@@ -8,12 +8,10 @@ This repository contains **Nix** and **Home Manager** configurations for managin
 The project defines the following configurations in `flake.nix`:
 
 ### NixOS Systems
-- **`br1anchen@dune`** (`x86_64-linux`): A standard NixOS system configuration.
 
 ### Home Manager Configurations
 - **`br1anchen`** (`aarch64-darwin`): The primary macOS configuration.
-- **`brian`** (`x86_64-linux`): A generic Linux home configuration.
-- **`deck`** (`x86_64-linux`): A configuration likely for the Steam Deck.
+- **`omarchy`** (`x86_64-linux`): Arch + Omarchy, the only supported Linux target.
 
 ## Directory Structure
 
@@ -21,7 +19,6 @@ The project defines the following configurations in `flake.nix`:
 *   **`home-manager/`**: Contains Home Manager modules.
     *   `home.nix`: The main entry point for user environment configuration.
     *   `*.nix`: Modularized configurations (e.g., `git.nix`, `lazyvim.nix`, `tmux.nix`).
-*   **`nixos/`**: Contains NixOS system configurations.
     *   `configuration.nix`: Main NixOS system config.
 *   **`config/`**: Contains raw configuration files (dotfiles) for various tools (nvim, alacritty, starship, etc.).
 *   **`modules/`**: Intended for reusable custom modules (currently empty).

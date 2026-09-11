@@ -1,54 +1,45 @@
-# Fonts
-font-family = "JetBrains Mono"
-font-size = 13
-adjust-underline-position = 4
+# Dynamic theme colors
+config-file = ?"~/.local/state/omarchy/current/theme/ghostty.conf"
 
-# Mouse
-mouse-hide-while-typing = true
-mouse-scroll-multiplier = 2
-
-# Theme
-theme = Catppuccin Mocha
-cursor-invert-fg-bg = true
-background-opacity = 0.9
-window-theme = ghostty
-
-# keybindings
-keybind = clear
-# keybind = ctrl+j=goto_split:bottom
-keybind = super+shift+i=inspector:toggle
-keybind = super+shift+l=next_tab
-keybind = super+shift+t=new_tab
-keybind = super+shift+m=toggle_split_zoom
-keybind = super+shift+comma=move_tab:-1
-keybind = super+shift+period=move_tab:1
-# keybind = ctrl+h=goto_split:left
-keybind = super+shift+c=copy_to_clipboard
-# keybind = ctrl+k=goto_split:top
-keybind = super+shift+enter=new_split:auto
-keybind = super+shift+r=reload_config
-# keybind = ctrl+l=goto_split:right
-keybind = super+shift+h=previous_tab
-keybind = super+shift+v=paste_from_clipboard
+# Font
+font-family = "JetBrainsMono Nerd Font"
+font-style = Regular
+font-size = 9
 
 # Window
-gtk-single-instance = true
-gtk-tabs-location = bottom
-gtk-wide-tabs = false
-window-padding-y = 2,0
-window-padding-balance = true
-window-decoration = false
+window-theme = ghostty
+window-padding-x = 14
+window-padding-y = 14
+confirm-close-surface=false
+resize-overlay = never
+gtk-toolbar-style = flat
 
-# Other
-copy-on-select = clipboard
+# Cursor styling
+cursor-style = "block"
+cursor-style-blink = false
 
-# Clipboard settings
-clipboard-read = allow
-clipboard-write = allow
+# Cursor styling + SSH session terminfo
+# (all shell integration options must be passed together)
+shell-integration-features = no-cursor,ssh-env
 
-# macos options
-macos-option-as-alt = true
-macos-titlebar-proxy-icon = hidden
+# Keyboard bindings
+keybind = shift+insert=paste_from_clipboard
+keybind = control+insert=copy_to_clipboard
+# Send Shift+Enter as CSI-u so TUIs can distinguish it from Enter.
+keybind = shift+enter=csi:13;2u
+# Legacy encoding sends Alt+Shift+Enter the same as Alt+Enter; send CSI-u so tmux can match M-S-Enter.
+keybind = alt+shift+enter=csi:13;4u
+keybind = super+control+shift+alt+arrow_down=resize_split:down,100
+keybind = super+control+shift+alt+arrow_up=resize_split:up,100
+keybind = super+control+shift+alt+arrow_left=resize_split:left,100
+keybind = super+control+shift+alt+arrow_right=resize_split:right,100
 
-# Shell integrations
-shell-integration = zsh
+# Slowdown mouse scrolling
+mouse-scroll-multiplier = 0.95
+
+# Fix general slowness on hyprland (https://github.com/ghostty-org/ghostty/discussions/3224)
+async-backend = epoll
+
+# Platform-specific overrides. The `?` prefix makes a missing file non-fatal, so
+# this exact line is safe on both macOS and Omarchy.
+config-file = ?"~/.config/ghostty/platform"

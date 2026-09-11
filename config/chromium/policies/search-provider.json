@@ -1,0 +1,7 @@
+{
+  "DefaultSearchProviderEnabled": true,
+  "DefaultSearchProviderName": "Perplexity",
+  "DefaultSearchProviderKeyword": "pplx",
+  "DefaultSearchProviderSearchURL": "https://www.perplexity.ai/search?q={searchTerms}",
+  "DefaultSearchProviderIconURL": "https://www.perplexity.ai/favicon.ico"
+}

@@ -1,0 +1,73 @@
+# Shared git config for macOS and Omarchy.
+#
+# Consolidated from this repo's previous programs.git settings and Omarchy's
+# shipped /usr/share/omarchy/config/git/config. Omarchy's defaults are adopted
+# wholesale except init.defaultBranch, which stays `main`.
+#
+# Note: on Omarchy there is no ~/.gitconfig, so `git config --global` resolves
+# to this file. Identity is kept here deliberately for that reason.
+
+[user]
+	name = Brian Chen
+	email = brianchen8990@gmail.com
+
+[core]
+	editor = nvim
+	ignorecase = false
+	excludesFile = ~/.config/git/ignore
+	pager = delta
+
+[color]
+	ui = true
+
+[alias]
+	co = checkout
+	br = branch
+	ci = commit
+	st = status
+
+[init]
+	defaultBranch = main
+
+[pull]
+	rebase = true            # Rebase (instead of merge) on pull
+
+[push]
+	autoSetupRemote = true   # Automatically set upstream branch on push
+
+[diff]
+	algorithm = histogram    # Clearer diffs on moved/edited lines
+	colorMoved = plain       # Highlight moved blocks in diffs
+	mnemonicPrefix = true    # More intuitive refs in diff output
+
+[commit]
+	verbose = true           # Include diff comment in commit message template
+
+[column]
+	ui = auto                # Output in columns when possible
+
+[branch]
+	sort = -committerdate    # Sort branches by most recent commit first
+
+[tag]
+	sort = -version:refname  # Sort version numbers as you would expect
+
+[rerere]
+	enabled = true           # Record and reuse conflict resolutions
+	autoupdate = true        # Apply stored conflict resolutions automatically
+
+[submodule]
+	recurse = true
+
+[interactive]
+	diffFilter = delta --color-only
+
+[merge]
+	conflictstyle = zdiff3
+
+# syntax-theme is deliberately unset so delta follows BAT_THEME (Omarchy exports
+# BAT_THEME=ansi so bat-family tools track the active theme). Pinning base16
+# here gave different highlighting in bash vs zsh.
+[delta]
+	navigate = true
+	line-numbers = true

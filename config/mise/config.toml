@@ -1,6 +1,24 @@
+# Shared runtime versions. mise owns language runtimes on both platforms because
+# Omarchy's `mise activate bash` PREPENDS its shim dir, so a nix-installed `go`
+# or `node` is unreachable on Linux regardless of profile order.
+#
+# The agent entries below are Omarchy's (installed by
+# /usr/share/omarchy/install/user/mise.sh and refreshed by `omarchy update`).
+# They MUST stay: this file replaces ~/.config/mise/config.toml wholesale, and
+# dropping them silently uninstalls Omarchy's agent tooling.
 [tools]
+# Omarchy-managed agent tooling
+claude = "latest"
+codex = "latest"
+gh = "latest"
+# pi is mise-managed rather than a nix package: Omarchy's installer runs
+# `omarchy-mise-install pi`, and mise's install dirs sit AHEAD of
+# ~/.nix-profile/bin on PATH, so a nix-pinned pi would be silently shadowed.
+pi = "latest"
+
+# Language runtimes
+node = "26.8.1"
 go = "1.23.4"
-node = "23.11.0"
 python = "3.12.10"
 yarn = "1.22.18"
 pnpm = "11.22.0"
