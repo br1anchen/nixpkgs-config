@@ -101,15 +101,18 @@ lib.mkIf agentWorkflow {
 
   home.activation = {
     registerVimHerdrNavigation = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
-      marker="$HOME/.config/herdr/.vim-herdr-navigation-source"
       expected_source=${lib.escapeShellArg navigationRoot}
+      offline_socket="''${TMPDIR:-/tmp}/home-manager-herdr-offline-$$.sock"
 
-      if [[ ! -r "$marker" ]] || [[ "$(< "$marker")" != "$expected_source" ]]; then
-        ${herdr}/bin/herdr plugin unlink vim-herdr-navigation >/dev/null 2>&1 || true
-        ${herdr}/bin/herdr plugin link "$expected_source"
-        printf '%s\n' "$expected_source" > "$marker"
+      if [[ -n "''${DRY_RUN_CMD:-}" ]]; then
+        $DRY_RUN_CMD ${herdr}/bin/herdr plugin link "$expected_source"
+      elif ! ${herdr}/bin/herdr plugin link "$expected_source" >/dev/null 2>&1; then
+        # A running server can lag behind the Home Manager client after an
+        # upgrade. Persist the plugin for its next start without stopping it.
+        HERDR_SOCKET_PATH="$offline_socket" \
+          ${herdr}/bin/herdr plugin link "$expected_source" >/dev/null
       fi
-      ${herdr}/bin/herdr plugin enable vim-herdr-navigation
+      $DRY_RUN_CMD rm -f "$HOME/.config/herdr/.vim-herdr-navigation-source"
     '';
 
     configureClaudeAgentWorkflow = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
