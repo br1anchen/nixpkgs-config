@@ -1,3 +1,6 @@
 # Local environment and direnv state
 .env
 .direnv/
+
+# nix build out-link
+result
