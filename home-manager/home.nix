@@ -67,6 +67,7 @@
       cachix # Nix build cache
       cheat
       cocogitto
+      devin-cli # Devin coding agent; nix owns upgrades (self-update disabled)
       eza # ls replacement written in Rust
       fd # find replacement written in Rust
       gnumake

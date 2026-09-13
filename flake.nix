@@ -162,6 +162,7 @@
         in
         {
           inherit (pkgs)
+            devin-cli
             pi-coding-agent
             plannotator-pi-extension
             prime-agent
