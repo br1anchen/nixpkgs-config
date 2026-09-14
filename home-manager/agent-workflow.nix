@@ -125,6 +125,7 @@ lib.mkIf agentWorkflow {
         type == "object"
         and ((.hooks // {}) | type == "object")
         and ((.hooks.SessionStart // []) | type == "array")
+        and ((.env // {}) | type == "object")
       ' "$settings" >/dev/null; then
         echo "warning: leaving malformed Claude settings untouched: $settings" >&2
       else
@@ -146,6 +147,8 @@ lib.mkIf agentWorkflow {
               }]
             }]
             end
+          | .env //= {}
+          | .env.CLAUDE_CODE_SUBAGENT_MODEL = "opus"
         ' "$settings" > "$updated"; then
           if ! ${pkgs.diffutils}/bin/cmp -s "$settings" "$updated"; then
             ${pkgs.coreutils}/bin/cp -p "$settings" "$settings.agent-workflow.bak"
