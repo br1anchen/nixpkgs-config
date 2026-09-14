@@ -27,5 +27,15 @@ deno = "1.46.2"
 zig = "0.13.0"
 uv = "0.11.20"
 
+# Commit CLI, driven by lazygit's `git czg` custom command (config/lazygit/config.yml).
+# mise-managed rather than `npm i -g`: an npm global lands in ONE node install's
+# bin dir, so every bump of `node` above silently orphans it and the git-czg shim
+# dies with "No version is set for shim: git-czg".
+"npm:czg" = "latest"
+
+# Release/source-map upload CLI. The aqua entry is a native binary, so unlike the
+# previous `npm i -g @sentry/cli` it does not ride on a node install either.
+sentry-cli = "latest"
+
 [settings]
 idiomatic_version_file_enable_tools = []
