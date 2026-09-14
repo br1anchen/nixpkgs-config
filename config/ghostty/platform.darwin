@@ -19,4 +19,18 @@ keybind = super+shift+period=next_tab
 # Agent workflow control plane. On Omarchy this is NOT set: herdr is launched
 # there by Omarchy's own SUPER+CTRL+RETURN binding, and making every ghostty
 # window run herdr would break the plain terminal (SUPER+RETURN).
-command = herdr
+#
+# Ghostty resolves a bare `command` against its OWN PATH, and Ghostty.app is
+# launched by launchd, whose PATH has no nix profile - `command = herdr` dies
+# with "exec: herdr: not found". Hence the explicit path.
+#
+# On macOS ghostty pastes this string into `/bin/bash --noprofile --norc -c
+# "exec -l <string>"`, so bash expands the `~`. That same wrapper is why SHELL
+# cannot be set as a `VAR=val` prefix: bash's `exec` takes the first word as the
+# command name, so it would try to execute a file called `SHELL=/bin/zsh`.
+# `/usr/bin/env` sets it instead. It is pinned because ghostty exports
+# SHELL=<command> when `command` is set; without it every herdr pane would try
+# to spawn herdr instead of a shell. /bin/zsh (not a nix zsh) is this machine's
+# login shell, and its /etc/zshrc is what puts the nix profile on PATH for
+# interactive panes.
+command = /usr/bin/env SHELL=/bin/zsh ~/.nix-profile/bin/herdr
