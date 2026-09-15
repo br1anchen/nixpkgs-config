@@ -14,7 +14,7 @@
 - `nix develop` — drop into a dev shell with Nix and Home Manager available.
 - `nix flake check` — evaluate the flake and run defined checks; add `--show-trace` if debugging.
 - Apply Home Manager configs: `home-manager switch --flake .#darwin` (macOS) or `.#omarchy` (Arch + Omarchy).
-- Sync dotfiles on Omarchy: `dotfiles-sync status` / `pull` / `push` (see `scripts/dotfiles-sync.sh`).
+- Sync dotfiles on Omarchy: `dotfiles-sync status` / `pull` / `push` / `merge` (see `scripts/dotfiles-sync.sh`). Every push, adopt or merge records a base under `~/.local/state/dotfiles-sync/`; `merge` three-ways repo and live against it (seeding from git history when none exists), writes conflicts as markers into the repo file, and `push` refuses a file whose live copy moved since the base. After an `omarchy update`: `dots merge`, resolve any markers, `dots push`.
 - One-time Omarchy wiring: `./scripts/omarchy-bootstrap.sh`.
 - Tooling helpers: run `mise install` to install configured runtimes; after macOS updates, run `sudo bash ./fix_macos_updated.sh`.
 - mise owns language runtimes on both platforms (Omarchy's `mise activate bash` prepends its shims ahead of the nix profile). `config/mise/config.toml` must keep Omarchy's `claude`/`codex`/`gh` entries.
