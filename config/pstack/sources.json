@@ -52,6 +52,8 @@
     "swarm": "pstack/skills/swarm",
     "pstack-tdd": "local customization",
     "pstack-teach": "local customization",
+    "pstack-pair": "local customization",
+    "pstack-pair-guided": "local customization",
     "technical-writing": "pstack/skills/technical-writing",
     "typescript-best-practices": "pstack/skills/typescript-best-practices",
     "unslop": "pstack/skills/unslop",
