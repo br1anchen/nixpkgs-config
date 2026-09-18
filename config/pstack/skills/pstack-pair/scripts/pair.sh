@@ -22,10 +22,19 @@ usage: pair.sh <command> [args]
   discuss <store> <plan-path> [--timeout MS]
                                             send PLAN to the sidekick and wait for its agree/object response
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
-  dispatch <store> <brief-path> [--timeout MS]
+  dispatch <store> <brief-path> [--timeout MS | --every MIN]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan
-  wait <store> [--timeout MS]               wait for the sidekick to settle; prints the report path
+  wait <store> [--timeout MS | --every MIN] wait for the sidekick to settle; prints the report path,
+                                            or a check-in digest when the interval passes first
+  progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
+  new-steer <store> <NNN> [--supersedes STEER | --force]
+                                            create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
+                                            an objection; two fresh steers per brief
+  steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]
+                                            send STEER: to a working sidekick, return at once (its harness hands it
+                                            over between tool calls; --interrupt cancels the running one first);
+                                            to one paused on an objection, wait for it to settle
   report <store> [NNN]                      print the latest (or NNN) report path
   notify <store> <report-path>              sidekick -> master: prompt the master if it is idle
   stop <store> [--timeout MS]               send STOP; the sidekick pauses safely and reports
@@ -33,7 +42,7 @@ usage: pair.sh <command> [args]
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet, 5 sidekick busy, 6 plan not agreed
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet, 5 sidekick busy, 6 plan not agreed, 7 steer cap reached
 USAGE
 }
 
@@ -86,9 +95,9 @@ next_seq() {
 latest_report() {
 	local store="$1" want="${2:-}" f
 	if [ -n "$want" ]; then
-		f="$(ls "$store"/reports/"$want"-*.md 2>/dev/null | head -1 || true)"
+		f="$(ls -t "$store"/reports/"$want"-*.md 2>/dev/null | head -1 || true)"
 	else
-		f="$(ls "$store"/reports/[0-9][0-9][0-9]-*.md 2>/dev/null | sort | tail -1 || true)"
+		f="$(ls -t "$store"/reports/[0-9][0-9][0-9]-*.md 2>/dev/null | head -1 || true)"
 	fi
 	[ -n "$f" ] && printf '%s\n' "$f"
 }
@@ -108,6 +117,93 @@ settle_report() {
 header_field() {
 	# $1 file, $2 key: the value of a "key: value" header line, or empty.
 	grep -m1 -E "^$2:" "$1" | sed -E "s/^$2:[[:space:]]*//" || true
+}
+
+# Minutes a dispatch or wait blocks before printing a check-in. Set from
+# --every or --timeout by the command; nine minutes stays under the shell cap.
+checkin_interval_m=9
+
+# Recorded at dispatch so a check-in can measure elapsed time, commits, and
+# files touched against this brief.
+record_dispatch() {
+	local store="$1" brief="$2" cwd now head
+	cwd="$(field "$store" .cwd)"
+	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	head="$(git -C "$cwd" rev-parse HEAD 2>/dev/null || printf '')"
+	jq --arg brief "$brief" --arg now "$now" --arg head "$head" \
+		'.dispatch = {brief: $brief, at: $now, head: $head}' \
+		"$store/pair.json" >"$store/pair.json.tmp"
+	mv "$store/pair.json.tmp" "$store/pair.json"
+}
+
+progress_path() {
+	# $1 store: the progress log of the dispatched brief, or empty.
+	local brief
+	brief="$(field "$1" '.dispatch.brief // empty')"
+	[ -n "$brief" ] || return 1
+	printf '%s/progress/%s.md\n' "$1" "$(basename "$brief" .md)"
+}
+
+# Check-in digest for a sidekick still working at the interval: elapsed against
+# the timebox, progress lines not yet shown, files touched against the brief's
+# Scope, commits since dispatch, and steer counts. Bounded, so the master can
+# poll it cheaply instead of reading the pane. $2 is the interval in minutes.
+checkin() {
+	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale timebox elapsed_m now
+	brief="$(field "$store" '.dispatch.brief // empty')"
+	[ -n "$brief" ] && [ -f "$brief" ] || return 0
+	at="$(field "$store" '.dispatch.at // empty')"
+	head="$(field "$store" '.dispatch.head // empty')"
+	cwd="$(field "$store" .cwd)"
+	seq="$(basename "$brief" | cut -c1-3)"
+	now="$(date +%s)"
+	timebox="$(header_field "$brief" timebox | grep -oE '^[0-9]+' || true)"
+	elapsed_m=$(( (now - $(date -d "$at" +%s)) / 60 ))
+	printf 'check-in: %s  elapsed %dm of %sm\n' "$(basename "$brief")" "$elapsed_m" "${timebox:-?}"
+	prog="$(progress_path "$store")"
+	if [ -f "$prog" ]; then
+		total="$(wc -l <"$prog")"
+		seen=0
+		[ -f "$prog.seen" ] && seen="$(cat "$prog.seen")"
+		[ "$seen" -le "$total" ] || seen=0
+		new=$((total - seen))
+		age_m=$(( (now - $(stat -c %Y "$prog")) / 60 ))
+		stale=""
+		[ "$age_m" -ge "$interval" ] && stale="  STALE"
+		printf 'progress: +%d lines (last %dm ago)%s\n' "$new" "$age_m" "$stale"
+		tail -n "+$((seen + 1))" "$prog" | tail -n 20 | sed 's/^/  /'
+		printf '%s\n' "$total" >"$prog.seen"
+	else
+		printf 'progress: none yet\n'
+	fi
+	local -a touched=() may=() outside=()
+	mapfile -t touched < <({
+		git -C "$cwd" status --porcelain=v1 --untracked-files=all 2>/dev/null | cut -c4- | sed 's/.* -> //'
+		[ -n "$head" ] && git -C "$cwd" diff --name-only "$head"..HEAD 2>/dev/null
+	} | sort -u)
+	local commits=0
+	[ -n "$head" ] && commits="$(git -C "$cwd" rev-list --count "$head"..HEAD 2>/dev/null || printf 0)"
+	printf 'touched: %d files, %d commits since dispatch\n' "${#touched[@]}" "$commits"
+	[ "${#touched[@]}" -gt 0 ] && printf '  %s\n' "${touched[@]:0:30}"
+	mapfile -t may < <(awk '/^may write:/{f=1;next} /^must not write:|^## /{f=0} f && /^- /{sub(/^- /,""); print}' "$brief")
+	local f p ok
+	for f in "${touched[@]}"; do
+		ok=0
+		for p in "${may[@]}"; do
+			# shellcheck disable=SC2254
+			case "$f" in $p) ok=1; break ;; esac
+		done
+		[ "$ok" -eq 1 ] || outside+=("$f")
+	done
+	if [ "${#outside[@]}" -gt 0 ]; then
+		printf 'outside scope: %d\n' "${#outside[@]}"
+		printf '  %s\n' "${outside[@]:0:30}"
+	fi
+	local sent=0 applied=0 objected=0
+	sent="$(ls "$store"/steers/"$seq"-*-s[0-9]*.md 2>/dev/null | wc -l || true)"
+	objected="$(ls "$store"/reports/"$seq"-*-s[0-9]*.md 2>/dev/null | wc -l || true)"
+	[ -f "$prog" ] && applied="$(grep -cE ' steer s[0-9]+ applied' "$prog" || true)"
+	printf 'steers: %d sent, %d applied, %d objected\n' "$sent" "${applied:-0}" "$objected"
 }
 
 # Implementation playbooks may only run against a plan the sidekick agreed to
@@ -143,14 +239,18 @@ finish_wait() {
 	fi
 	if { [ "$mode" = any ] && report="$(latest_report "$store")"; } || { [ "$mode" = brief ] && report="$(settle_report "$store")"; }; then
 		printf 'report: %s\n' "$report"
+		printf 'report_status: %s\n' "$(header_field "$report" status)"
 		[ "$state" = blocked ] && exit 3
 		exit 0
 	fi
 	printf 'report: missing\n'
 	case "$state" in
 	blocked) exit 3 ;;
-	*) exit 4 ;;
 	esac
+	if [ "$(agent_status "$(field "$store" .sidekick.name)")" = working ]; then
+		checkin "$store" "$checkin_interval_m"
+	fi
+	exit 4
 }
 
 cmd_init() {
@@ -167,7 +267,7 @@ cmd_init() {
 	[[ "$slug" =~ ^[a-z][a-z0-9_-]{0,21}$ ]] || die "slug must match [a-z][a-z0-9_-]{0,21} (so <slug>-sidekick fits Herdr's 32-char name limit)"
 	[ -n "$store" ] || store="$state_root/$slug"
 	[ -n "${HERDR_PANE_ID:-}" ] || die "HERDR_PANE_ID is unset; run from a Herdr-managed pane"
-	mkdir -p "$store"/{plans,briefs,reports,reviews}
+	mkdir -p "$store"/{plans,briefs,reports,reviews,progress,steers}
 	local master="$slug-master" sidekick="$slug-sidekick" now cwd git_root
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 	cwd="$PWD"
@@ -188,7 +288,8 @@ cmd_init() {
 			  sidekick: {name: $sidekick, pane_id: null, kind: null, started_at: null}}' >"$store/pair.json"
 		printf 'store: %s (master %s in %s)\n' "$store" "$master" "$HERDR_PANE_ID"
 	fi
-	[ -f "$store/standing-orders.md" ] || cp "$skill_root/references/standing-orders-template.md" "$store/standing-orders.md"
+	# The template comes from a read-only install, so give the copy its own mode.
+	[ -f "$store/standing-orders.md" ] || { cp "$skill_root/references/standing-orders-template.md" "$store/standing-orders.md" && chmod u+w "$store/standing-orders.md"; }
 	[ -f "$store/gates.md" ] || printf '# Gates\n\nOne entry per open question for the human: question, options, default on no answer.\n' >"$store/gates.md"
 	[ -f "$store/decisions.tsv" ] || printf 'ts\tphase\tdecision\twhy\tevidence\tresult\n' >"$store/decisions.tsv"
 	printf 'standing orders: %s\n' "$store/standing-orders.md"
@@ -256,6 +357,15 @@ permission_args() {
 	local kind="$1" mode="$2"
 	case "$kind" in
 	claude) printf -- '--permission-mode\n%s\n' "$mode" ;;
+	devin)
+		# devin: auto approves read-only tools, smart lets a fast model judge the rest.
+		case "$mode" in
+		bypassPermissions | dontAsk) printf -- '--permission-mode\ndangerous\n' ;;
+		acceptEdits) printf -- '--permission-mode\naccept-edits\n' ;;
+		plan) printf -- '--permission-mode\nauto\n' ;;
+		*) printf -- '--permission-mode\nsmart\n' ;;
+		esac
+		;;
 	codex)
 		case "$mode" in
 		bypassPermissions) printf -- '--dangerously-bypass-approvals-and-sandbox\n' ;;
@@ -410,6 +520,7 @@ send_and_wait() {
 	blocked) die "sidekick $name is blocked; inspect: herdr agent read $name --source visible --lines 60" 3 ;;
 	*) die "sidekick $name is $status; run: pair.sh wait $store" 5 ;;
 	esac
+	[ "$kind" = BRIEF ] && record_dispatch "$store" "$file"
 	errfile="$(mktemp)"
 	out="$(herdr agent prompt "$name" "pstack-pair $kind $file" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
 	err="$(cat "$errfile")"
@@ -425,9 +536,11 @@ cmd_discuss() {
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--timeout) timeout="$2"; shift 2 ;;
+		--every) timeout=$(($2 * 60000)); shift 2 ;;
 		*) die "unknown option $1" ;;
 		esac
 	done
+	checkin_interval_m=$((timeout / 60000))
 	[ -f "$plan" ] || die "plan not found: $plan"
 	send_and_wait "$store" "$(readlink -f "$plan")" PLAN "$timeout"
 }
@@ -446,15 +559,17 @@ cmd_new_brief() {
 
 cmd_dispatch() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: pair.sh dispatch <store> <brief-path> [--timeout MS]"
+	[ $# -ge 2 ] || die "usage: pair.sh dispatch <store> <brief-path> [--timeout MS | --every MIN]"
 	local store="$1" brief="$2" timeout=540000
 	shift 2
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--timeout) timeout="$2"; shift 2 ;;
+		--every) timeout=$(($2 * 60000)); shift 2 ;;
 		*) die "unknown option $1" ;;
 		esac
 	done
+	checkin_interval_m=$((timeout / 60000))
 	[ -f "$brief" ] || die "brief not found: $brief"
 	brief="$(readlink -f "$brief")"
 	require_agreed_plan "$store" "$brief"
@@ -463,15 +578,17 @@ cmd_dispatch() {
 
 cmd_wait() {
 	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh wait <store> [--timeout MS]"
+	[ $# -ge 1 ] || die "usage: pair.sh wait <store> [--timeout MS | --every MIN]"
 	local store="$1" timeout=540000
 	shift
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--timeout) timeout="$2"; shift 2 ;;
+		--every) timeout=$(($2 * 60000)); shift 2 ;;
 		*) die "unknown option $1" ;;
 		esac
 	done
+	checkin_interval_m=$((timeout / 60000))
 	local name out err code=0 errfile
 	name="$(field "$store" .sidekick.name)"
 	errfile="$(mktemp)"
@@ -518,9 +635,11 @@ cmd_stop() {
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--timeout) timeout="$2"; shift 2 ;;
+		--every) timeout=$(($2 * 60000)); shift 2 ;;
 		*) die "unknown option $1" ;;
 		esac
 	done
+	checkin_interval_m=$((timeout / 60000))
 	local name status out err code=0 errfile
 	name="$(field "$store" .sidekick.name)"
 	status="$(agent_status "$name")"
@@ -533,6 +652,119 @@ cmd_stop() {
 	err="$(cat "$errfile")"
 	rm -f "$errfile"
 	finish_wait "$store" "$code" "$out" "$err" any
+}
+
+cmd_progress() {
+	[ $# -eq 2 ] || die "usage: pair.sh progress <store> <text>"
+	local store="$1" text="$2" path
+	pair_file "$store" >/dev/null
+	path="$(progress_path "$store")" || die "no brief dispatched yet; progress belongs to a running brief"
+	mkdir -p "$store/progress"
+	printf '%s %s\n' "$(date +%H:%M)" "$text" >>"$path"
+	printf '%s\n' "$path"
+}
+
+# Fresh steers on a unit are capped at two; a steer that supersedes an objected
+# one is a discussion round and does not count.
+cmd_new_steer() {
+	[ $# -ge 2 ] || die "usage: pair.sh new-steer <store> <NNN> [--supersedes STEER | --force]"
+	local store="$1" seq="$2" force=0 supersedes=none brief slug k f fresh=0 path
+	shift 2
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--force) force=1; shift ;;
+		--supersedes) supersedes="$(readlink -f "$2")"; shift 2 ;;
+		*) die "unknown option $1" ;;
+		esac
+	done
+	pair_file "$store" >/dev/null
+	brief="$(ls "$store"/briefs/"$seq"-*.md 2>/dev/null | head -1 || true)"
+	[ -n "$brief" ] || die "no brief for unit $seq"
+	slug="$(basename "$brief" .md | cut -c5-)"
+	k=0
+	for f in "$store"/steers/"$seq"-"$slug"-s[0-9]*.md; do
+		[ -e "$f" ] || continue
+		k=$((k + 1))
+		[ "$(header_field "$f" supersedes)" = none ] && fresh=$((fresh + 1))
+	done
+	k=$((k + 1))
+	if [ "$supersedes" != none ]; then
+		[ -f "$supersedes" ] || die "superseded steer not found: $supersedes"
+		[ "$(header_field "$(ls -t "$store"/reports/"$seq"-"$slug"-s[0-9]*.md 2>/dev/null | head -1 || true)" status 2>/dev/null)" = object ] \
+			|| die "no open objection on unit $seq to answer; send a fresh steer instead"
+	elif [ "$fresh" -ge 2 ] && [ "$force" -eq 0 ]; then
+		die "unit $seq already has two fresh steers; stop the unit and re-brief, or pass --force" 7
+	fi
+	mkdir -p "$store/steers"
+	path="$store/steers/$seq-$slug-s$k.md"
+	sed -e "s|{{SEQ}}|$seq|g" -e "s|{{SLUG}}|$slug|g" -e "s|{{K}}|$k|g" -e "s|{{STORE}}|$store|g" \
+		-e "s|{{SUPERSEDES}}|$supersedes|g" \
+		"$skill_root/references/steer-template.md" >"$path"
+	printf '%s\n' "$path"
+}
+
+# A steer is the one message that may reach a working sidekick. It lands in
+# the agent's input queue, handed over between tool calls; the ack is a
+# progress line, so there is nothing to wait for. A sidekick paused on an
+# objection is idle, so a steer that answers it is sent with a wait instead.
+cmd_steer() {
+	in_herdr
+	[ $# -ge 2 ] || die "usage: pair.sh steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]"
+	local store="$1" steer force=0 interrupt=0 timeout=540000 name status seq slug objection out err code=0 errfile
+	steer="$(readlink -f "$2")"
+	shift 2
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--force) force=1; shift ;;
+		--interrupt) interrupt=1; shift ;;
+		--timeout) timeout="$2"; shift 2 ;;
+		--every) timeout=$(($2 * 60000)); shift 2 ;;
+		*) die "unknown option $1" ;;
+		esac
+	done
+	checkin_interval_m=$((timeout / 60000))
+	[ -f "$steer" ] || die "steer not found: $steer"
+	grep -q '^## Direction' "$steer" || die "not a steer file: $steer"
+	if grep -q '{{' "$steer" || grep -qE '^(kind|scope effect): .*\|' "$steer"; then
+		die "$steer still has unfilled placeholders"
+	fi
+	name="$(field "$store" .sidekick.name)"
+	status="$(agent_status "$name")"
+	case "$status" in
+	working)
+		if [ "$interrupt" -eq 1 ]; then
+			# Esc cancels the running tool call so the steer is read now, not after it.
+			herdr agent send-keys "$name" esc >/dev/null || die "herdr send-keys failed for $name" 2
+			herdr agent wait "$name" --until idle --until "done" --until blocked --timeout 15000 >/dev/null \
+				|| die "sidekick $name did not settle after esc; inspect: herdr agent read $name --source visible --lines 60" 3
+		fi
+		herdr agent prompt "$name" "pstack-pair STEER $steer" >/dev/null || die "herdr prompt failed for $name" 2
+		# Devin parks a mid-turn message as "queued" until Enter is pressed again;
+		# Claude Code and Codex inject it between tool calls on their own.
+		[ "$(field "$store" .sidekick.kind)" = devin ] && { sleep 1; herdr agent send-keys "$name" enter >/dev/null; }
+		printf 'steered %s with %s; its harness hands it over between tool calls and the ack lands in the progress log\n' "$name" "$steer"
+		;;
+	idle | done)
+		seq="$(basename "$steer" | cut -c1-3)"
+		slug="$(basename "$steer" .md | sed -E 's/^[0-9]{3}-//; s/-s[0-9]+$//')"
+		objection="$(ls -t "$store"/reports/"$seq"-"$slug"-s[0-9]*.md 2>/dev/null | head -1 || true)"
+		[ -n "$objection" ] && [ "$(header_field "$objection" status)" = object ] \
+			|| die "sidekick $name is $status and no objection is open on unit $seq; fold the steer into the next brief instead" 5
+		[ "$(header_field "$steer" supersedes)" != none ] || die "$steer answers $objection but its supersedes: line says none"
+		errfile="$(mktemp)"
+		out="$(herdr agent prompt "$name" "pstack-pair STEER $steer" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
+		err="$(cat "$errfile")"
+		rm -f "$errfile"
+		finish_wait "$store" "$code" "$out" "$err"
+		;;
+	unknown)
+		[ "$force" -eq 1 ] || die "sidekick $name is unknown; read the pane, then pass --force to steer anyway" 5
+		herdr agent prompt "$name" "pstack-pair STEER $steer" >/dev/null || die "herdr prompt failed for $name" 2
+		printf 'steered %s with %s\n' "$name" "$steer"
+		;;
+	absent) die "sidekick $name is not live" 2 ;;
+	blocked) die "sidekick $name is blocked; inspect: herdr agent read $name --source visible --lines 60" 3 ;;
+	esac
 }
 
 cmd_status() {
@@ -597,6 +829,9 @@ discuss) cmd_discuss "$@" ;;
 new-brief) cmd_new_brief "$@" ;;
 dispatch) cmd_dispatch "$@" ;;
 wait) cmd_wait "$@" ;;
+progress) cmd_progress "$@" ;;
+new-steer) cmd_new_steer "$@" ;;
+steer) cmd_steer "$@" ;;
 report) cmd_report "$@" ;;
 notify) cmd_notify "$@" ;;
 stop) cmd_stop "$@" ;;

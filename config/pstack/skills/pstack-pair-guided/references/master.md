@@ -60,13 +60,17 @@ is yours alone.
    Put prior review findings in Context by path. A field you cannot fill is a unit you have not scoped, so
    scope it before dispatch. Dispatch refuses a brief with unfilled
    placeholders.
-7. **Dispatch.** `pair.sh dispatch <store> <brief>`. Exit 0 prints the report
-   path. Exit 3 means blocked: read the pane with
+7. **Dispatch and check in.** `pair.sh dispatch <store> <brief> [--every MIN]`.
+   Exit 0 prints the report path. Exit 3 means blocked: read the pane with
    `herdr agent read <name> --source visible --lines 60`, then follow the
-   approval rule below. Exit 4 means the timebox passed without a report: do
-   your own planning for the next unit, then `pair.sh wait <store>` again.
-   Never send a second prompt to a working sidekick. `report_status: asking`
-   means the sidekick paused on a question; see Asks below.
+   approval rule below. Exit 4 with a check-in digest means the interval
+   passed and the sidekick is still working: read the digest, steer or not
+   (see Check-ins and steers), do your own planning for the next unit, then
+   `pair.sh wait <store> [--every MIN]` again. Exit 4 without a digest means
+   the sidekick settled without a report; see Recovery. A steer is the only
+   message that may reach a working sidekick; a second brief never does.
+   `report_status: asking` means the sidekick paused on a question; see Asks
+   below.
 8. **Review.** Read the report, then read the diff yourself with `git diff` and
    `git log` against the head the brief recorded. Rerun the Verify commands
    while the sidekick is idle. Route through the review skills the change
@@ -107,6 +111,46 @@ The answer may change the brief's Scope or Acceptance; say so under Scope
 effect. A third ask on one unit is a scoping failure: answer with `--force`
 only if the unit is nearly done, otherwise stop the unit and re-plan.
 
+## Check-ins and steers
+
+You are the driver in the pairing sense: you look up on a cadence, not at
+every keystroke. The default interval is nine minutes; pass `--every MIN` to
+change it, and go no shorter than a quarter of the timebox. Between check-ins
+you plan the next unit or wait. You do not read the pane.
+
+Read a digest for direction only, in this order:
+
+1. `outside scope`: the sidekick is writing where the brief forbids.
+2. Progress lines naming an approach the agreed plan did not choose, or a
+   step the plan skipped.
+3. `elapsed` past the timebox with no Verify step in the log.
+4. `STALE`, no progress line for a whole interval: read the pane once with
+   `herdr agent read <name> --source visible --lines 40` to tell stuck from
+   quiet.
+
+Steer when the answer to "if the sidekick finishes as it is going, would my
+review say revise?" is yes and one sentence now saves a unit later. Do not
+steer for naming, style, test shape, or anything the review catches at the
+end; those go in the review. `pair.sh new-steer <store> <NNN>` creates the
+file; fill Direction and Keep, then `pair.sh steer <store> <path>`. It returns
+at once. The sidekick's harness hands the steer over between tool calls, so
+it acts within one tool call, not at the end of the step; the ack shows in
+the next digest as `steer s<k> applied` or `withdrawn`. When the digest shows
+a running command that must not finish, pass `--interrupt`: it sends Esc,
+waits for the sidekick to settle, then sends the steer. Log one `pair.sh log` row per steer. Two steers per brief; a
+third means the brief was wrong, so `pair.sh stop` and re-brief instead.
+
+The sidekick may object instead. `wait` then returns `report_status: object`
+with `reports/NNN-<slug>-s<k>.md`: grounding, objections with evidence and an
+alternative, and the cost of applying as written. An objection with code
+evidence beats your steer; candor beats agreement; the decision stays yours.
+Answer with a new steer: `pair.sh new-steer <store> <NNN> --supersedes
+<objected steer>`, then either the revised direction with each objection
+answered under Resolved, or `kind: withdraw`. `pair.sh steer` sends it to the
+paused sidekick and waits for it to settle. Two rounds per steer; when the
+second still draws an objection, withdraw it or `pair.sh stop` and take the
+disagreement to a plan round. Log a row per round.
+
 ## Approval dialogs
 
 A blocked sidekick is waiting on a permission or question UI. Read it. If the
@@ -118,9 +162,9 @@ sidekick pane.
 
 ## Waits and the shell timeout
 
-Your host caps one shell call. Keep `--timeout` under that cap (the default is
-nine minutes) and call `pair.sh wait` again. A wait that returns `working`
-means the timeout hit, so the sidekick is still on the unit.
+Your host caps one shell call. Keep `--every` under that cap (the default is
+nine minutes) and call `pair.sh wait` again. A wait that returns a check-in
+digest means the interval hit, so the sidekick is still on the unit.
 
 ## Recovery
 

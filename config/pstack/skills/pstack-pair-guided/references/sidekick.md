@@ -61,6 +61,10 @@ and the decision stays with the master.
    every Verify command as written and keep the output. When a question would
    change what you write and no experiment settles it, ask the master (see
    Asking the master) instead of guessing or stopping the unit.
+   After each completed todolist step and at each change of approach, append
+   one line with `pair.sh progress <store> "<what is done>; next: <what>"`,
+   no output pasted. Write that line before, not after, any write outside
+   Scope or departure from the plan, so the master can steer in time.
 4. Write `reports/NNN-<slug>.md` at the path the brief names, from the report
    template. Status `done` needs every Acceptance line met and shown under Ran.
    Anything less is `partial`, `blocked`, or `failed`, with the reason.
@@ -88,6 +92,37 @@ Deviations in the final report.
 Two asks per brief. If a third question appears, write the final report as
 `partial` with the question under Questions, so the master can re-plan.
 
+## On `pstack-pair-guided STEER <path>`
+
+A steer arrives while you work: your harness hands it over between tool
+calls, so read it the moment you see it, not at the end of the step. One edit
+leaves the tree consistent, so nothing needs finishing first; act on the steer
+before the next tool call the old direction would have made. A command the
+master interrupted stays interrupted unless the steer says otherwise. A steer
+also arrives as the master's answer after you objected. Your judgment counts
+here as it does on a plan: agree when the direction survives the code, object
+when it does not, and the decision stays with the master.
+
+- `kind: withdraw`: append `steer s<k> withdrawn` and continue the brief as
+  written.
+- Agree: apply the Direction and any scope effect, keep what Keep keeps,
+  append `steer s<k> applied: <what changed>`, and continue the same brief
+  from where you were.
+- Object: leave the tree consistent, then write `reports/NNN-<slug>-s<k>.md`
+  from the steer response template, status `object`: grounding, one objection per line with evidence
+  and a concrete alternative, and the cost of applying it as written.
+  `pair.sh notify <store> <response>`, then end the turn with the single line
+  `pstack-pair-guided REPORT <path>`. The master's answer arrives as the next STEER, a
+  revised steer whose `supersedes:` names yours with each objection answered
+  under Resolved, or a withdrawal. Read it by the same rule. Two rounds: when
+  the second round still says apply, apply it and record your objection under
+  Deviations.
+
+List every steer, applied or withdrawn, under Deviations in the final report.
+If the brief's report already exists when a steer arrives, append `steer
+s<k> late: reported` and end the turn; the master folds it into the next
+brief.
+
 ## On `pstack-pair-guided STOP <store>`
 
 Run the pause-safely playbook. Write `reports/NNN-stop.md` with status
@@ -106,3 +141,5 @@ report as `partial` with what is verified and what is next, and end the turn.
 - Approval dialogs in your own pane are the human's or the master's to answer.
   Wait.
 - Leave panes, tabs, and workspaces as you found them.
+- Progress lines are for the master's check-in: one line each, no output
+  pasted. Evidence goes in the report.

@@ -38,5 +38,8 @@ must not write:
 
 ## Report
 
-Write the report file named above using the report template in the pstack-pair-guided
+Append one progress line per completed todolist step and per change of
+approach with `pair.sh progress {{STORE}} "<line>"`; the master reads only
+that log between check-ins. Write the report file named above using the
+report template in the pstack-pair-guided
 skill. End the turn with the single line `pstack-pair-guided REPORT <path>`.

@@ -18,7 +18,8 @@ relevant excerpt with the omitted line count>
 
 ## Deviations
 
-<where you departed from the brief or playbook and why, or "none">
+<where you departed from the brief or playbook and why, each steer received
+and what it changed, or "none">
 
 ## Questions
 
