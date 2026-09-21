@@ -54,6 +54,7 @@
     "pstack-teach": "local customization",
     "pstack-pair": "local customization",
     "pstack-pair-guided": "local customization",
+    "pstack-trio": "local customization",
     "technical-writing": "pstack/skills/technical-writing",
     "typescript-best-practices": "pstack/skills/typescript-best-practices",
     "unslop": "pstack/skills/unslop",

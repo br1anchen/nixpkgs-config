@@ -1,6 +1,6 @@
 # Pstack across coding agents
 
-This repo owns 54 pstack skills in `skills/`, their reference files, helper
+This repo owns 55 pstack skills in `skills/`, their reference files, helper
 scripts, and MIT license. Start with the
 [scenario tutorial](skills/ask-poteto/references/scenarios.md), or ask
 [ask-poteto](skills/ask-poteto/SKILL.md) which route fits your task.
@@ -30,10 +30,13 @@ Pi and Grok had individual links for other skills, but none for pstack.
 [sources.json](sources.json) records each imported skill, upstream revisions,
 and hashes of the previously installed SKILL.md files. The base is Cursor pstack
 0.15.1 at `7366ac128bdf95f45e6734f412b49a4031800169`. The local `pstack-tdd`,
-`pstack-teach`, `pstack-pair`, and `pstack-pair-guided` customizations are
-retained. `pstack-pair` runs a master and sidekick agent pair over Herdr;
-`pstack-pair-guided` is its experimental variant with scope-scaled human
-approval and a sidekick ask channel. See their SKILL.md files. Other workflows use the current
+`pstack-teach`, `pstack-pair`, `pstack-pair-guided`, and `pstack-trio`
+customizations are retained. `pstack-pair` runs a master and sidekick agent
+pair over Herdr; `pstack-pair-guided` is its experimental variant with
+scope-scaled human approval and a sidekick ask channel; `pstack-trio` adds a
+consultant of a different agent kind that joins every plan round, answers
+design and finding consults, and prototypes in a throwaway worktree. See
+their SKILL.md files. Other workflows use the current
 upstream revision plus the runtime adaptation. The old installation is backed
 up on sync, including any local edits outside SKILL.md.
 
