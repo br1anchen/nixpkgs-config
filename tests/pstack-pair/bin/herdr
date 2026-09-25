@@ -50,7 +50,8 @@ case "$1 $2" in
 "agent send-keys") ok "$(status_of "$3")" ;;
 "agent read")
 	# $FAKE/busy/<name>: the pane shows a working agent whatever herdr's state says.
-	if [ -e "$FAKE/busy/$3" ]; then printf 'Running tools · 4m\n  (esc twice to interrupt)\n'; else printf 'pane text\n'; fi ;;
+	# The hint wraps, as it does in a 28-column Devin pane.
+	if [ -e "$FAKE/busy/$3" ]; then printf 'Thinking · 7m 52s (esc\n  twice to interrupt)\n'; else printf 'pane text\n'; fi ;;
 "pane split") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/p$n"; printf '{"result":{"pane":{"pane_id":"p%s"}}}\n' "$n" ;;
 "pane get") [ -f "$FAKE/panes/$3" ] || exit 1; printf '{"result":{}}\n' ;;
 "pane layout") pane="$4"; printf '{"result":{"layout":{"panes":[{"pane_id":"%s","rect":{"width":200,"height":50}}]}}}\n' "$pane" ;;

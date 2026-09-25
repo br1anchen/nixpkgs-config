@@ -69,9 +69,10 @@ has_role() {
 # herdr's state detection can miss a Devin agent in a narrow pane for a whole
 # run, reporting done while it works. Every agent kind shows "esc to
 # interrupt" (Devin: "esc twice to interrupt") in its status line while it
-# works, so a settled state is checked against the bottom of the pane.
+# works, so a settled state is checked against the bottom of the pane. A
+# narrow pane wraps that hint across lines, so the lines are joined first.
 pane_busy() {
-	herdr agent read "$1" --source visible --lines 15 2>/dev/null | grep -qiE 'esc (twice )?to interrupt'
+	herdr agent read "$1" --source visible --lines 20 2>/dev/null | tr -s '\n\t ' ' ' | grep -qiE 'esc (twice )?to interrupt'
 }
 
 agent_status() {

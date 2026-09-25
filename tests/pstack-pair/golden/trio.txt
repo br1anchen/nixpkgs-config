@@ -113,10 +113,10 @@ kinds: master claude, sidekick devin, consultant codex
 [exit 0]
   herdr agent get p0
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr pane get p1
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 15
+  herdr agent read demo-consultant --source visible --lines 20
 
 new-plan -> <T>/state/pstack/trio/demo/plans/001-design.md
 
@@ -139,9 +139,9 @@ consultant_response: <T>/state/pstack/trio/demo/advice/001-design.md
 consultant_status: agree
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 15
+  herdr agent read demo-consultant --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md
   herdr agent prompt demo-consultant pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md
   herdr agent wait demo-sidekick --timeout <MS>
@@ -153,7 +153,7 @@ report: <T>/state/pstack/trio/demo/reports/002-early.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/002-early.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
 
@@ -167,7 +167,7 @@ touched: 0 files, 0 commits since dispatch
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/003-build.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
@@ -238,7 +238,7 @@ report: <T>/state/pstack/trio/demo/reports/003-build.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio STEER <T>/state/pstack/trio/demo/steers/003-build-s3.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
 
@@ -254,7 +254,7 @@ $ pair.sh notify <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/0
 prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/000-ready.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 15
+  herdr agent read demo-master --source visible --lines 20
   herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/000-ready.md
 
 $ pair.sh notify <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/000-ready.md
@@ -284,11 +284,11 @@ latest report: <T>/state/pstack/trio/demo/reports/003-build.md
 latest advice: <T>/state/pstack/trio/demo/advice/001-design.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 15
+  herdr agent read demo-master --source visible --lines 20
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 15
+  herdr agent read demo-consultant --source visible --lines 20
 
 $ pair.sh new-consult <T>/state/pstack/trio/demo 003 --kind bogus
 pair.sh: --kind must be design, finding, objection, review, or glance
@@ -301,7 +301,7 @@ advice_status: answered
 [exit 0]
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 15
+  herdr agent read demo-consultant --source visible --lines 20
   herdr agent prompt demo-consultant pstack-trio CONSULT <T>/state/pstack/trio/demo/consults/003-build-c1.md --wait --timeout 900000
 
 $ pair.sh advice <T>/state/pstack/trio/demo
@@ -346,11 +346,11 @@ open scratch worktrees (remove with pair.sh scratch <store> <id> --remove):
   003-build-c1
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 15
+  herdr agent read demo-master --source visible --lines 20
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 15
+  herdr agent read demo-consultant --source visible --lines 20
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 003-build-c1 --remove
 removed <T>/state/pstack/trio/demo/scratch/003-build-c1
@@ -360,7 +360,7 @@ $ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/005
 pair.sh: sidekick demo-sidekick is idle; dispatch instead: pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/005-qtwo.md 5
 [exit 5]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/004-qone.md --timeout 1000
 state: timeout
@@ -377,7 +377,7 @@ outside scope: 2
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/004-qone.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
@@ -416,10 +416,10 @@ latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
 queued: <T>/state/pstack/trio/demo/briefs/005-qtwo.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 15
+  herdr agent read demo-master --source visible --lines 20
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 15
+  herdr agent read demo-consultant --source visible --lines 20
 
 $ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/004-qone.md
 prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/004-qone.md
@@ -427,7 +427,7 @@ next: the master queued pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/005-
 Start that brief now, in this turn, as if the message had just arrived.
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 15
+  herdr agent read demo-master --source visible --lines 20
   herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/004-qone.md
 
 $ pair.sh next <T>/state/pstack/trio/demo
@@ -452,7 +452,7 @@ prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/re
 next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/005-qtwo.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 15
+  herdr agent read demo-master --source visible --lines 20
   herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/005-qtwo.md
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
@@ -485,11 +485,11 @@ latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
 queued: <T>/state/pstack/trio/demo/briefs/006-qthree.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 15
+  herdr agent read demo-master --source visible --lines 20
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 15
+  herdr agent read demo-consultant --source visible --lines 20
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/006-qthree.md --timeout 20000
 state: idle
@@ -497,10 +497,10 @@ report: <T>/state/pstack/trio/demo/reports/006-qthree.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/006-qthree.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -510,14 +510,14 @@ report: <T>/state/pstack/trio/demo/reports/007-qfive.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/007-qfive.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -525,7 +525,7 @@ $ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/008
 queued <T>/state/pstack/trio/demo/briefs/008-qsix.md; the sidekick takes it when its current report is written
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
 
 $ pair.sh queue <T>/state/pstack/trio/demo --clear
 queue cleared
@@ -536,11 +536,11 @@ state: idle
 report: missing
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 004-qone-review --at <SHA>
 Preparing worktree (detached HEAD <SHA>)
@@ -562,10 +562,10 @@ report: <T>/state/pstack/trio/demo/reports/009-stop.md (partial)
 advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 15
+  herdr agent read demo-consultant --source visible --lines 20
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
 
 $ pair.sh bogus
