@@ -85,6 +85,7 @@ $ pair.sh spawn <T>/state/pstack/pair-guided/demo --kind devin
 sidekick demo-sidekick already live (idle) in p1
 [exit 0]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
 
 new-plan -> <T>/state/pstack/pair-guided/demo/plans/001-design.md
 
@@ -102,6 +103,7 @@ report: <T>/state/pstack/pair-guided/demo/reports/001-design.md
 report_status: agree
 [exit 0]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
   herdr agent prompt demo-sidekick pstack-pair-guided PLAN <T>/state/pstack/pair-guided/demo/plans/001-design.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
 
@@ -111,6 +113,7 @@ report: <T>/state/pstack/pair-guided/demo/reports/002-early.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
   herdr agent prompt demo-sidekick pstack-pair-guided BRIEF <T>/state/pstack/pair-guided/demo/briefs/002-early.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
 
@@ -124,6 +127,7 @@ touched: 0 files, 0 commits since dispatch
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
   herdr agent prompt demo-sidekick pstack-pair-guided BRIEF <T>/state/pstack/pair-guided/demo/briefs/003-build.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
@@ -194,6 +198,7 @@ report: <T>/state/pstack/pair-guided/demo/reports/003-build.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
   herdr agent prompt demo-sidekick pstack-pair-guided STEER <T>/state/pstack/pair-guided/demo/steers/003-build-s3.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
 
@@ -209,6 +214,7 @@ $ pair.sh notify <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/
 prompted master demo-master (was idle) with REPORT <T>/state/pstack/pair-guided/demo/reports/000-ready.md
 [exit 0]
   herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 15
   herdr agent prompt demo-master pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/000-ready.md
 
 $ pair.sh notify <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/reports/000-ready.md
@@ -236,7 +242,9 @@ sidekick: demo-sidekick (p1) idle
 latest report: <T>/state/pstack/pair-guided/demo/reports/003-build.md
 [exit 0]
   herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 15
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
 
 $ pair.sh new-direction <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/plans/001-design.md
 <T>/state/pstack/pair-guided/demo/plans/001-design.direction.md
@@ -263,7 +271,9 @@ latest report: <T>/state/pstack/pair-guided/demo/reports/003-build-q1.md
 unanswered asks: 1
 [exit 0]
   herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 15
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
 
 $ pair.sh answer <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/answers/003-build-a1.md
 state: idle
@@ -271,6 +281,7 @@ report: <T>/state/pstack/pair-guided/demo/reports/003-build.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
   herdr agent prompt demo-sidekick pstack-pair-guided ANSWER <T>/state/pstack/pair-guided/demo/answers/003-build-a1.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
 
@@ -282,6 +293,7 @@ $ pair.sh queue <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/d
 pair.sh: sidekick demo-sidekick is idle; dispatch instead: pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md 5
 [exit 5]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/005-qone.md --timeout 1000
 state: timeout
@@ -298,6 +310,7 @@ outside scope: 2
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
   herdr agent prompt demo-sidekick pstack-pair-guided BRIEF <T>/state/pstack/pair-guided/demo/briefs/005-qone.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
@@ -335,6 +348,7 @@ latest report: <T>/state/pstack/pair-guided/demo/reports/003-build.md
 queued: <T>/state/pstack/pair-guided/demo/briefs/006-qtwo.md
 [exit 0]
   herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 15
   herdr agent get demo-sidekick
 
 $ pair.sh finish <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/reports/005-qone.md
@@ -343,6 +357,7 @@ next: the master queued pstack-pair-guided BRIEF <T>/state/pstack/pair-guided/de
 Start that brief now, in this turn, as if the message had just arrived.
 [exit 0]
   herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 15
   herdr agent prompt demo-master pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/005-qone.md
 
 $ pair.sh next <T>/state/pstack/pair-guided/demo
@@ -367,6 +382,7 @@ prompted master demo-master (was idle) with REPORT <T>/state/pstack/pair-guided/
 next: end the turn with the single line: pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/006-qtwo.md
 [exit 0]
   herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 15
   herdr agent prompt demo-master pstack-pair-guided REPORT <T>/state/pstack/pair-guided/demo/reports/006-qtwo.md
 
 $ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 1500
@@ -398,7 +414,9 @@ latest report: <T>/state/pstack/pair-guided/demo/reports/006-qtwo.md
 queued: <T>/state/pstack/pair-guided/demo/briefs/007-qthree.md
 [exit 0]
   herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 15
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/007-qthree.md --timeout 20000
 state: idle
@@ -406,16 +424,50 @@ report: <T>/state/pstack/pair-guided/demo/reports/007-qthree.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
   herdr agent prompt demo-sidekick pstack-pair-guided BRIEF <T>/state/pstack/pair-guided/demo/briefs/007-qthree.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
+
+$ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/008-qfive.md
+state: idle
+report: <T>/state/pstack/pair-guided/demo/reports/008-qfive.md
+report_status: done
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent prompt demo-sidekick pstack-pair-guided BRIEF <T>/state/pstack/pair-guided/demo/briefs/008-qfive.md --wait --until working --timeout 30000
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent get demo-sidekick
+
+$ pair.sh queue <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/009-qsix.md
+queued <T>/state/pstack/pair-guided/demo/briefs/009-qsix.md; the sidekick takes it when its current report is written
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
+
+$ pair.sh queue <T>/state/pstack/pair-guided/demo --clear
+queue cleared
+[exit 0]
 
 $ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 3000
 state: idle
 report: missing
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 15
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 15
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
 
 $ pair.sh scratch <T>/state/pstack/pair-guided/demo 005-qone-review --at <SHA>
 Preparing worktree (detached HEAD <SHA>)
@@ -432,10 +484,11 @@ removed <T>/state/pstack/pair-guided/demo/scratch/005-qone-review
 
 $ pair.sh stop <T>/state/pstack/pair-guided/demo
 state: idle
-report: <T>/state/pstack/pair-guided/demo/reports/008-stop.md
+report: <T>/state/pstack/pair-guided/demo/reports/010-stop.md
 report_status: partial
 [exit 0]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 15
   herdr agent prompt demo-sidekick pstack-pair-guided STOP <T>/state/pstack/pair-guided/demo --wait --timeout 300000
 
 $ pair.sh bogus
@@ -830,15 +883,113 @@ report template in the pstack-pair-guided skill, then run
 `~/.agents/skills/pstack-pair-guided/scripts/pair.sh finish <T>/state/pstack/pair-guided/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
 with the REPORT line it gives.
---- ./briefs/008-qfour.md
-# Brief 008: qfour
+--- ./briefs/008-qfive.md
+# Brief 008: qfive
 
 playbook: investigation
 timebox: x
 commit: x
 plan: none
 standing: <T>/state/pstack/pair-guided/demo/standing-orders.md
-report: <T>/state/pstack/pair-guided/demo/reports/008-qfour.md
+report: <T>/state/pstack/pair-guided/demo/reports/008-qfive.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Append one progress line per completed todolist step and per change of
+approach with `pair.sh progress <T>/state/pstack/pair-guided/demo "<line>"`; the master reads only
+that log between check-ins. Write the report file named above using the
+report template in the pstack-pair-guided skill, then run
+`~/.agents/skills/pstack-pair-guided/scripts/pair.sh finish <T>/state/pstack/pair-guided/demo <report path>` and do
+what it prints: start the queued brief it names, in this turn, or end the turn
+with the REPORT line it gives.
+--- ./briefs/009-qsix.md
+# Brief 009: qsix
+
+playbook: investigation
+timebox: x
+commit: x
+plan: none
+standing: <T>/state/pstack/pair-guided/demo/standing-orders.md
+report: <T>/state/pstack/pair-guided/demo/reports/009-qsix.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Append one progress line per completed todolist step and per change of
+approach with `pair.sh progress <T>/state/pstack/pair-guided/demo "<line>"`; the master reads only
+that log between check-ins. Write the report file named above using the
+report template in the pstack-pair-guided skill, then run
+`~/.agents/skills/pstack-pair-guided/scripts/pair.sh finish <T>/state/pstack/pair-guided/demo <report path>` and do
+what it prints: start the queued brief it names, in this turn, or end the turn
+with the REPORT line it gives.
+--- ./briefs/010-qfour.md
+# Brief 010: qfour
+
+playbook: investigation
+timebox: x
+commit: x
+plan: none
+standing: <T>/state/pstack/pair-guided/demo/standing-orders.md
+report: <T>/state/pstack/pair-guided/demo/reports/010-qfour.md
 
 ## Goal
 
@@ -914,11 +1065,16 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	wake	006-qtwo	report:partial
 <TS>	<EPOCH>	master	send-brief	007-qthree	
 <TS>	<EPOCH>	master	wake	007-qthree	report:done
-<TS>	<EPOCH>	master	send-brief	008-qfour	
-<TS>	<EPOCH>	master	wake	008-qfour	report:done
-<TS>	<EPOCH>	master	wake	008-qfour	missing
+<TS>	<EPOCH>	master	queue	-	cleared
+<TS>	<EPOCH>	master	send-brief	008-qfive	
+<TS>	<EPOCH>	master	wake	008-qfive	report:done
+<TS>	<EPOCH>	master	queue	009-qsix	
+<TS>	<EPOCH>	master	queue	-	cleared
+<TS>	<EPOCH>	master	send-brief	010-qfour	
+<TS>	<EPOCH>	master	wake	010-qfour	report:done
+<TS>	<EPOCH>	master	wake	010-qfour	missing
 <TS>	<EPOCH>	master	send-stop	-	sidekick
-<TS>	<EPOCH>	master	wake	008-stop	report:partial
+<TS>	<EPOCH>	master	wake	010-stop	report:partial
 --- ./gates.md
 # Gates
 
@@ -946,14 +1102,14 @@ One entry per open question for the human: question, options, default on no answ
     "permission_mode": "auto"
   },
   "sent": {
-    "file": "<T>/state/pstack/pair-guided/demo/briefs/008-qfour.md",
+    "file": "<T>/state/pstack/pair-guided/demo/briefs/010-qfour.md",
     "kind": "BRIEF",
     "at": "<TS>",
     "epoch": <EPOCH>
   },
   "pending": [],
   "dispatch": {
-    "brief": "<T>/state/pstack/pair-guided/demo/briefs/008-qfour.md",
+    "brief": "<T>/state/pstack/pair-guided/demo/briefs/010-qfour.md",
     "at": "<TS>",
     "head": "<SHA>"
   },
@@ -1088,7 +1244,11 @@ status: partial
 # Report
 
 status: done
---- ./reports/008-stop.md
+--- ./reports/008-qfive.md
+# Report
+
+status: done
+--- ./reports/010-stop.md
 # stop
 
 status: partial

@@ -80,9 +80,10 @@ the files for one unit sort together.
 
 The master's `dispatch` and `wait` return when the sidekick's reply lands:
 the report written since the message, or a `blocked` sidekick. A settle from
-`herdr` alone is not trusted, because a Devin sidekick shows idle as a prompt
-arrives and between steps; a settle with no report that holds for a minute
-ends the wait with `report: missing`.
+`herdr` alone is not trusted: a Devin sidekick shows idle as a prompt arrives
+and between steps, and in a narrow pane can show done for a whole run, so a
+settle is checked against the pane's "esc to interrupt" line; a settle with
+no report that holds for a minute ends the wait with `report: missing`.
 They also return when the check-in interval passes with the sidekick still
 working, printing a check-in digest instead of a report path. `wait` also
 returns the moment a dispatched brief's report lands, even when the sidekick

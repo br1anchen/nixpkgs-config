@@ -66,11 +66,23 @@ has_role() {
 	return 1
 }
 
+# herdr's state detection can miss a Devin agent in a narrow pane for a whole
+# run, reporting done while it works. Every agent kind shows "esc to
+# interrupt" (Devin: "esc twice to interrupt") in its status line while it
+# works, so a settled state is checked against the bottom of the pane.
+pane_busy() {
+	herdr agent read "$1" --source visible --lines 15 2>/dev/null | grep -qiE 'esc (twice )?to interrupt'
+}
+
 agent_status() {
 	# Prints idle|working|blocked|done|unknown, or "absent" when herdr has no such agent.
-	local out
+	local out state
 	if out="$(herdr agent get "$1" 2>/dev/null)"; then
-		printf '%s\n' "$out" | jq -r '.result.agent.agent_status // "unknown"'
+		state="$(printf '%s\n' "$out" | jq -r '.result.agent.agent_status // "unknown"')"
+		case "$state" in
+		idle | done) pane_busy "$1" && state=working ;;
+		esac
+		printf '%s\n' "$state"
 	else
 		printf 'absent\n'
 	fi
@@ -729,8 +741,10 @@ cmd_dispatch() {
 	send_and_wait "$store" "$brief" BRIEF "$timeout"
 }
 
-# Seconds a settle must hold, with no reply, before a wait believes it.
+# Seconds a settle must hold, with no reply, before a wait believes it, and
+# between checks while herdr says settled but the pane shows the agent busy.
 settle_hold_s="${PAIR_SETTLE_HOLD:-60}"
+busy_poll_s="${PAIR_BUSY_POLL:-10}"
 
 # Blocks until the sidekick's reply lands or the interval ends, in short
 # slices so a report is seen the moment it is written, even after the
@@ -760,6 +774,13 @@ wait_for_reply() {
 			state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)"
 			[ "$state" != blocked ] || break
 			{ pending_report "$store" >/dev/null || fresh_reply "$store" >/dev/null; } && continue
+			if pane_busy "$name"; then
+				# herdr says settled, the pane says working: believe the pane.
+				settled_at=""
+				sleep "$busy_poll_s"
+				[ "$(date +%s)" -lt "$deadline" ] || break
+				continue
+			fi
 			[ -n "$settled_at" ] || settled_at="$(date +%s)"
 			[ $(( $(date +%s) - settled_at )) -lt "$settle_hold_s" ] || break
 			[ "$(date +%s)" -lt "$deadline" ] || break

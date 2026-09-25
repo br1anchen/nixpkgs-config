@@ -11,7 +11,7 @@ guided) skill=pstack-pair-guided prefix=pstack-pair-guided ;;
 trio) skill=pstack-trio prefix=pstack-trio ;;
 esac
 T="$(mktemp -d)"
-export PAIR_SETTLE_HOLD=10 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
+export PAIR_SETTLE_HOLD=10 PAIR_BUSY_POLL=1 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
 unset CLAUDE_CODE_SESSION_ID
 mkdir -p "$FAKE" "$T/repo" "$T/home"
 git -C "$T/repo" init -q -b main && git -C "$T/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
@@ -30,7 +30,8 @@ Load*) [ \$role = sidekick ] && body ready done >"\$store/reports/000-ready.md";
 "$prefix PLAN "*) p="\${text#* PLAN }"; b="\$(basename "\$p")"
 	[ \$role = sidekick ] && body plan agree >"\$store/reports/\$b"
 	[ \$role = consultant ] && body plan agree >"\$store/advice/\$b" ;;
-"$prefix BRIEF "*|"$prefix ANSWER "*) if [ -f "\$FAKE/brief-working" ]; then printf 'working devin\n' >"\$FAKE/agents/\$name"
+"$prefix BRIEF "*|"$prefix ANSWER "*) if [ -f "\$FAKE/busy-on-brief" ]; then mkdir -p "\$FAKE/busy"; : >"\$FAKE/busy/\$name"
+	elif [ -f "\$FAKE/brief-working" ]; then printf 'working devin\n' >"\$FAKE/agents/\$name"
 	else b="\$(basename "\${text##* }")"; case "\$text" in *ANSWER*) b="\$(basename "\$b" | sed -E 's/-a[0-9]+//')" ;; esac; body report done >"\$store/reports/\$b"; fi ;;
 "$prefix CONSULT "*) c="\${text#* CONSULT }"; a="\$(grep -m1 '^advice:' "\$c" | sed 's/^advice: //')"; body advice answered >"\$a" ;;
 "$prefix STEER "*) st="\${text#* STEER }"; b="\$(basename "\$st" .md | sed -E 's/-s[0-9]+\$//')"
@@ -165,6 +166,18 @@ run status "$store"
 printf '1\n' >"$FAKE/lies"
 printf '3 %s\n' "$store/reports/$(basename "$q3")" >"$FAKE/report-after"
 run dispatch "$store" "$q3" --timeout 20000
+# herdr reports done for a whole run while the pane shows Devin working, as
+# in a narrow pane: queue accepts it as working, and dispatch waits for the
+# report instead of returning missing after the settle hold.
+q5="$("$P" new-brief "$store" qfive)"; fill "$q5"; set_hdr "$q5" playbook investigation; set_hdr "$q5" plan none
+q6="$("$P" new-brief "$store" qsix)"; fill "$q6"; set_hdr "$q6" playbook investigation; set_hdr "$q6" plan none
+: >"$FAKE/busy-on-brief"; status "demo-sidekick" done devin
+printf '4 %s\n' "$store/reports/$(basename "$q5")" >"$FAKE/report-after"
+"$P" queue "$store" --clear >/dev/null
+run dispatch "$store" "$q5"
+run queue "$store" "$q6"
+rm -f "$FAKE/busy/demo-sidekick" "$FAKE/busy-on-brief"
+run queue "$store" --clear
 # a settle that holds with no report ends the wait at its interval
 rm -f "$FAKE/brief-working"
 q4="$("$P" new-brief "$store" qfour)"; fill "$q4"; set_hdr "$q4" playbook investigation; set_hdr "$q4" plan none

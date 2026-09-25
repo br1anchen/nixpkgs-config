@@ -97,14 +97,16 @@ review, so the files for one unit sort together.
 per role. `consult` returns when the consultant settles into `idle`, `done`, or
 `blocked`. `dispatch` and `wait` return when the sidekick's reply lands, the
 report written since the message, or when it is `blocked`; a settle from
-`herdr` alone is not trusted, because a Devin sidekick shows idle as a prompt
-arrives and between steps, and one with no report that holds for a minute ends
-the wait with `report: missing`. `dispatch` and `wait` also return at the
-check-in interval with a digest. `wait` also returns the moment a dispatched
-brief's report lands, even when the sidekick has already taken the queued
-brief; `running:` then names the brief it is on. `notify` prompts the master only when the
-master is idle. A message you receive after compaction still names this
-skill and the file to read, so reload the skill and continue from that file.
+`herdr` alone is not trusted: a Devin sidekick shows idle as a prompt arrives
+and between steps, and in a narrow pane can show done for a whole run, so a
+settle is checked against the pane's "esc to interrupt" line, and one with no
+report that holds for a minute ends the wait with `report: missing`. `dispatch`
+and `wait` also return at the check-in interval with a digest. `wait` also
+returns the moment a dispatched brief's report lands, even when the sidekick
+has already taken the queued brief; `running:` then names the brief it is on.
+`notify` prompts the master only when the master is idle. A message you receive
+after compaction still names this skill and the file to read, so reload the
+skill and continue from that file.
 
 ## Plan first
 
