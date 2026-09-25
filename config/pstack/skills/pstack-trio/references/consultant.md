@@ -63,7 +63,10 @@ against the code. You check whether the design is the right one.
 
 1. Read the consult: its kind, the question, the files under Read first, the
    decision it feeds and the default, the timebox. Read the named store files
-   first, then the tree.
+   first, then the tree. The `sidekick state at send` line gives the head: when
+   the sidekick was working, read committed work at that head (`git show`,
+   `git diff <brief head>..<head>`), and anything uncommitted only through a
+   `pair.sh scratch` snapshot, since the live tree moves under you.
 2. Answer by kind:
    - design: which way and why, with the trade-offs in an Options table.
    - finding: is it what the master thinks it is; what it changes in the
@@ -73,9 +76,12 @@ against the code. You check whether the design is the right one.
    - review: read the diff against the head the brief recorded and the plan
      it serves; run `blast-radius` when the diff is small and the change is
      not; give accept, revise, or reject with findings as `file:line`.
+   - glance: five minutes on the diff so far against the brief and the plan.
+     Would the review say revise? One line per risk with `file:line`, or
+     `none`. No prototype, no scratch.
 3. When reading will not settle it, prototype: `pair.sh scratch <store>
    NNN-<slug>-c<k>` prints a worktree detached at HEAD with the sidekick's
-   uncommitted changes applied. Build, test, and try the alternative there.
+   uncommitted changes applied; add `--at <sha>` for exactly one commit. Build, test, and try the alternative there.
    Never in the shared tree. Record what you ran and saw under Grounding.
    `pair.sh scratch <store> NNN-<slug>-c<k> --remove` before you write the
    advice, and put `scratch: none` or the path you used on the header line.

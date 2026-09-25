@@ -2,6 +2,7 @@
 
 playbook: {{one of: investigation | bug-fix | feature | refactoring | prototype | runtime-forensics | trace-forensics | perf-issue | pstack-tdd | session-pickup | pause-safely}}
 timebox: {{minutes}}
+commit: {{yes, end the unit in one commit the report names | no, and why}}
 plan: {{path of the agreed plan under {{STORE}}/plans/, or none for read-only and forensic playbooks}}
 standing: {{STORE}}/standing-orders.md
 report: {{STORE}}/reports/{{SEQ}}-{{SLUG}}.md

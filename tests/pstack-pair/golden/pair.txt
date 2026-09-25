@@ -14,8 +14,12 @@ usage: pair.sh <command> [args]
   dispatch <store> <brief-path> [--timeout MS | --every MIN]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan
-  wait <store> [--timeout MS | --every MIN] wait for the sidekick to settle; prints the report path,
-                                            or a check-in digest when the interval passes first
+  wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
+                                            (and any queued or now-running brief), or a check-in digest when the
+                                            interval passes first
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
+                                            current report is written. One slot. queue <store> --clear empties it
+  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
@@ -27,13 +31,16 @@ usage: pair.sh <command> [args]
   report <store> [NNN]                      print the latest (or NNN) report path
   notify <store> <report-path>              sidekick -> master: prompt the master if it is idle
   stop <store> [--timeout MS]               send STOP; the sidekick pauses safely and reports
+  scratch <store> <id> [--at SHA] [--remove]
+                                            a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
+                                            diff applied, or exactly at SHA to recheck a unit while the sidekick works
   status <store>                            table of briefs, reports, reviews, and live agent states
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet, 5 sidekick busy, 6 plan not agreed, 7 steer cap reached
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
 [exit 0]
 
 $ pair.sh init BadSlug
@@ -84,11 +91,11 @@ pair.sh: plan <T>/state/pstack/pair/demo/plans/001-design.md has no review; run 
 
 $ pair.sh discuss <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/plans/001-design.md
 state: idle
-report: missing
-[exit 4]
+report: <T>/state/pstack/pair/demo/reports/001-design.md
+report_status: agree
+[exit 0]
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-pair PLAN <T>/state/pstack/pair/demo/plans/001-design.md --wait --timeout 540000
-  herdr agent get demo-sidekick
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/002-early.md
 state: idle
@@ -115,12 +122,12 @@ $ pair.sh progress <T>/state/pstack/pair/demo step one done; next: two
 <T>/state/pstack/pair/demo/progress/003-build.md
 [exit 0]
 
-$ pair.sh wait <T>/state/pstack/pair/demo --every 1
+$ pair.sh wait <T>/state/pstack/pair/demo --timeout 1500
 state: timeout
 {"error":{"code":"timeout"}}
 report: missing
 check-in: 003-build.md  elapsed <N>m of 30m
-progress: +1 lines (last <N>m ago)
+progress: +1 lines (last <N>m ago)  STALE
   <HM> step one done; next: two
 touched: 2 files, 0 commits since dispatch
   a.txt
@@ -129,15 +136,15 @@ outside scope: 1
   b.txt
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
-  herdr agent wait demo-sidekick --timeout 60000
+  herdr agent wait demo-sidekick --timeout 1000
   herdr agent get demo-sidekick
 
-$ pair.sh wait <T>/state/pstack/pair/demo
+$ pair.sh wait <T>/state/pstack/pair/demo --timeout 1500
 state: timeout
 {"error":{"code":"timeout"}}
 report: missing
 check-in: 003-build.md  elapsed <N>m of 30m
-progress: +0 lines (last <N>m ago)
+progress: +0 lines (last <N>m ago)  STALE
 touched: 2 files, 0 commits since dispatch
   a.txt
   b.txt
@@ -145,7 +152,7 @@ outside scope: 1
   b.txt
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
-  herdr agent wait demo-sidekick --timeout 540000
+  herdr agent wait demo-sidekick --timeout 1000
   herdr agent get demo-sidekick
 
 $ pair.sh steer <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/steers/003-build-s1.md
@@ -220,9 +227,123 @@ latest report: <T>/state/pstack/pair/demo/reports/003-build-s1.md
   herdr agent get demo-master
   herdr agent get demo-sidekick
 
+$ pair.sh queue <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/005-qtwo.md
+pair.sh: sidekick demo-sidekick is idle; dispatch instead: pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/005-qtwo.md 5
+[exit 5]
+  herdr agent get demo-sidekick
+
+$ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/004-qone.md --timeout 1000
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 004-qone.md  elapsed <N>m of ?m
+progress: none yet
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 2
+  a.txt
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/004-qone.md --wait --timeout 1000
+  herdr agent get demo-sidekick
+
+$ pair.sh queue <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/005-qtwo.md
+queued <T>/state/pstack/pair/demo/briefs/005-qtwo.md; the sidekick takes it when its current report is written
+[exit 0]
+  herdr agent get demo-sidekick
+
+$ pair.sh queue <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/004-qone.md
+pair.sh: the queue holds <T>/state/pstack/pair/demo/briefs/005-qtwo.md; pass --replace to swap it 5
+[exit 5]
+
+$ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/004-qone.md
+pair.sh: the queue holds <T>/state/pstack/pair/demo/briefs/005-qtwo.md; dispatch that first, or: pair.sh queue <T>/state/pstack/pair/demo --clear 5
+[exit 5]
+
+$ pair.sh status <T>/state/pstack/pair/demo
+# Pair status
+
+generated: <TS>
+master: demo-master (p0) idle
+sidekick: demo-sidekick (p1) working
+
+| seq | kind | unit | report | review |
+|---|---|---|---|---|
+| 001 | plan | design | agree | agreed |
+| 002 | brief | early | done | none |
+| 003 | brief | build | object | none |
+| 004 | brief | qone | none | none |
+| 005 | brief | qtwo | none | none |
+
+latest report: <T>/state/pstack/pair/demo/reports/003-build-s1.md
+queued: <T>/state/pstack/pair/demo/briefs/005-qtwo.md
+[exit 0]
+  herdr agent get demo-master
+  herdr agent get demo-sidekick
+
+$ pair.sh next <T>/state/pstack/pair/demo
+pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/005-qtwo.md
+[exit 0]
+
+$ pair.sh next <T>/state/pstack/pair/demo
+queue: empty
+[exit 4]
+
+$ pair.sh wait <T>/state/pstack/pair/demo --timeout 1500
+state: working
+report: <T>/state/pstack/pair/demo/reports/004-qone.md
+report_status: done
+running: <T>/state/pstack/pair/demo/briefs/005-qtwo.md
+[exit 0]
+  herdr agent get demo-sidekick
+
+$ pair.sh wait <T>/state/pstack/pair/demo --timeout 1500
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 005-qtwo.md  elapsed <N>m of ?m
+progress: none yet
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 2
+  a.txt
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent wait demo-sidekick --timeout 1000
+  herdr agent get demo-sidekick
+
+$ pair.sh wait <T>/state/pstack/pair/demo --timeout 1500
+state: idle
+report: <T>/state/pstack/pair/demo/reports/005-qtwo.md
+report_status: done
+[exit 0]
+  herdr agent get demo-sidekick
+
+$ pair.sh queue <T>/state/pstack/pair/demo --clear
+queue cleared
+[exit 0]
+
+$ pair.sh scratch <T>/state/pstack/pair/demo 004-qone-review --at <SHA>
+Preparing worktree (detached HEAD <SHA>)
+<T>/state/pstack/pair/demo/scratch/004-qone-review
+[exit 0]
+
+$ pair.sh scratch <T>/state/pstack/pair/demo 099-bad-review --at <SHA>
+pair.sh: not a commit: <SHA>
+[exit 1]
+
+$ pair.sh scratch <T>/state/pstack/pair/demo 004-qone-review --remove
+removed <T>/state/pstack/pair/demo/scratch/004-qone-review
+[exit 0]
+
 $ pair.sh stop <T>/state/pstack/pair/demo
 state: idle
-report: <T>/state/pstack/pair/demo/reports/003-stop.md
+report: <T>/state/pstack/pair/demo/reports/005-stop.md
 report_status: partial
 [exit 0]
   herdr agent get demo-sidekick
@@ -243,8 +364,12 @@ usage: pair.sh <command> [args]
   dispatch <store> <brief-path> [--timeout MS | --every MIN]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan
-  wait <store> [--timeout MS | --every MIN] wait for the sidekick to settle; prints the report path,
-                                            or a check-in digest when the interval passes first
+  wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
+                                            (and any queued or now-running brief), or a check-in digest when the
+                                            interval passes first
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
+                                            current report is written. One slot. queue <store> --clear empties it
+  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
@@ -256,13 +381,16 @@ usage: pair.sh <command> [args]
   report <store> [NNN]                      print the latest (or NNN) report path
   notify <store> <report-path>              sidekick -> master: prompt the master if it is idle
   stop <store> [--timeout MS]               send STOP; the sidekick pauses safely and reports
+  scratch <store> <id> [--at SHA] [--remove]
+                                            a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
+                                            diff applied, or exactly at SHA to recheck a unit while the sidekick works
   status <store>                            table of briefs, reports, reviews, and live agent states
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet, 5 sidekick busy, 6 plan not agreed, 7 steer cap reached
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed, 7 steer cap reached
 pair.sh: unknown command: bogus
 [exit 1]
 
@@ -287,6 +415,7 @@ pair.sh: no events.tsv in <T>/nowhere; it is written from the first command on
 
 playbook: feature
 timebox: x
+commit: x
 plan: <T>/state/pstack/pair/demo/plans/001-design.md
 standing: <T>/state/pstack/pair/demo/standing-orders.md
 report: <T>/state/pstack/pair/demo/reports/002-early.md
@@ -333,6 +462,7 @@ skill. End the turn with the single line `pstack-pair REPORT <path>`.
 
 playbook: feature
 timebox: 30
+commit: x
 plan: <T>/state/pstack/pair/demo/plans/001-design.md
 standing: <T>/state/pstack/pair/demo/standing-orders.md
 report: <T>/state/pstack/pair/demo/reports/003-build.md
@@ -382,6 +512,100 @@ may write:
 
 must not write:
 - x
+--- ./briefs/004-qone.md
+# Brief 004: qone
+
+playbook: investigation
+timebox: x
+commit: x
+plan: none
+standing: <T>/state/pstack/pair/demo/standing-orders.md
+report: <T>/state/pstack/pair/demo/reports/004-qone.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Append one progress line per completed todolist step and per change of
+approach with `pair.sh progress <T>/state/pstack/pair/demo "<line>"`; the master reads only
+that log between check-ins. Write the report file named above using the
+report template in the pstack-pair
+skill. End the turn with the single line `pstack-pair REPORT <path>`.
+--- ./briefs/005-qtwo.md
+# Brief 005: qtwo
+
+playbook: investigation
+timebox: x
+commit: x
+plan: none
+standing: <T>/state/pstack/pair/demo/standing-orders.md
+report: <T>/state/pstack/pair/demo/reports/005-qtwo.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Append one progress line per completed todolist step and per change of
+approach with `pair.sh progress <T>/state/pstack/pair/demo "<line>"`; the master reads only
+that log between check-ins. Write the report file named above using the
+report template in the pstack-pair
+skill. End the turn with the single line `pstack-pair REPORT <path>`.
 --- ./decisions.tsv
 ts	phase	decision	why	evidence	result
 <TS>	review	accept 003	diff clean	reviews/003	next
@@ -390,7 +614,7 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	init	-	pstack-pair
 <TS>	<EPOCH>	sidekick	spawn	-	devin:ready
 <TS>	<EPOCH>	master	send-plan	001-design	
-<TS>	<EPOCH>	master	wake	-	missing
+<TS>	<EPOCH>	master	wake	001-design	report:agree
 <TS>	<EPOCH>	master	send-brief	002-early	
 <TS>	<EPOCH>	master	wake	002-early	report:done
 <TS>	<EPOCH>	master	send-brief	003-build	
@@ -404,8 +628,16 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	sidekick	report	000-ready	done
 <TS>	<EPOCH>	sidekick	report	000-ready	done
 <TS>	<EPOCH>	master	log	-	review: accept 003
+<TS>	<EPOCH>	master	send-brief	004-qone	
+<TS>	<EPOCH>	master	wake	004-qone	checkin
+<TS>	<EPOCH>	master	queue	005-qtwo	
+<TS>	<EPOCH>	sidekick	send-brief	005-qtwo	queued
+<TS>	<EPOCH>	master	wake	004-qone	report:done
+<TS>	<EPOCH>	master	wake	005-qtwo	checkin
+<TS>	<EPOCH>	master	wake	005-qtwo	report:done
+<TS>	<EPOCH>	master	queue	-	cleared
 <TS>	<EPOCH>	master	send-stop	-	sidekick
-<TS>	<EPOCH>	master	wake	003-stop	report:partial
+<TS>	<EPOCH>	master	wake	005-stop	report:partial
 --- ./gates.md
 # Gates
 
@@ -432,11 +664,18 @@ One entry per open question for the human: question, options, default on no answ
     "started_at": "<TS>",
     "permission_mode": "auto"
   },
+  "sent": {
+    "file": "<T>/state/pstack/pair/demo/briefs/005-qtwo.md",
+    "kind": "BRIEF",
+    "at": "<TS>"
+  },
+  "pending": [],
   "dispatch": {
-    "brief": "<T>/state/pstack/pair/demo/briefs/003-build.md",
+    "brief": "<T>/state/pstack/pair/demo/briefs/005-qtwo.md",
     "at": "<TS>",
     "head": "<SHA>"
-  }
+  },
+  "scratch": []
 }
 --- ./plans/001-design.md
 # Plan 001: design
@@ -505,7 +744,15 @@ head: abc
 # Objection
 
 status: object
---- ./reports/003-stop.md
+--- ./reports/004-qone.md
+# Report
+
+status: done
+--- ./reports/005-qtwo.md
+# Report
+
+status: done
+--- ./reports/005-stop.md
 # stop
 
 status: partial
@@ -534,15 +781,18 @@ instruction (the encode-lessons-in-structure principle).
 # Pair status
 
 master: demo-master (p0) idle
-sidekick: demo-sidekick (p1) idle
+sidekick: demo-sidekick (p1) working
 
 | seq | kind | unit | report | review |
 |---|---|---|---|---|
 | 001 | plan | design | agree | agreed |
 | 002 | brief | early | done | none |
 | 003 | brief | build | object | none |
+| 004 | brief | qone | none | none |
+| 005 | brief | qtwo | none | none |
 
 latest report: <T>/state/pstack/pair/demo/reports/003-build-s1.md
+queued: <T>/state/pstack/pair/demo/briefs/005-qtwo.md
 --- ./steers/003-build-s1.md
 # Steer 003-s1: build
 

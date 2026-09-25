@@ -4,7 +4,7 @@ status: done | partial | blocked | failed
 brief: <store>/briefs/NNN-<slug>.md
 playbook: <playbook you ran>
 branch: <branch>
-head: <sha>
+head: <sha of the unit's commit, or HEAD when the brief says commit: no>
 tree: clean | dirty
 
 ## Changed
@@ -15,6 +15,14 @@ tree: clean | dirty
 
 <one block per VERIFY command: the command, then its output verbatim or the
 relevant excerpt with the omitted line count>
+
+## Self-check
+
+<required for done, one line each:
+figures: every number above comes from Ran or a file it names
+acceptance: each Acceptance line and the Ran block that shows it
+callers: each changed shared symbol, the search for its callers, and the count
+fresh: the checks ran on fresh caches, or which ones might not have>
 
 ## Deviations
 

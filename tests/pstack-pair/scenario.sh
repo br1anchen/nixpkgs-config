@@ -47,7 +47,8 @@ run() {
 	local out code
 	out="$("$P" "$@" 2>&1)"; code=$?
 	printf '%s\n[exit %s]\n' "$out" "$code" | norm
-	if [ -s "$FAKE/calls.log" ]; then sed 's/^/  herdr /' "$FAKE/calls.log" | norm; : >"$FAKE/calls.log"; fi
+	# A sliced wait polls herdr a timing-dependent number of times; fold repeats.
+	if [ -s "$FAKE/calls.log" ]; then uniq "$FAKE/calls.log" | sed 's/^/  herdr /' | norm; : >"$FAKE/calls.log"; fi
 }
 fill() { perl -0pi -e 's/\{\{.*?\}\}/x/gs' "$1"; }
 set_hdr() { sed -i -E "s#^$2:.*#$2: $3#" "$1"; }
@@ -76,8 +77,8 @@ printf -- '\n## Scope\n\nmay write:\n- a.txt\n\nmust not write:\n- x\n' >>"$brie
 run dispatch "$store" "$brief"
 printf 'b\n' >>a.txt; printf 'c\n' >b.txt
 run progress "$store" "step one done; next: two"
-run wait "$store" --every 1
-run wait "$store"
+run wait "$store" --timeout 1500
+run wait "$store" --timeout 1500
 seq="$(basename "$brief" | cut -c1-3)"
 s1="$("$P" new-steer "$store" "$seq")"; fill "$s1"; set_hdr "$s1" kind redirect; set_hdr "$s1" "scope effect" none; set_hdr "$s1" supersedes none
 run steer "$store" "$s1"
@@ -101,12 +102,14 @@ if [ $variant = trio ]; then
 	run new-consult "$store" "$seq" --kind bogus
 	c1="$("$P" new-consult "$store" "$seq" --kind finding)"; fill "$c1"; set_hdr "$c1" kind finding
 	status "demo-sidekick" working devin
+	# consults no longer wait for an idle sidekick
 	run consult "$store" "$c1"
-	run consult "$store" "$c1" --force
 	run advice "$store"
 	status "demo-sidekick" idle devin
 	c2="$("$P" new-consult "$store" "$seq" --kind design)"; c3="$("$P" new-consult "$store" "$seq" --kind design)"
 	run new-consult "$store" "$seq" --kind design
+	run new-consult "$store" "$seq" --kind glance
+	run new-consult "$store" "$seq" --kind glance
 	id="$(basename "$c1" .md)"
 	run scratch "$store" "$id"
 	run status "$store"
@@ -124,6 +127,34 @@ if [ $variant = guided ]; then
 	b3="$("$P" new-brief "$store" gated)"; fill "$b3"; set_hdr "$b3" playbook feature; set_hdr "$b3" plan "$plan"
 	run dispatch "$store" "$b3"
 fi
+# queue and next: the master holds the next brief for a working sidekick,
+# which takes it the moment its report is written. The report of the first
+# brief lands, and the queued one is taken, before the master's wait, which
+# must still surface that report.
+q1="$("$P" new-brief "$store" qone)"; fill "$q1"; set_hdr "$q1" playbook investigation; set_hdr "$q1" plan none
+q2="$("$P" new-brief "$store" qtwo)"; fill "$q2"; set_hdr "$q2" playbook investigation; set_hdr "$q2" plan none
+status "demo-sidekick" idle devin
+run queue "$store" "$q2"
+: >"$FAKE/brief-working"
+run dispatch "$store" "$q1" --timeout 1000
+run queue "$store" "$q2"
+run queue "$store" "$q1"
+run dispatch "$store" "$q1"
+run status "$store"
+printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$q1")"
+run next "$store"
+run next "$store"
+run wait "$store" --timeout 1500
+run wait "$store" --timeout 1500
+printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$q2")"
+rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
+run wait "$store" --timeout 1500
+run queue "$store" --clear
+# a unit rechecked at its commit while the tree moves on
+rid="$(basename "$q1" .md)-review"
+run scratch "$store" "$rid" --at "$(git rev-parse HEAD)"
+run scratch "$store" 099-bad-review --at deadbeef
+run scratch "$store" "$rid" --remove
 run stop "$store"
 run bogus
 # metrics over a known timeline: brief 002 runs 10m, the sidekick idles 4m,

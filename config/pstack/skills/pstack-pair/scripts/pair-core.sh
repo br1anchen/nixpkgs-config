@@ -44,6 +44,22 @@ field() {
 	jq -r "$2" "$(pair_file "$1")"
 }
 
+# pair.json has two writers once a brief is queued (the master, and the
+# sidekick through next), so every write takes a short mkdir lock and replaces
+# the file atomically. $1 store, rest: jq arguments ending in the filter.
+json_update() {
+	local store="$1" i=0 rc=0
+	shift
+	until mkdir "$store/.pair.lock" 2>/dev/null; do
+		i=$((i + 1))
+		[ "$i" -lt 100 ] || die "pair.json lock held for 10s; remove $store/.pair.lock if no pair.sh is running"
+		sleep 0.1
+	done
+	jq "$@" "$store/pair.json" >"$store/pair.json.tmp" && mv "$store/pair.json.tmp" "$store/pair.json" || rc=$?
+	rmdir "$store/.pair.lock"
+	return "$rc"
+}
+
 has_role() {
 	local r
 	for r in "${roles[@]}"; do [ "$r" = "$1" ] && return 0; done
@@ -155,10 +171,55 @@ record_dispatch() {
 	cwd="$(field "$store" .cwd)"
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 	head="$(git -C "$cwd" rev-parse HEAD 2>/dev/null || printf '')"
-	jq --arg brief "$brief" --arg now "$now" --arg head "$head" \
-		'.dispatch = {brief: $brief, at: $now, head: $head}' \
-		"$store/pair.json" >"$store/pair.json.tmp"
-	mv "$store/pair.json.tmp" "$store/pair.json"
+	json_update "$store" --arg brief "$brief" --arg now "$now" --arg head "$head" \
+		'.dispatch = {brief: $brief, at: $now, head: $head} | .sent = {file: $brief, kind: "BRIEF", at: $now}
+		 | .pending = ((.pending // []) + [$brief] | unique)'
+}
+
+# Briefs whose report the master has not been shown yet. A wait surfaces the
+# oldest one whose report exists, whichever brief the sidekick is on by then,
+# so a report written while the master was busy is never skipped.
+pending_report() {
+	local b r
+	while IFS= read -r b; do
+		[ -n "$b" ] || continue
+		r="$(expected_report "$1" "$b")"
+		[ -f "$r" ] && { printf '%s\n' "$r"; return 0; }
+	done < <(jq -r '.pending // [] | .[]' "$1/pair.json")
+	return 1
+}
+
+# $1 store, $2 a report the master has now seen: drop its brief from pending.
+mark_seen() {
+	local b keep=()
+	while IFS= read -r b; do
+		[ -n "$b" ] || continue
+		[ "$(expected_report "$1" "$b")" = "$2" ] || keep+=("$b")
+	done < <(jq -r '.pending // [] | .[]' "$1/pair.json")
+	local list='[]'
+	[ "${#keep[@]}" -eq 0 ] || list="$(printf '%s\n' "${keep[@]}" | jq -R . | jq -sc .)"
+	json_update "$1" --argjson keep "$list" '.pending = $keep'
+}
+
+# The message the sidekick is answering: its report is the one a wait looks
+# for, even when a newer brief already sits in the queue.
+record_sent() {
+	json_update "$1" --arg file "$2" --arg kind "$3" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		'.sent = {file: $file, kind: $kind, at: $now}'
+}
+
+# The report a message asks for: reports/<NNN-slug>.md, where an answer's
+# -a<k> suffix names the brief it answers.
+expected_report() {
+	printf '%s/reports/%s.md\n' "$1" "$(basename "$2" .md | sed -E 's/-a[0-9]+$//')"
+}
+
+# The newest report for the unit last sent to the sidekick, or for the newest
+# brief or plan when nothing was sent through this store yet.
+unit_report() {
+	local sent
+	sent="$(field "$1" '.sent.file // empty')"
+	if [ -n "$sent" ]; then latest_report "$1" "$(basename "$sent" | cut -c1-3)"; else settle_report "$1"; fi
 }
 
 progress_path() {
@@ -255,10 +316,29 @@ require_agreed_plan() {
 	plan_gate_extra "$store" "$plan" "$review" "$seq"
 }
 
+queued_brief() {
+	# $1 store: the brief waiting in the queue, or empty.
+	[ -f "$1/queue" ] && cat "$1/queue" || true
+}
+
+# After a report: say whether the sidekick already moved on to the queued
+# brief, and whether a queued brief still waits for an idle sidekick.
+queue_note() {
+	local store="$1" report="$2" running queued
+	running="$(field "$store" '.dispatch.brief // empty')"
+	if [ -n "$running" ] && [ "$(basename "$running" | cut -c1-3)" != "$(basename "$report" | cut -c1-3)" ]; then
+		printf 'running: %s\n' "$running"
+	fi
+	queued="$(queued_brief "$store")"
+	[ -n "$queued" ] && printf 'queued: %s\n' "$queued"
+	return 0
+}
+
 finish_wait() {
 	# $1 store, $2 herdr exit code, $3 herdr stdout, $4 herdr stderr,
-	# $5 "brief" (report for the newest brief) or "any" (newest report at all)
-	local store="$1" code="$2" out="$3" err="$4" mode="${5:-brief}" state report
+	# $5 "brief" (report for the unit last sent) or "any" (newest report at all),
+	# $6 a report already found, which takes precedence
+	local store="$1" code="$2" out="$3" err="$4" mode="${5:-brief}" report="${6:-}" state
 	if [ "$code" -ne 0 ]; then
 		state="$(printf '%s' "$err" | jq -r '.error.code // .error // "herdr_error"' 2>/dev/null || printf 'herdr_error')"
 		printf 'state: %s\n' "$state"
@@ -267,10 +347,12 @@ finish_wait() {
 		state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
 		printf 'state: %s\n' "$state"
 	fi
-	if { [ "$mode" = any ] && report="$(latest_report "$store")"; } || { [ "$mode" = brief ] && report="$(settle_report "$store")"; }; then
+	if [ -n "$report" ] || { [ "$mode" = any ] && report="$(latest_report "$store")"; } || { [ "$mode" = brief ] && report="$(unit_report "$store")"; }; then
+		mark_seen "$store" "$report"
 		printf 'report: %s\n' "$report"
 		printf 'report_status: %s\n' "$(header_field "$report" status)"
 		event "$store" master wake "$report" "report:$(header_field "$report" status)"
+		queue_note "$store" "$report"
 		[ "$state" = blocked ] && exit 3
 		exit 0
 	fi
@@ -311,10 +393,8 @@ cmd_init() {
 	git_root="$(git rev-parse --show-toplevel 2>/dev/null || printf '')"
 	herdr agent rename "$HERDR_PANE_ID" "$master" >/dev/null
 	if [ -f "$store/pair.json" ]; then
-		jq --arg pane "$HERDR_PANE_ID" --arg ws "${HERDR_WORKSPACE_ID:-}" --arg tab "${HERDR_TAB_ID:-}" --arg now "$now" \
-			'.master.pane_id = $pane | .master.workspace_id = $ws | .master.tab_id = $tab | .master.registered_at = $now' \
-			"$store/pair.json" >"$store/pair.json.tmp"
-		mv "$store/pair.json.tmp" "$store/pair.json"
+		json_update "$store" --arg pane "$HERDR_PANE_ID" --arg ws "${HERDR_WORKSPACE_ID:-}" --arg tab "${HERDR_TAB_ID:-}" --arg now "$now" \
+			'.master.pane_id = $pane | .master.workspace_id = $ws | .master.tab_id = $tab | .master.registered_at = $now'
 		printf 'store: %s (re-registered master %s in %s)\n' "$store" "$master" "$HERDR_PANE_ID"
 	else
 		jq -n --arg slug "$slug" --arg store "$store" --arg now "$now" --arg cwd "$cwd" --arg git_root "$git_root" \
@@ -498,11 +578,9 @@ spawn_role() {
 	fi
 	local now
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-	jq --arg role "$role" --arg pane "$pane" --arg kind "$kind" --arg now "$now" --arg perm "$permission" --arg mperm "$master_mode" \
+	json_update "$store" --arg role "$role" --arg pane "$pane" --arg kind "$kind" --arg now "$now" --arg perm "$permission" --arg mperm "$master_mode" \
 		'.[$role].pane_id = $pane | .[$role].kind = $kind | .[$role].started_at = $now
-		 | .[$role].permission_mode = $perm | .master.permission_mode = $mperm' \
-		"$store/pair.json" >"$store/pair.json.tmp"
-	mv "$store/pair.json.tmp" "$store/pair.json"
+		 | .[$role].permission_mode = $perm | .master.permission_mode = $mperm'
 	printf '%s %s (%s) started in %s with permission %s (master: %s)\n' "$role" "$name" "$kind" "$pane" "$permission" "$master_mode"
 	local ready bootstrap
 	case "$role" in
@@ -595,7 +673,12 @@ send_and_wait() {
 	blocked) die "sidekick $name is blocked; inspect: herdr agent read $name --source visible --lines 60" 3 ;;
 	*) die "sidekick $name is $status; run: pair.sh wait $store" 5 ;;
 	esac
-	[ "$kind" = BRIEF ] && record_dispatch "$store" "$file"
+	if [ "$kind" = BRIEF ]; then
+		[ "$(queued_brief "$store")" = "$file" ] && rm -f "$store/queue"
+		record_dispatch "$store" "$file"
+	else
+		record_sent "$store" "$file" "$kind"
+	fi
 	event "$store" master "send-${kind,,}" "$file"
 	errfile="$(mktemp)"
 	out="$(herdr agent prompt "$name" "$PAIR_SKILL $kind $file" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
@@ -643,9 +726,14 @@ cmd_dispatch() {
 	[ -f "$brief" ] || die "brief not found: $brief"
 	brief="$(readlink -f "$brief")"
 	require_agreed_plan "$store" "$brief"
+	local queued
+	queued="$(queued_brief "$store")"
+	[ -z "$queued" ] || [ "$queued" = "$brief" ] || die "the queue holds $queued; dispatch that first, or: pair.sh queue $store --clear" 5
 	send_and_wait "$store" "$brief" BRIEF "$timeout"
 }
 
+# Waits in short slices so a report is seen the moment it is written, even
+# when the sidekick has already taken the queued brief and never settles.
 cmd_wait() {
 	in_herdr
 	[ $# -ge 1 ] || die "usage: pair.sh wait <store> [--timeout MS | --every MIN]"
@@ -653,13 +741,88 @@ cmd_wait() {
 	shift
 	wait_opts "$@"
 	no_extra_opts
-	local name out err code=0 errfile
+	local name out="" err code=0 errfile deadline slice ready=""
 	name="$(field "$store" .sidekick.name)"
+	deadline=$(( $(date +%s) + timeout / 1000 ))
 	errfile="$(mktemp)"
-	out="$(herdr agent wait "$name" --timeout "$timeout" 2>"$errfile")" || code=$?
+	while :; do
+		if ready="$(pending_report "$store")"; then
+			code=0
+			out="$(herdr agent get "$name" 2>/dev/null || true)"
+			: >"$errfile"
+			break
+		fi
+		slice=$(( (deadline - $(date +%s)) * 1000 ))
+		[ "$slice" -le 30000 ] || slice=30000
+		[ "$slice" -ge 1000 ] || slice=1000
+		code=0
+		out="$(herdr agent wait "$name" --timeout "$slice" 2>"$errfile")" || code=$?
+		if [ "$code" -eq 0 ]; then
+			ready="$(pending_report "$store" || true)"
+			break
+		fi
+		[ "$(jq -r '.error.code // empty' "$errfile" 2>/dev/null || true)" = timeout ] || break
+		[ "$(date +%s)" -lt "$deadline" ] || break
+	done
 	err="$(cat "$errfile")"
 	rm -f "$errfile"
-	finish_wait "$store" "$code" "$out" "$err"
+	finish_wait "$store" "$code" "$out" "$err" brief "$ready"
+}
+
+# The master's next brief, held for the sidekick to take the moment its
+# current report is written. One slot: more than one queued brief is a plan.
+cmd_queue() {
+	[ $# -ge 2 ] || die "usage: pair.sh queue <store> <brief-path> [--replace] | pair.sh queue <store> --clear"
+	local store="$1" brief="$2" replace=0 queued name status
+	pair_file "$store" >/dev/null
+	if [ "$brief" = --clear ]; then
+		rm -f "$store/queue"
+		event "$store" master queue - cleared
+		printf 'queue cleared\n'
+		return 0
+	fi
+	case "${3:-}" in
+	--replace) replace=1 ;;
+	"") ;;
+	*) die "unknown option $3" ;;
+	esac
+	[ -f "$brief" ] || die "brief not found: $brief"
+	brief="$(readlink -f "$brief")"
+	require_filled "$brief"
+	require_agreed_plan "$store" "$brief"
+	queued="$(queued_brief "$store")"
+	[ -z "$queued" ] || [ "$queued" = "$brief" ] || [ "$replace" -eq 1 ] || die "the queue holds $queued; pass --replace to swap it" 5
+	name="$(field "$store" .sidekick.name)"
+	status="$(agent_status "$name")"
+	case "$status" in
+	working) ;;
+	idle | done) die "sidekick $name is $status; dispatch instead: pair.sh dispatch $store $brief" 5 ;;
+	*) die "sidekick $name is $status; resolve that before queueing" 3 ;;
+	esac
+	printf '%s\n' "$brief" >"$store/queue.tmp"
+	mv "$store/queue.tmp" "$store/queue"
+	event "$store" master queue "$brief"
+	printf 'queued %s; the sidekick takes it when its current report is written\n' "$brief"
+}
+
+# The sidekick's pickup after writing a report: takes the queued brief,
+# records its dispatch, and prints the message to act on. Exit 4 when the
+# queue is empty, so the turn ends as before.
+cmd_next() {
+	[ $# -eq 1 ] || die "usage: pair.sh next <store>"
+	local store="$1" taken brief
+	pair_file "$store" >/dev/null
+	taken="$store/queue.taken.$$"
+	if ! mv "$store/queue" "$taken" 2>/dev/null; then
+		printf 'queue: empty\n'
+		exit 4
+	fi
+	brief="$(cat "$taken")"
+	rm -f "$taken"
+	[ -f "$brief" ] || die "queued brief is gone: $brief"
+	record_dispatch "$store" "$brief"
+	event "$store" sidekick send-brief "$brief" queued
+	printf '%s BRIEF %s\n' "$PAIR_SKILL" "$brief"
 }
 
 cmd_report() {
@@ -710,6 +873,8 @@ cmd_stop() {
 	absent) die "sidekick $name is not live" 2 ;;
 	blocked) die "sidekick $name is blocked; inspect it before stopping" 3 ;;
 	esac
+	rm -f "$store/queue"
+	json_update "$store" '.pending = []'
 	event "$store" master send-stop - sidekick
 	errfile="$(mktemp)"
 	out="$(herdr agent prompt "$name" "$PAIR_SKILL STOP $store" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
@@ -890,16 +1055,17 @@ cmd_status() {
 		if report="$(latest_report "$store")"; then
 			printf '\nlatest report: %s\n' "$report"
 		fi
-		if [ "$consultant" -eq 1 ]; then
-			if advice="$(latest_advice "$store")"; then
-				printf 'latest advice: %s\n' "$advice"
-			fi
-			local open
-			open="$(jq -r '.scratch // [] | .[]' "$store/pair.json" 2>/dev/null || true)"
-			if [ -n "$open" ]; then
-				printf '\nopen scratch worktrees (remove with pair.sh scratch <store> <id> --remove):\n'
-				printf '  %s\n' $open
-			fi
+		if [ "$consultant" -eq 1 ] && advice="$(latest_advice "$store")"; then
+			printf 'latest advice: %s\n' "$advice"
+		fi
+		if [ -f "$store/queue" ]; then
+			printf 'queued: %s\n' "$(queued_brief "$store")"
+		fi
+		local open
+		open="$(jq -r '.scratch // [] | .[]' "$store/pair.json" 2>/dev/null || true)"
+		if [ -n "$open" ]; then
+			printf '\nopen scratch worktrees (remove with pair.sh scratch <store> <id> --remove):\n'
+			printf '  %s\n' $open
 		fi
 		if [ -d "$store/answers" ]; then
 			local asks=0
@@ -924,6 +1090,72 @@ cmd_log() {
 	[ -x "$log_helper" ] || die "show-me-your-work log helper not found at $log_helper"
 	"$log_helper" "$store/decisions.tsv" "$@"
 	event "$store" master log - "$1: $2"
+}
+
+# A throwaway worktree beside the shared tree. Default: detached at HEAD with
+# the sidekick's uncommitted diff applied, so a prototype or build starts from
+# the live state. With --at SHA: exactly that commit, so the master can rerun
+# a unit's checks, or the consultant read it, while the sidekick keeps working.
+# Removed when done; status lists the open ones.
+cmd_scratch() {
+	[ $# -ge 2 ] || die "usage: pair.sh scratch <store> <id> [--at SHA] [--remove]"
+	local store="$1" id="$2" remove=0 at="" cwd path
+	shift 2
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--remove) remove=1; shift ;;
+		--at) at="$2"; shift 2 ;;
+		*) die "unknown option $1" ;;
+		esac
+	done
+	pair_file "$store" >/dev/null
+	[[ "$id" =~ ^[0-9]{3}-[a-z0-9_-]+$ ]] || die "scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review"
+	cwd="$(field "$store" .git_root)"
+	[ -n "$cwd" ] && [ "$cwd" != null ] || die "the store's cwd is not inside a git repository"
+	path="$store/scratch/$id"
+	if [ "$remove" -eq 1 ]; then
+		if [ -d "$cwd/.jj" ]; then
+			jj -R "$cwd" workspace forget "scratch-$id" >/dev/null 2>&1 || true
+			rm -rf "$path"
+		else
+			git -C "$cwd" worktree remove --force "$path" >/dev/null 2>&1 || rm -rf "$path"
+			git -C "$cwd" worktree prune >/dev/null 2>&1 || true
+		fi
+		json_update "$store" --arg id "$id" '.scratch = ((.scratch // []) - [$id])'
+		printf 'removed %s\n' "$path"
+		return 0
+	fi
+	if [ -d "$path" ]; then
+		printf '%s\n' "$path"
+		return 0
+	fi
+	mkdir -p "$store/scratch"
+	if [ -n "$at" ]; then
+		git -C "$cwd" rev-parse --verify --quiet "$at^{commit}" >/dev/null || die "not a commit: $at"
+		if [ -d "$cwd/.jj" ]; then
+			jj -R "$cwd" workspace add --name "scratch-$id" -r "$at" "$path" >/dev/null || die "jj workspace add failed" 2
+		else
+			git -C "$cwd" worktree add --detach "$path" "$at" >/dev/null || die "git worktree add failed" 2
+		fi
+	elif [ -d "$cwd/.jj" ]; then
+		jj -R "$cwd" workspace add --name "scratch-$id" "$path" >/dev/null || die "jj workspace add failed" 2
+	else
+		git -C "$cwd" worktree add --detach "$path" HEAD >/dev/null || die "git worktree add failed" 2
+		# Tracked changes as a patch; untracked files copied as they are.
+		local patch
+		patch="$(mktemp)"
+		git -C "$cwd" diff HEAD --binary >"$patch"
+		if [ -s "$patch" ]; then
+			git -C "$path" apply --index "$patch" 2>/dev/null || { printf 'live diff did not apply cleanly; scratch is at HEAD only\n' >&2; git -C "$path" checkout -- . >/dev/null 2>&1 || true; }
+		fi
+		rm -f "$patch"
+		git -C "$cwd" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
+			mkdir -p "$path/$(dirname "$f")"
+			cp -p "$cwd/$f" "$path/$f"
+		done
+	fi
+	json_update "$store" --arg id "$id" '.scratch = ((.scratch // []) + [$id] | unique)'
+	printf '%s\n' "$path"
 }
 
 # Where a run's time went, from events.tsv. A sidekick is busy from a brief,

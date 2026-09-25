@@ -66,9 +66,12 @@ Sidekick: [references/sidekick.md](references/sidekick.md).
 | `reports/NNN-<slug>-s<k>.md` | sidekick | objection to steer k, from [the steer response template](references/steer-response-template.md) |
 | `reports/NNN-<slug>.md` | sidekick | evidence for brief NNN, from [the report template](references/report-template.md), or the agree/object response to plan NNN, from [the plan response template](references/plan-response-template.md) |
 | `reviews/NNN-<slug>.md` | master | verdict on report NNN, from [the review template](references/review-template.md); `agreed` plus an `approval` matching the plan's scale unlocks its briefs |
+| `scratch/<id>/` | master via `pair.sh scratch` | throwaway worktree at a unit's commit for rerunning its checks; removed after the review |
 | `gates.md` | master | open questions for the human |
 | `decisions.tsv` | master via `pair.sh log` | the show-me-your-work trail |
 | `status.md` | `pair.sh status` | derived table; never hand-edited |
+| `queue` | master via `pair.sh queue`; the sidekick empties it with `pair.sh next` | the next brief's path, one slot |
+| `events.tsv` | every `pair.sh` command | one row per message, report, wake, and log entry, read by `pair.sh metrics` |
 
 `NNN` is a zero-padded sequence shared by plan or brief, report, and review, so
 the files for one unit sort together.
@@ -79,7 +82,8 @@ the files for one unit sort together.
 | --- | --- | --- | --- |
 | bootstrap (names the skill and the store) | master to sidekick | `pair.sh spawn` | bootstrap steps, `reports/000-ready.md`, reply `READY` |
 | `pstack-pair-guided PLAN <plan-path>` | master to sidekick | `pair.sh discuss` | ground the plan in the code, write an agree or object response, end the turn |
-| `pstack-pair-guided BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, end the turn |
+| `pstack-pair-guided BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, take a queued brief or end the turn |
+| `pstack-pair-guided BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | taken with `pair.sh next` right after a `done` report, in the same turn |
 | `pstack-pair-guided STEER <steer-path>` | master to a working sidekick, or to one paused on an objection | `pair.sh steer` | read it on arrival, between tool calls; agree and continue, or object with evidence and end the turn |
 | `pstack-pair-guided ANSWER <answer-path>` | master to sidekick | `pair.sh answer` | resume the brief with the answer applied |
 | `pstack-pair-guided REPORT <report-path>` | sidekick to master | `pair.sh notify` | read the report, review |
@@ -88,7 +92,9 @@ the files for one unit sort together.
 The master's `dispatch` and `wait` return when the sidekick settles into
 `idle`, `done`, or `blocked`. The sidekick ending its turn is the reply.
 They also return when the check-in interval passes with the sidekick still
-working, printing a check-in digest instead of a report path.
+working, printing a check-in digest instead of a report path. `wait` also
+returns the moment a dispatched brief's report lands, even when the sidekick
+has already taken the queued brief; `running:` then names the brief it is on.
 `notify` prompts the master only when the master is idle, so a waiting master
 is never interrupted. A message you receive after compaction still names this
 skill and the file to read, so reload the skill and continue from that file.
@@ -177,14 +183,37 @@ not continuously, and corrects direction, not keystrokes.
 - Two fresh steers per brief. A third means the brief was wrong: stop the
   unit and re-brief.
 
+## Keeping the sidekick busy
+
+The sidekick is the critical path: the master turns a report around in
+minutes, while a unit takes tens of minutes to hours. Three habits keep the
+sidekick from waiting on the master.
+
+- **Queue the next brief.** While a unit runs, the master drafts the next one
+  and holds it with `pair.sh queue`. The sidekick runs `pair.sh next` after a
+  `done` report and starts it in the same turn. The queue has one slot and
+  holds only a unit that does not hinge on the running unit's review, so a
+  `revise` becomes a follow-up brief, not a rework of the queued one.
+- **Review at the commit.** A brief that writes says `commit: yes`, and the
+  report's `head:` names that commit. The master reads it with `git show`
+  while the sidekick works on the next unit, and reruns checks in `pair.sh
+  scratch <store> NNN-<slug>-review --at <head>`, never in the shared tree.
+- **Amend instead of re-planning.** An objection the master adopts becomes a
+  numbered amendment in the `agreed` review. A new plan round is for a
+  changed design, not a narrowed step.
+
+`pair.sh metrics <store>` reads `events.tsv` and shows where the time went:
+sidekick busy and idle, master wakes, review latency, verdicts. Sidekick idle
+time is the number to drive down.
+
 ## Shared rules
 
 - Facts about panes, agents, and states come from `herdr` JSON through
   `pair.sh`, never from memory or sidebar order.
 - Approval dialogs belong to the human unless the standing orders delegate a
   class of them to the master. Neither agent answers the other's dialogs.
-- Both agents share one working tree, so the master reads and runs checks only
-  while the sidekick is idle, and edits nothing under the repository. The
-  check-in's `git status` and `git diff --name-only` are the read-only
-  exception.
+- Both agents share one working tree. The sidekick writes it. The master
+  reads it and its history at any time and edits nothing under the
+  repository; it runs builds and tests only in a scratch worktree from
+  `pair.sh scratch`, so they never race the sidekick's edits.
 - Close only panes you created, and only when the human asked.

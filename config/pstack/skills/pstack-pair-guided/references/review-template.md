@@ -13,6 +13,12 @@ approved the direction summary. Dispatch checks it against the plan's scale.>
 implementation briefs that name that plan.>
 head: <sha the review read>
 
+## Amendments
+
+<`agreed` only: objections adopted without a new round, numbered A1, A2, and
+so on. Each binds every brief under this plan, and a brief cites the ones it
+carries. "none" otherwise.>
+
 ## Checked
 
 <what the master read and ran: diff ranges, commands with outcome, which

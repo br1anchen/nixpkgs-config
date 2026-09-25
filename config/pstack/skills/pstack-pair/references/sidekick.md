@@ -56,18 +56,29 @@ and the decision stays with the master.
    Copy its steps into your todolist verbatim. The brief's Scope and Forbidden sections override any
    playbook step that would cross them; record such a step as `skip: brief
    forbids`. Opening a PR runs only when the brief says so.
-3. Do the work inside Scope. Commit when the brief says. Run every Verify
+3. Do the work inside Scope. When the brief says `commit: yes`, end the unit
+   in one commit: the report's `head:` names it, and the master reviews it
+   there while you move on. Run every Verify
    command as written and keep the output.
    After each completed todolist step and at each change of approach, append
    one line with `pair.sh progress <store> "<what is done>; next: <what>"`,
    no output pasted. Write that line before, not after, any write outside
    Scope or departure from the plan, so the master can steer in time.
 4. Write `reports/NNN-<slug>.md` at the path the brief names, from the report
-   template. Status `done` needs every Acceptance line met and shown under Ran.
+   template. Status `done` needs every Acceptance line met and shown under Ran,
+   and every Self-check line true: figures traced to Ran, each Acceptance line
+   mapped to a command, callers of changed shared symbols searched, no stale
+   cache behind a green check. Those four are what reviews most often send
+   back.
    Anything less is `partial`, `blocked`, or `failed`, with the reason.
-5. `pair.sh notify <store> <report>`, then end the turn with the single line
-   `pstack-pair REPORT <path>`. The master's wait observes your idle state, and
+5. `pair.sh notify <store> <report>`, then write the single line
+   `pstack-pair REPORT <path>`. The master's wait sees the report file land, and
    notify covers the case where it was not waiting.
+6. When the report's status is `done`, run `pair.sh next <store>`. If it
+   prints `pstack-pair BRIEF <path>`, the master queued that brief while you
+   worked: start it now, in this turn, as if the message had just arrived.
+   Exit 4 means nothing is queued, so end the turn. Any other status ends the
+   turn and leaves a queued brief for the master to decide on.
 
 ## On `pstack-pair STEER <path>`
 

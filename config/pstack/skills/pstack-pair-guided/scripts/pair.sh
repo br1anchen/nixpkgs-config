@@ -37,8 +37,12 @@ usage: pair.sh <command> [args]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan whose
                                             review approval matches the plan's scale
-  wait <store> [--timeout MS | --every MIN] wait for the sidekick to settle; prints the report path,
-                                            or a check-in digest when the interval passes first
+  wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
+                                            (and any queued or now-running brief), or a check-in digest when the
+                                            interval passes first
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
+                                            current report is written. One slot. queue <store> --clear empties it
+  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
@@ -50,13 +54,16 @@ usage: pair.sh <command> [args]
   report <store> [NNN]                      print the latest (or NNN) report path
   notify <store> <report-path>              sidekick -> master: prompt the master if it is idle
   stop <store> [--timeout MS]               send STOP; the sidekick pauses safely and reports
+  scratch <store> <id> [--at SHA] [--remove]
+                                            a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
+                                            diff applied, or exactly at SHA to recheck a unit while the sidekick works
   status <store>                            table of briefs, reports, reviews, and live agent states
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet, 5 sidekick busy, 6 plan not agreed or not approved, 7 ask or steer cap reached
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet or queue empty, 5 sidekick in the wrong state or queue taken, 6 plan not agreed or not approved, 7 ask or steer cap reached
 USAGE
 }
 

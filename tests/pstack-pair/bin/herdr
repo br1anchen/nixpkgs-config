@@ -30,7 +30,7 @@ case "$1 $2" in
 	else ok "$(status_of "$name")"; fi ;;
 "agent wait")
 	s="$(status_of "$3")"
-	if [ "$s" = working ]; then printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
+	if [ "$s" = working ]; then sleep 0.2; printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
 	ok "$s" ;;
 "agent send-keys") ok "$(status_of "$3")" ;;
 "agent read") printf 'pane text\n' ;;

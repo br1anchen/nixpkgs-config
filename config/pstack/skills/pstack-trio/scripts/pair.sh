@@ -31,20 +31,23 @@ usage: pair.sh <command> [args]
   discuss <store> <plan-path> [--timeout MS]
                                             send PLAN to the sidekick and the consultant at once and wait for
                                             both responses: the sidekick's report and the consultant's advice
-  new-consult <store> <NNN> --kind design|finding|objection|review [--force]
-                                            create consults/NNN-<slug>-c<k>.md for unit NNN; three per unit
-  consult <store> <consult-path> [--force] [--timeout MS]
-                                            send CONSULT to the consultant and wait for its advice; finding and
-                                            review kinds refuse while the sidekick is working unless --force
+  new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]
+                                            create consults/NNN-<slug>-c<k>.md for unit NNN; three per unit, plus
+                                            one glance (a five-minute diff read at a check-in)
+  consult <store> <consult-path> [--timeout MS]
+                                            send CONSULT to the consultant and wait for its advice; it may run while
+                                            the sidekick works, reading committed state or a scratch snapshot
   advice <store> [NNN]                      print the latest (or NNN) advice path
-  scratch <store> <consult-id> [--remove]   consultant: create (or remove) a throwaway worktree under
-                                            <store>/scratch/<consult-id> at HEAD with the live diff applied
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
   dispatch <store> <brief-path> [--timeout MS | --every MIN]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan
-  wait <store> [--timeout MS | --every MIN] wait for the sidekick to settle; prints the report path,
-                                            or a check-in digest when the interval passes first
+  wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
+                                            (and any queued or now-running brief), or a check-in digest when the
+                                            interval passes first
+  queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
+                                            current report is written. One slot. queue <store> --clear empties it
+  next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
                                             create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
@@ -58,14 +61,17 @@ usage: pair.sh <command> [args]
                                             (REPORT for a report path, ADVICE for an advice path)
   stop <store> [--only sidekick|consultant] [--timeout MS]
                                             send STOP; each agent pauses safely and reports
+  scratch <store> <id> [--at SHA] [--remove]
+                                            a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
+                                            diff applied, or exactly at SHA to recheck a unit while the sidekick works
   status <store>                            table of units, reports, advice, reviews, agent states, open scratch
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
   metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
                                             master wakes, review latency, verdicts
 
-exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no report or advice yet,
-            5 agent busy, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no report or advice yet or queue empty,
+            5 agent in the wrong state or queue taken, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,
             8 agent kinds not diverse
 USAGE
 }
@@ -222,6 +228,8 @@ cmd_stop() {
 	done
 	checkin_interval_m=$((timeout / 60000))
 	local role name status rc=0 code out
+	rm -f "$store/queue"
+	json_update "$store" '.pending = []'
 	for role in sidekick consultant; do
 		[ -z "$only" ] || [ "$only" = "$role" ] || continue
 		name="$(field "$store" ".$role.name")"
@@ -245,9 +253,10 @@ cmd_stop() {
 }
 
 # Consults on a unit are capped at three; a fourth means the design is wrong
-# and belongs in a plan round.
+# and belongs in a plan round. A glance, the short diff read at a check-in,
+# sits outside that cap, one per unit.
 cmd_new_consult() {
-	[ $# -ge 2 ] || die "usage: pair.sh new-consult <store> <NNN> --kind design|finding|objection|review [--force]"
+	[ $# -ge 2 ] || die "usage: pair.sh new-consult <store> <NNN> --kind design|finding|objection|review|glance [--force]"
 	local store="$1" seq="$2" kind="" force=0 unit slug k f path
 	shift 2
 	while [ $# -gt 0 ]; do
@@ -259,17 +268,22 @@ cmd_new_consult() {
 	done
 	pair_file "$store" >/dev/null
 	case "$kind" in
-	design | finding | objection | review) ;;
-	*) die "--kind must be design, finding, objection, or review" ;;
+	design | finding | objection | review | glance) ;;
+	*) die "--kind must be design, finding, objection, review, or glance" ;;
 	esac
 	unit="$(ls "$store"/briefs/"$seq"-*.md "$store"/plans/"$seq"-*.md 2>/dev/null | head -1 || true)"
 	[ -n "$unit" ] || die "no plan or brief for unit $seq"
 	slug="$(basename "$unit" .md | cut -c5-)"
+	local counted=0 glances=0
 	k=0
 	for f in "$store"/consults/"$seq"-"$slug"-c[0-9]*.md; do
-		[ -e "$f" ] && k=$((k + 1))
+		[ -e "$f" ] || continue
+		k=$((k + 1))
+		if [ "$(header_field "$f" kind)" = glance ]; then glances=$((glances + 1)); else counted=$((counted + 1)); fi
 	done
-	if [ "$k" -ge 3 ] && [ "$force" -eq 0 ]; then
+	if [ "$kind" = glance ]; then
+		[ "$glances" -eq 0 ] || [ "$force" -eq 1 ] || die "unit $seq already had its glance; send a finding consult, or pass --force" 7
+	elif [ "$counted" -ge 3 ] && [ "$force" -eq 0 ]; then
 		die "unit $seq already has three consults; take the question to a plan round, or pass --force" 7
 	fi
 	k=$((k + 1))
@@ -278,21 +292,22 @@ cmd_new_consult() {
 	sed -e "s|{{SEQ}}|$seq|g" -e "s|{{SLUG}}|$slug|g" -e "s|{{K}}|$k|g" -e "s|{{STORE}}|$store|g" \
 		-e "s|{{KIND}}|$kind|g" -e "s|{{UNIT}}|$unit|g" \
 		"$skill_root/references/consult-template.md" >"$path"
+	[ "$kind" = glance ] && sed -i -E 's|^timebox: .*|timebox: 5|' "$path"
 	printf '%s\n' "$path"
 }
 
-# A consult reaches the consultant while the sidekick may be working. Design
-# questions are safe at any time; finding and review kinds read the live tree,
-# so they wait for a quiet sidekick unless forced.
+# A consult reaches the consultant at any time, the sidekick working or not.
+# The header records the sidekick's state and HEAD at send; the consultant
+# reads committed work at that head, or a scratch snapshot, never a tree that
+# moves under it.
 cmd_consult() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: pair.sh consult <store> <consult-path> [--force] [--timeout MS]"
-	local store="$1" consult force=0 timeout=900000
+	[ $# -ge 2 ] || die "usage: pair.sh consult <store> <consult-path> [--timeout MS]"
+	local store="$1" consult timeout=900000
 	consult="$(readlink -f "$2")"
 	shift 2
 	while [ $# -gt 0 ]; do
 		case "$1" in
-		--force) force=1; shift ;;
 		--timeout) timeout="$2"; shift 2 ;;
 		--every) timeout=$(($2 * 60000)); shift 2 ;;
 		*) die "unknown option $1" ;;
@@ -310,13 +325,6 @@ cmd_consult() {
 	if grep -q '{{' "$consult" || grep -qE '^kind: .*\|' "$consult"; then
 		die "$consult still has unfilled placeholders"
 	fi
-	case "$kind" in
-	finding | review)
-		if [ "$sstatus" = working ] && [ "$force" -eq 0 ]; then
-			die "sidekick $sidekick is working; a $kind consult reads the live tree, so wait for a check-in or report, or pass --force" 5
-		fi
-		;;
-	esac
 	name="$(field "$store" .consultant.name)"
 	status="$(agent_status "$name")"
 	case "$status" in
@@ -328,10 +336,8 @@ cmd_consult() {
 	local cwd head
 	cwd="$(field "$store" .cwd)"
 	head="$(git -C "$cwd" rev-parse HEAD 2>/dev/null || printf '')"
-	jq --arg consult "$consult" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg head "$head" --arg sk "$sstatus" \
-		'.consult = {file: $consult, at: $now, head: $head, sidekick_state: $sk}' \
-		"$store/pair.json" >"$store/pair.json.tmp"
-	mv "$store/pair.json.tmp" "$store/pair.json"
+	json_update "$store" --arg consult "$consult" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg head "$head" --arg sk "$sstatus" \
+		'.consult = {file: $consult, at: $now, head: $head, sidekick_state: $sk}'
 	event "$store" master send-consult "$consult" "$kind"
 	errfile="$(mktemp)"
 	out="$(herdr agent prompt "$name" "$PAIR_SKILL CONSULT $consult" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
@@ -374,62 +380,5 @@ cmd_advice() {
 	fi
 }
 
-# The consultant's throwaway worktree: detached at HEAD with the sidekick's
-# uncommitted diff applied, so a prototype or build starts from the live
-# state without touching the shared tree. Removed before the advice is sent.
-cmd_scratch() {
-	[ $# -ge 2 ] || die "usage: pair.sh scratch <store> <consult-id> [--remove]"
-	local store="$1" id="$2" remove=0 cwd path
-	shift 2
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--remove) remove=1; shift ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	pair_file "$store" >/dev/null
-	[[ "$id" =~ ^[0-9]{3}-[a-z0-9_-]+-c[0-9]+$ ]] || die "consult-id must look like NNN-<slug>-c<k>"
-	cwd="$(field "$store" .git_root)"
-	[ -n "$cwd" ] && [ "$cwd" != null ] || die "the trio's cwd is not inside a git repository"
-	path="$store/scratch/$id"
-	if [ "$remove" -eq 1 ]; then
-		if [ -d "$cwd/.jj" ]; then
-			jj -R "$cwd" workspace forget "scratch-$id" >/dev/null 2>&1 || true
-			rm -rf "$path"
-		else
-			git -C "$cwd" worktree remove --force "$path" >/dev/null 2>&1 || rm -rf "$path"
-			git -C "$cwd" worktree prune >/dev/null 2>&1 || true
-		fi
-		jq --arg id "$id" '.scratch = ((.scratch // []) - [$id])' "$store/pair.json" >"$store/pair.json.tmp"
-		mv "$store/pair.json.tmp" "$store/pair.json"
-		printf 'removed %s\n' "$path"
-		return 0
-	fi
-	if [ -d "$path" ]; then
-		printf '%s\n' "$path"
-		return 0
-	fi
-	mkdir -p "$store/scratch"
-	if [ -d "$cwd/.jj" ]; then
-		jj -R "$cwd" workspace add --name "scratch-$id" "$path" >/dev/null || die "jj workspace add failed" 2
-	else
-		git -C "$cwd" worktree add --detach "$path" HEAD >/dev/null || die "git worktree add failed" 2
-		# Tracked changes as a patch; untracked files copied as they are.
-		local patch
-		patch="$(mktemp)"
-		git -C "$cwd" diff HEAD --binary >"$patch"
-		if [ -s "$patch" ]; then
-			git -C "$path" apply --index "$patch" 2>/dev/null || { printf 'live diff did not apply cleanly; scratch is at HEAD only\n' >&2; git -C "$path" checkout -- . >/dev/null 2>&1 || true; }
-		fi
-		rm -f "$patch"
-		git -C "$cwd" ls-files --others --exclude-standard -z | while IFS= read -r -d '' f; do
-			mkdir -p "$path/$(dirname "$f")"
-			cp -p "$cwd/$f" "$path/$f"
-		done
-	fi
-	jq --arg id "$id" '.scratch = ((.scratch // []) + [$id] | unique)' "$store/pair.json" >"$store/pair.json.tmp"
-	mv "$store/pair.json.tmp" "$store/pair.json"
-	printf '%s\n' "$path"
-}
 
 pair_main "$@"
