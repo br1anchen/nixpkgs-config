@@ -11,7 +11,7 @@ guided) skill=pstack-pair-guided prefix=pstack-pair-guided ;;
 trio) skill=pstack-trio prefix=pstack-trio ;;
 esac
 T="$(mktemp -d)"
-export HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
+export PAIR_SETTLE_HOLD=10 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
 unset CLAUDE_CODE_SESSION_ID
 mkdir -p "$FAKE" "$T/repo" "$T/home"
 git -C "$T/repo" init -q -b main && git -C "$T/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
@@ -33,6 +33,9 @@ Load*) [ \$role = sidekick ] && body ready done >"\$store/reports/000-ready.md";
 "$prefix BRIEF "*|"$prefix ANSWER "*) if [ -f "\$FAKE/brief-working" ]; then printf 'working devin\n' >"\$FAKE/agents/\$name"
 	else b="\$(basename "\${text##* }")"; case "\$text" in *ANSWER*) b="\$(basename "\$b" | sed -E 's/-a[0-9]+//')" ;; esac; body report done >"\$store/reports/\$b"; fi ;;
 "$prefix CONSULT "*) c="\${text#* CONSULT }"; a="\$(grep -m1 '^advice:' "\$c" | sed 's/^advice: //')"; body advice answered >"\$a" ;;
+"$prefix STEER "*) st="\${text#* STEER }"; b="\$(basename "\$st" .md | sed -E 's/-s[0-9]+\$//')"
+	# A paused sidekick answers a superseding steer by finishing the brief.
+	[ "\$(cut -d' ' -f1 "\$FAKE/agents/\$name")" = idle ] && body report done >"\$store/reports/\$b.md" ;;
 "$prefix STOP "*) body stop partial >"\$store/reports/\$(ls \$store/briefs | tail -1 | cut -c1-3)-stop.md" ;;
 esac
 exit 0
@@ -48,7 +51,8 @@ run() {
 	out="$("$P" "$@" 2>&1)"; code=$?
 	printf '%s\n[exit %s]\n' "$out" "$code" | norm
 	# A sliced wait polls herdr a timing-dependent number of times; fold repeats.
-	if [ -s "$FAKE/calls.log" ]; then uniq "$FAKE/calls.log" | sed 's/^/  herdr /' | norm; : >"$FAKE/calls.log"; fi
+	# Slice lengths follow the clock, so they are masked before folding.
+	if [ -s "$FAKE/calls.log" ]; then sed -E 's/^(agent wait .*--timeout )[0-9]+$/\1<MS>/' "$FAKE/calls.log" | uniq | sed 's/^/  herdr /' | norm; : >"$FAKE/calls.log"; fi
 }
 fill() { perl -0pi -e 's/\{\{.*?\}\}/x/gs' "$1"; }
 set_hdr() { sed -i -E "s#^$2:.*#$2: $3#" "$1"; }
@@ -74,7 +78,7 @@ run dispatch "$store" "$brief0"
 brief="$("$P" new-brief "$store" build)"; fill "$brief"; set_hdr "$brief" playbook feature; set_hdr "$brief" plan "$plan"; set_hdr "$brief" timebox 30
 printf -- '\n## Scope\n\nmay write:\n- a.txt\n\nmust not write:\n- x\n' >>"$brief"
 : >"$FAKE/brief-working"
-run dispatch "$store" "$brief"
+run dispatch "$store" "$brief" --timeout 1500
 printf 'b\n' >>a.txt; printf 'c\n' >b.txt
 run progress "$store" "step one done; next: two"
 run wait "$store" --timeout 1500
@@ -142,14 +146,31 @@ run queue "$store" "$q1"
 run dispatch "$store" "$q1"
 run status "$store"
 printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$q1")"
-run next "$store"
+# finish: the sidekick's one command after a report takes the queued brief
+run finish "$store" "$store/reports/$(basename "$q1")"
 run next "$store"
 run wait "$store" --timeout 1500
-run wait "$store" --timeout 1500
-printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$q2")"
+q3="$("$P" new-brief "$store" qthree)"; fill "$q3"; set_hdr "$q3" playbook investigation; set_hdr "$q3" plan none
+run queue "$store" "$q3"
+# a partial report ends the turn and leaves the queued brief for the master
+printf '# Report\n\nstatus: partial\n' >"$store/reports/$(basename "$q2")"
+run finish "$store" "$store/reports/$(basename "$q2")"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 run wait "$store" --timeout 1500
-run queue "$store" --clear
+run status "$store"
+# herdr reports a settle while the sidekick still works (a Devin sidekick
+# flips done to idle as a prompt lands): dispatch keeps looking, and the
+# report that lands on a later poll is what it returns.
+: >"$FAKE/brief-working"
+printf '1\n' >"$FAKE/lies"
+printf '3 %s\n' "$store/reports/$(basename "$q3")" >"$FAKE/report-after"
+run dispatch "$store" "$q3" --timeout 20000
+# a settle that holds with no report ends the wait at its interval
+rm -f "$FAKE/brief-working"
+q4="$("$P" new-brief "$store" qfour)"; fill "$q4"; set_hdr "$q4" playbook investigation; set_hdr "$q4" plan none
+"$P" dispatch "$store" "$q4" --timeout 1000 >/dev/null 2>&1; : >"$FAKE/calls.log"
+rm -f "$store/reports/$(basename "$q4")"
+run wait "$store" --timeout 3000
 # a unit rechecked at its commit while the tree moves on
 rid="$(basename "$q1" .md)-review"
 run scratch "$store" "$rid" --at "$(git rev-parse HEAD)"

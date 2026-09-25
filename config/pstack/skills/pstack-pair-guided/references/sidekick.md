@@ -39,8 +39,8 @@ and the decision stays with the master.
    written and its check would prove it. Status `object` otherwise, with one
    objection per line pointing into Grounding, and a concrete alternative for
    each.
-4. `pair.sh notify <store> <report>`, then end the turn with the single line
-   `pstack-pair-guided REPORT <path>`. A new plan round arrives as a new PLAN message.
+4. `pair.sh finish <store> <report>`, then end the turn with the REPORT line it
+   prints. A new plan round arrives as a new PLAN message.
 
 ## On `pstack-pair-guided BRIEF <path>`
 
@@ -70,18 +70,16 @@ and the decision stays with the master.
 4. Write `reports/NNN-<slug>.md` at the path the brief names, from the report
    template. Status `done` needs every Acceptance line met and shown under Ran,
    and every Self-check line true: figures traced to Ran, each Acceptance line
-   mapped to a command, callers of changed shared symbols searched, no stale
-   cache behind a green check. Those four are what reviews most often send
-   back.
+   mapped to a command, callers of changed shared symbols searched, no stale cache behind a green
+   check, and the landing gate's fast checks (format, lint, typecheck) passing
+   on the commit. Those are what reviews and landings most often send back.
    Anything less is `partial`, `blocked`, or `failed`, with the reason.
-5. `pair.sh notify <store> <report>`, then write the single line
-   `pstack-pair-guided REPORT <path>`. The master's wait sees the report file land, and
-   notify covers the case where it was not waiting.
-6. When the report's status is `done`, run `pair.sh next <store>`. If it
-   prints `pstack-pair-guided BRIEF <path>`, the master queued that brief while you
-   worked: start it now, in this turn, as if the message had just arrived.
-   Exit 4 means nothing is queued, so end the turn. Any other status ends the
-   turn and leaves a queued brief for the master to decide on.
+5. `pair.sh finish <store> <report>`, and do what it prints. It tells the
+   master, then either names a brief the master queued while you worked,
+   which you start now, in this turn, as if the message had just arrived, or
+   gives the REPORT line to end the turn with. Only a `done` report takes a
+   queued brief; any other status leaves it for the master. Never end a brief
+   without running it: the master's wait and the queue both hang on it.
 
 ## Asking the master
 
@@ -93,8 +91,8 @@ Deviations in the final report.
 2. Write `reports/NNN-<slug>-q<k>.md` from the ask template, `k` starting at
    1, with status `asking`: one question, why it changes the work, the context
    you already gathered, the options with your lean, and your default.
-3. `pair.sh notify <store> <ask>`, then end the turn with the single line
-   `pstack-pair-guided REPORT <path>`.
+3. `pair.sh finish <store> <ask>`, then end the turn with the REPORT line it
+   prints.
 4. The answer arrives as `pstack-pair-guided ANSWER <path>`. Read it, apply
    any Scope effect, and continue the same brief from where you paused. The
    final report goes to the brief's normal report path and lists each ask and
@@ -122,8 +120,8 @@ when it does not, and the decision stays with the master.
 - Object: leave the tree consistent, then write `reports/NNN-<slug>-s<k>.md`
   from the steer response template, status `object`: grounding, one objection per line with evidence
   and a concrete alternative, and the cost of applying it as written.
-  `pair.sh notify <store> <response>`, then end the turn with the single line
-  `pstack-pair-guided REPORT <path>`. The master's answer arrives as the next STEER, a
+  `pair.sh finish <store> <response>`, then end the turn with the REPORT line
+  it prints. The master's answer arrives as the next STEER, a
   revised steer whose `supersedes:` names yours with each objection answered
   under Resolved, or a withdrawal. Read it by the same rule. Two rounds: when
   the second round still says apply, apply it and record your objection under

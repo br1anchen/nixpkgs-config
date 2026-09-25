@@ -35,6 +35,8 @@ usage: pair.sh <command> [args]
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
                                             current report is written. One slot. queue <store> --clear empties it
+  finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
+                                            the queued brief to start (after a done report) or the line to end on
   next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]

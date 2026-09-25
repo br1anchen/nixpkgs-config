@@ -27,5 +27,5 @@ Read this the moment it reaches you, between tool calls, not at the end of
 the step. Agree: append
 `pair.sh progress {{STORE}} "steer s{{K}} applied: <what changed>"` and continue
 the brief. Object: write `{{STORE}}/reports/{{SEQ}}-{{SLUG}}-s{{K}}.md` from the
-steer response template, notify, and end the turn; the master's answer arrives
+steer response template, run `pair.sh finish`, and end the turn; the master's answer arrives
 as the next STEER. List this steer under Deviations in the final report.

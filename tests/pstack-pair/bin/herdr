@@ -20,16 +20,31 @@ case "$1 $2" in
 	while [ $# -gt 0 ]; do case "$1" in --kind) kind="$2"; shift 2 ;; --pane) printf '%s' "$name" >"$FAKE/panes/$2"; shift 2 ;; --) break ;; *) shift ;; esac; done
 	printf 'idle %s\n' "$kind" >"$FAKE/agents/$name"; ok idle "$kind" ;;
 "agent prompt")
-	name="$3"; text="$4"; wait=0
-	for a in "$@"; do [ "$a" = --wait ] && wait=1; done
+	name="$3"; text="$4"; wait=0; until=""; shift 4
+	while [ $# -gt 0 ]; do case "$1" in --wait) wait=1; shift ;; --until) until="$until $2"; shift 2 ;; *) shift ;; esac; done
 	[ -x "$FAKE/hook" ] && "$FAKE/hook" "$name" "$text"
-	if [ "$wait" = 1 ]; then
-		s="$(status_of "$name")"
-		if [ "$s" = working ]; then printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
-		ok "$s"
-	else ok "$(status_of "$name")"; fi ;;
+	s="$(status_of "$name")"
+	if [ "$wait" = 1 ] && [ -n "$until" ]; then
+		# --until working after a quick turn: the state was never observed.
+		case " $until " in *" $s "*) ok "$s" ;; *) printf '{"error":{"code":"timeout"}}\n' >&2; exit 1 ;; esac
+	elif [ "$wait" = 1 ] && [ "$s" = working ]; then printf '{"error":{"code":"timeout"}}\n' >&2; exit 1
+	else ok "$s"; fi ;;
 "agent wait")
 	s="$(status_of "$3")"
+	# A lie: herdr reports a settle while the agent still works, as Devin's
+	# done-to-idle flip on a new prompt does. $FAKE/lies counts them down.
+	if [ "$s" = working ] && [ -s "$FAKE/lies" ] && [ "$(cat "$FAKE/lies")" -gt 0 ]; then
+		echo $(( $(cat "$FAKE/lies") - 1 )) >"$FAKE/lies"; ok idle; exit 0
+	fi
+	# $FAKE/report-after "N path": the agent finishes on the Nth wait call.
+	if [ "$s" = working ] && [ -s "$FAKE/report-after" ]; then
+		read -r n path <"$FAKE/report-after"
+		if [ "$n" -le 1 ]; then
+			printf '# Report\n\nstatus: done\n' >"$path"; rm -f "$FAKE/report-after"
+			printf 'idle devin\n' >"$FAKE/agents/$3"; ok idle; exit 0
+		fi
+		printf '%s %s\n' $((n - 1)) "$path" >"$FAKE/report-after"
+	fi
 	if [ "$s" = working ]; then sleep 0.2; printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
 	ok "$s" ;;
 "agent send-keys") ok "$(status_of "$3")" ;;

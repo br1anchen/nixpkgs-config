@@ -54,9 +54,9 @@ trio store is yours alone.
    a bug, dispatch a diagnosis brief before drafting the plan, so the design
    rests on runtime evidence; a design consult on the diagnosis report is cheap
    and often worth it.
-5. **Brief.** `pair.sh new-brief <store> <unit-slug>` and fill every field. Set
-   `commit: yes` for a unit that writes the tree, so the review and the next
-   unit start from a commit. Name the pstack playbook the sidekick runs and put
+5. **Brief.** `pair.sh new-brief <store> <unit-slug>` and fill every field. Set `commit: yes` for a unit that writes the tree, so the review and the
+   next unit start from a commit, and put the landing gate's fast checks
+   (format, lint, typecheck) in its Verify, so landing never fails on them. Name the pstack playbook the sidekick runs and put
    the agreed plan's path on the `plan:` line; dispatch refuses implementation
    playbooks without an agreed plan and its advice. Put prior review findings
    and advice in Context by path. A field you cannot fill is a unit you have
@@ -94,8 +94,11 @@ trio store is yours alone.
    moves to the next unit. A finding that changes the design, not just one
    unit, goes to a consult and then back through step 4 before the next brief.
    Landing (commit shaping, push, PR through the Opening a PR playbook) is a
-   brief like any other, gated by the standing orders, and takes no consult:
-   every discussion ends before it.
+   brief like any other, gated by the standing orders. Its Scope lets the
+   sidekick fix mechanical gate failures (formatting, lint autofixes) and
+   rerun the gate, up to twice, before it reports `failed`; a failure that
+   needs judgment still comes back to you. Landing takes no consult: every
+   discussion ends before it.
 9. **Close.** When the predicate holds on the real artifact, run `pair.sh
    status <store>` and write the reply. An open scratch worktree in the status
    is the consultant's to remove; ask it with a design consult of one line if

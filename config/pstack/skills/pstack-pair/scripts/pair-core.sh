@@ -112,18 +112,6 @@ latest_advice() {
 	[ -n "$f" ] && printf '%s\n' "$f"
 }
 
-# Report path for the newest brief or plan, by sequence number.
-settle_report() {
-	local store="$1" f seq="" n
-	for f in "$store"/briefs/[0-9][0-9][0-9]-*.md "$store"/plans/[0-9][0-9][0-9]-*.md; do
-		[ -e "$f" ] || continue
-		n="$(basename "$f" | cut -c1-3)"
-		if [ -z "$seq" ] || [ "$n" \> "$seq" ]; then seq="$n"; fi
-	done
-	[ -n "$seq" ] || return 1
-	latest_report "$store" "$seq"
-}
-
 # Herdr's state detection can lag or miss a turn on a narrow pane, so a
 # settled agent with no file yet is polled for the file, not trusted. $1
 # path, $2 timeout in ms. Returns 0 when the file appears.
@@ -172,7 +160,8 @@ record_dispatch() {
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 	head="$(git -C "$cwd" rev-parse HEAD 2>/dev/null || printf '')"
 	json_update "$store" --arg brief "$brief" --arg now "$now" --arg head "$head" \
-		'.dispatch = {brief: $brief, at: $now, head: $head} | .sent = {file: $brief, kind: "BRIEF", at: $now}
+		--argjson epoch "$(date +%s)" \
+		'.dispatch = {brief: $brief, at: $now, head: $head} | .sent = {file: $brief, kind: "BRIEF", at: $now, epoch: $epoch}
 		 | .pending = ((.pending // []) + [$brief] | unique)'
 }
 
@@ -204,22 +193,31 @@ mark_seen() {
 # The message the sidekick is answering: its report is the one a wait looks
 # for, even when a newer brief already sits in the queue.
 record_sent() {
-	json_update "$1" --arg file "$2" --arg kind "$3" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-		'.sent = {file: $file, kind: $kind, at: $now}'
+	json_update "$1" --arg file "$2" --arg kind "$3" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson epoch "$(date +%s)" \
+		'.sent = {file: $file, kind: $kind, at: $now, epoch: $epoch}'
+}
+
+file_mtime() {
+	stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
+}
+
+# The sidekick's reply to the last message sent: the newest report for that
+# unit written since the send, whether the unit's report, a plan response, a
+# steer objection, or an ask. An older report for the unit is not the reply.
+fresh_reply() {
+	local sent epoch r
+	sent="$(field "$1" '.sent.file // empty')"
+	[ -n "$sent" ] || return 1
+	epoch="$(field "$1" '.sent.epoch // 0')"
+	r="$(latest_report "$1" "$(basename "$sent" | cut -c1-3)")" || return 1
+	[ "$(file_mtime "$r")" -ge "$epoch" ] || return 1
+	printf '%s\n' "$r"
 }
 
 # The report a message asks for: reports/<NNN-slug>.md, where an answer's
 # -a<k> suffix names the brief it answers.
 expected_report() {
 	printf '%s/reports/%s.md\n' "$1" "$(basename "$2" .md | sed -E 's/-a[0-9]+$//')"
-}
-
-# The newest report for the unit last sent to the sidekick, or for the newest
-# brief or plan when nothing was sent through this store yet.
-unit_report() {
-	local sent
-	sent="$(field "$1" '.sent.file // empty')"
-	if [ -n "$sent" ]; then latest_report "$1" "$(basename "$sent" | cut -c1-3)"; else settle_report "$1"; fi
 }
 
 progress_path() {
@@ -336,9 +334,9 @@ queue_note() {
 
 finish_wait() {
 	# $1 store, $2 herdr exit code, $3 herdr stdout, $4 herdr stderr,
-	# $5 "brief" (report for the unit last sent) or "any" (newest report at all),
-	# $6 a report already found, which takes precedence
-	local store="$1" code="$2" out="$3" err="$4" mode="${5:-brief}" report="${6:-}" state
+	# $5 "reply" (the report in $6, empty when none landed) or "any" (the
+	# newest report at all)
+	local store="$1" code="$2" out="$3" err="$4" mode="$5" report="${6:-}" state
 	if [ "$code" -ne 0 ]; then
 		state="$(printf '%s' "$err" | jq -r '.error.code // .error // "herdr_error"' 2>/dev/null || printf 'herdr_error')"
 		printf 'state: %s\n' "$state"
@@ -347,7 +345,7 @@ finish_wait() {
 		state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
 		printf 'state: %s\n' "$state"
 	fi
-	if [ -n "$report" ] || { [ "$mode" = any ] && report="$(latest_report "$store")"; } || { [ "$mode" = brief ] && report="$(unit_report "$store")"; }; then
+	if [ -n "$report" ] || { [ "$mode" = any ] && report="$(latest_report "$store")"; }; then
 		mark_seen "$store" "$report"
 		printf 'report: %s\n' "$report"
 		printf 'report_status: %s\n' "$(header_field "$report" status)"
@@ -663,7 +661,7 @@ cmd_new_brief() {
 # that cannot take input, then prompt and wait.
 send_and_wait() {
 	# $1 store, $2 file, $3 message kind (PLAN|BRIEF|ANSWER), $4 timeout
-	local store="$1" file="$2" kind="$3" timeout="$4" name status out err code=0 errfile
+	local store="$1" file="$2" kind="$3" timeout="$4" name status out err code=0
 	require_filled "$file"
 	name="$(field "$store" .sidekick.name)"
 	status="$(agent_status "$name")"
@@ -680,11 +678,10 @@ send_and_wait() {
 		record_sent "$store" "$file" "$kind"
 	fi
 	event "$store" master "send-${kind,,}" "$file"
-	errfile="$(mktemp)"
-	out="$(herdr agent prompt "$name" "$PAIR_SKILL $kind $file" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
-	err="$(cat "$errfile")"
-	rm -f "$errfile"
-	finish_wait "$store" "$code" "$out" "$err"
+	prompt_sidekick "$name" "$PAIR_SKILL $kind $file"
+	local ready
+	wait_for_reply "$store" "$name" "$timeout"
+	finish_wait "$store" "$code" "$out" "$err" reply "$ready"
 }
 
 # Parse the options every waiting command shares; sets $timeout and the
@@ -732,41 +729,76 @@ cmd_dispatch() {
 	send_and_wait "$store" "$brief" BRIEF "$timeout"
 }
 
-# Waits in short slices so a report is seen the moment it is written, even
-# when the sidekick has already taken the queued brief and never settles.
-cmd_wait() {
-	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh wait <store> [--timeout MS | --every MIN]"
-	local store="$1" timeout=540000 rest
-	shift
-	wait_opts "$@"
-	no_extra_opts
-	local name out="" err code=0 errfile deadline slice ready=""
-	name="$(field "$store" .sidekick.name)"
+# Seconds a settle must hold, with no reply, before a wait believes it.
+settle_hold_s="${PAIR_SETTLE_HOLD:-60}"
+
+# Blocks until the sidekick's reply lands or the interval ends, in short
+# slices so a report is seen the moment it is written, even after the
+# sidekick took the queued brief and never settles. A settle from herdr is a
+# hint, not proof: a Devin sidekick left in done flips to idle as a prompt
+# arrives, and shows idle between steps. So a settle without a reply is
+# rechecked, and only one that holds for settle_hold_s ends the wait. Sets
+# code, out, err, and ready (the report, or empty) for finish_wait.
+wait_for_reply() {
+	local store="$1" name="$2" timeout="$3" deadline slice settled_at="" errfile state
 	deadline=$(( $(date +%s) + timeout / 1000 ))
 	errfile="$(mktemp)"
 	while :; do
-		if ready="$(pending_report "$store")"; then
+		if ready="$(pending_report "$store")" || ready="$(fresh_reply "$store")"; then
 			code=0
 			out="$(herdr agent get "$name" 2>/dev/null || true)"
 			: >"$errfile"
 			break
 		fi
+		ready=""
 		slice=$(( (deadline - $(date +%s)) * 1000 ))
 		[ "$slice" -le 30000 ] || slice=30000
 		[ "$slice" -ge 1000 ] || slice=1000
 		code=0
 		out="$(herdr agent wait "$name" --timeout "$slice" 2>"$errfile")" || code=$?
 		if [ "$code" -eq 0 ]; then
-			ready="$(pending_report "$store" || true)"
-			break
+			state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)"
+			[ "$state" != blocked ] || break
+			{ pending_report "$store" >/dev/null || fresh_reply "$store" >/dev/null; } && continue
+			[ -n "$settled_at" ] || settled_at="$(date +%s)"
+			[ $(( $(date +%s) - settled_at )) -lt "$settle_hold_s" ] || break
+			[ "$(date +%s)" -lt "$deadline" ] || break
+			sleep 5
+			continue
 		fi
+		settled_at=""
 		[ "$(jq -r '.error.code // empty' "$errfile" 2>/dev/null || true)" = timeout ] || break
 		[ "$(date +%s)" -lt "$deadline" ] || break
 	done
 	err="$(cat "$errfile")"
 	rm -f "$errfile"
-	finish_wait "$store" "$code" "$out" "$err" brief "$ready"
+}
+
+# Sends one message and confirms the sidekick took it. A narrow pane can hide
+# the working state, so a timeout or stall here is not an error; the wait that
+# follows looks for the reply file either way.
+prompt_sidekick() {
+	local name="$1" text="$2" errfile rc=0
+	errfile="$(mktemp)"
+	herdr agent prompt "$name" "$text" --wait --until working --timeout 30000 >/dev/null 2>"$errfile" || rc=$?
+	if [ "$rc" -ne 0 ]; then
+		case "$(jq -r '.error.code // empty' "$errfile" 2>/dev/null || true)" in
+		timeout | agent_prompt_stalled) ;;
+		*) cat "$errfile" >&2; rm -f "$errfile"; die "herdr prompt failed for $name" 2 ;;
+		esac
+	fi
+	rm -f "$errfile"
+}
+
+cmd_wait() {
+	in_herdr
+	[ $# -ge 1 ] || die "usage: pair.sh wait <store> [--timeout MS | --every MIN]"
+	local store="$1" timeout=540000 rest code out err ready
+	shift
+	wait_opts "$@"
+	no_extra_opts
+	wait_for_reply "$store" "$(field "$store" .sidekick.name)" "$timeout"
+	finish_wait "$store" "$code" "$out" "$err" reply "$ready"
 }
 
 # The master's next brief, held for the sidekick to take the moment its
@@ -805,24 +837,46 @@ cmd_queue() {
 	printf 'queued %s; the sidekick takes it when its current report is written\n' "$brief"
 }
 
-# The sidekick's pickup after writing a report: takes the queued brief,
-# records its dispatch, and prints the message to act on. Exit 4 when the
-# queue is empty, so the turn ends as before.
-cmd_next() {
-	[ $# -eq 1 ] || die "usage: pair.sh next <store>"
+# Takes the queued brief, if any: records its dispatch and prints its path.
+take_queued() {
 	local store="$1" taken brief
-	pair_file "$store" >/dev/null
 	taken="$store/queue.taken.$$"
-	if ! mv "$store/queue" "$taken" 2>/dev/null; then
-		printf 'queue: empty\n'
-		exit 4
-	fi
+	mv "$store/queue" "$taken" 2>/dev/null || return 1
 	brief="$(cat "$taken")"
 	rm -f "$taken"
 	[ -f "$brief" ] || die "queued brief is gone: $brief"
 	record_dispatch "$store" "$brief"
 	event "$store" sidekick send-brief "$brief" queued
+	printf '%s\n' "$brief"
+}
+
+# The sidekick's pickup after writing a report: prints the queued brief's
+# message to act on. Exit 4 when the queue is empty, so the turn ends.
+cmd_next() {
+	[ $# -eq 1 ] || die "usage: pair.sh next <store>"
+	local brief
+	pair_file "$1" >/dev/null
+	brief="$(take_queued "$1")" || { printf 'queue: empty\n'; exit 4; }
 	printf '%s BRIEF %s\n' "$PAIR_SKILL" "$brief"
+}
+
+# The one command a sidekick runs after writing any report: tells the master,
+# then says what to do next. A done report takes the queued brief; anything
+# else, and an empty queue, ends the turn.
+cmd_finish() {
+	in_herdr
+	[ $# -eq 2 ] || die "usage: pair.sh finish <store> <report-path>"
+	local store="$1" report status brief
+	report="$(readlink -f "$2")"
+	[ -f "$report" ] || die "report not found: $report; write it first"
+	status="$(header_field "$report" status)"
+	cmd_notify "$store" "$report"
+	if [ "$status" = done ] && brief="$(take_queued "$store")"; then
+		printf 'next: the master queued %s BRIEF %s\n' "$PAIR_SKILL" "$brief"
+		printf 'Start that brief now, in this turn, as if the message had just arrived.\n'
+	else
+		printf 'next: end the turn with the single line: %s REPORT %s\n' "$PAIR_SKILL" "$report"
+	fi
 }
 
 cmd_report() {
@@ -981,11 +1035,12 @@ cmd_steer() {
 			|| die "sidekick $name is $status and no objection is open on unit $seq; fold the steer into the next brief instead" 5
 		[ "$(header_field "$steer" supersedes)" != none ] || die "$steer answers $objection but its supersedes: line says none"
 		event "$store" master send-steer "$steer" objection
-		errfile="$(mktemp)"
-		out="$(herdr agent prompt "$name" "$PAIR_SKILL STEER $steer" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
-		err="$(cat "$errfile")"
-		rm -f "$errfile"
-		finish_wait "$store" "$code" "$out" "$err"
+		# The reply to this steer is any report on the unit written from now.
+		json_update "$store" --argjson epoch "$(date +%s)" '.sent.epoch = $epoch'
+		prompt_sidekick "$name" "$PAIR_SKILL STEER $steer"
+		local ready
+		wait_for_reply "$store" "$name" "$timeout"
+		finish_wait "$store" "$code" "$out" "$err" reply "$ready"
 		;;
 	unknown)
 		[ "$force" -eq 1 ] || die "sidekick $name is unknown; read the pane, then pass --force to steer anyway" 5

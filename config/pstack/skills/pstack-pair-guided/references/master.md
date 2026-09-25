@@ -56,9 +56,9 @@ is yours alone.
    request`, add a `gates.md` entry, end your turn, and set `approval: human`
    only after the human approves. If the human redirects, that is a new plan
    round. Dispatch checks approval against scale.
-6. **Brief.** `pair.sh new-brief <store> <unit-slug>` and fill every field. Set
-   `commit: yes` for a unit that writes the tree, so the review and the next
-   unit start from a commit. Name the pstack playbook the sidekick runs and put
+6. **Brief.** `pair.sh new-brief <store> <unit-slug>` and fill every field. Set `commit: yes` for a unit that writes the tree, so the review and the
+   next unit start from a commit, and put the landing gate's fast checks
+   (format, lint, typecheck) in its Verify, so landing never fails on them. Name the pstack playbook the sidekick runs and put
    the agreed plan's path on the `plan:` line; dispatch refuses implementation
    playbooks without one. Put prior review findings in Context by path. A field
    you cannot fill is a unit you have not scoped, so scope it before dispatch.
@@ -92,9 +92,11 @@ is yours alone.
    when the sidekick already took a queued unit, queue the revise behind it,
    and steer the running unit only when the findings invalidate it. `accept`
    moves to the next unit. A finding that changes the design, not just one
-   unit, goes back through step 4 before the next brief. Landing (commit
-   shaping, push, PR through the Opening a PR playbook) is a brief like any
-   other, gated by the standing orders.
+   unit, goes back through step 4 before the next brief. Landing (commit shaping, push, PR through the Opening a PR playbook) is a
+   brief like any other, gated by the standing orders. Its Scope lets the
+   sidekick fix mechanical gate failures (formatting, lint autofixes) and
+   rerun the gate, up to twice, before it reports `failed`; a failure that
+   needs judgment still comes back to you.
 10. **Close.** When the predicate holds on the real artifact, run `pair.sh
     status <store>` and write the reply. Leave the sidekick pane open unless
     the human asked you to close it; `pair.sh stop <store>` makes it pause

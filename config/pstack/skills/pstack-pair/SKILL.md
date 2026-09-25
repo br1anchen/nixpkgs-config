@@ -72,14 +72,17 @@ the files for one unit sort together.
 | --- | --- | --- | --- |
 | bootstrap (names the skill and the store) | master to sidekick | `pair.sh spawn` | bootstrap steps, `reports/000-ready.md`, reply `READY` |
 | `pstack-pair PLAN <plan-path>` | master to sidekick | `pair.sh discuss` | ground the plan in the code, write an agree or object response, end the turn |
-| `pstack-pair BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, take a queued brief or end the turn |
+| `pstack-pair BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, run `pair.sh finish`, then start the queued brief it names or end the turn |
 | `pstack-pair BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | taken with `pair.sh next` right after a `done` report, in the same turn |
 | `pstack-pair STEER <steer-path>` | master to a working sidekick, or to one paused on an objection | `pair.sh steer` | read it on arrival, between tool calls; agree and continue, or object with evidence and end the turn |
-| `pstack-pair REPORT <report-path>` | sidekick to master | `pair.sh notify` | read the report, review |
+| `pstack-pair REPORT <report-path>` | sidekick to master | `pair.sh finish` (or `notify`) | read the report, review |
 | `pstack-pair STOP <store>` | master to sidekick | `pair.sh stop` | pause safely, write a stop report |
 
-The master's `dispatch` and `wait` return when the sidekick settles into
-`idle`, `done`, or `blocked`. The sidekick ending its turn is the reply.
+The master's `dispatch` and `wait` return when the sidekick's reply lands:
+the report written since the message, or a `blocked` sidekick. A settle from
+`herdr` alone is not trusted, because a Devin sidekick shows idle as a prompt
+arrives and between steps; a settle with no report that holds for a minute
+ends the wait with `report: missing`.
 They also return when the check-in interval passes with the sidekick still
 working, printing a check-in digest instead of a report path. `wait` also
 returns the moment a dispatched brief's report lands, even when the sidekick

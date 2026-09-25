@@ -85,17 +85,21 @@ review, so the files for one unit sort together.
 | --- | --- | --- | --- |
 | bootstrap (names the skill, the role, and the store) | master to sidekick and consultant | `pair.sh spawn` | bootstrap steps, `reports/000-ready.md` or `advice/000-ready.md`, reply `READY` |
 | `pstack-trio PLAN <plan-path>` | master to sidekick and consultant at once | `pair.sh discuss` | sidekick grounds the plan in the code; consultant critiques the design; each writes agree or object, ends the turn |
-| `pstack-trio BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, take a queued brief or end the turn |
+| `pstack-trio BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, run `pair.sh finish`, then start the queued brief it names or end the turn |
 | `pstack-trio BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | taken with `pair.sh next` right after a `done` report, in the same turn |
 | `pstack-trio STEER <steer-path>` | master to a working sidekick, or one paused on an objection | `pair.sh steer` | read it between tool calls; agree and continue, or object with evidence and end the turn |
 | `pstack-trio CONSULT <consult-path>` | master to consultant | `pair.sh consult` | read the named files, prototype in scratch if needed, write the advice, end the turn |
-| `pstack-trio REPORT <report-path>` | sidekick to master | `pair.sh notify` | read the report, review |
+| `pstack-trio REPORT <report-path>` | sidekick to master | `pair.sh finish` (or `notify`) | read the report, review |
 | `pstack-trio ADVICE <advice-path>` | consultant to master | `pair.sh notify` | read the advice, decide |
 | `pstack-trio STOP <store>` | master to sidekick and consultant | `pair.sh stop` | pause safely, write a stop report or advice |
 
 `discuss` returns when both agents settle, with one response path and status
-per role. `dispatch`, `wait`, and `consult` return when their agent settles
-into `idle`, `done`, or `blocked`; `dispatch` and `wait` also return at the
+per role. `consult` returns when the consultant settles into `idle`, `done`, or
+`blocked`. `dispatch` and `wait` return when the sidekick's reply lands, the
+report written since the message, or when it is `blocked`; a settle from
+`herdr` alone is not trusted, because a Devin sidekick shows idle as a prompt
+arrives and between steps, and one with no report that holds for a minute ends
+the wait with `report: missing`. `dispatch` and `wait` also return at the
 check-in interval with a digest. `wait` also returns the moment a dispatched
 brief's report lands, even when the sidekick has already taken the queued
 brief; `running:` then names the brief it is on. `notify` prompts the master only when the
