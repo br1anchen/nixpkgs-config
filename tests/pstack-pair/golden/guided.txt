@@ -445,14 +445,18 @@ pair.sh: unknown command: bogus
 [exit 1]
 
 $ pair.sh metrics <T>/metrics
-wall: 46m from first to last event
-sidekick: busy 32m (69% of wall), idle 8m across 2 gaps; 2 briefs (median 10m), 1 plan responses (2m)
-consultant: busy 8m (17% of wall); 1 consults (3m), plan advice 5m
-master: 5 wakes, 1 of them check-ins; review latency median 1m over 2 reviews
-verdicts: agreed 1 accept 1 revise 1
+wall: 78m from first event to now
+sidekick: busy 64m (81% of wall), idle 15m across 4 gaps; 4 briefs (median 10m), 1 plan responses (2m)
+queue: 1 briefs queued, 1 taken by the sidekick; 1 started the moment a report landed
+consultant: busy 8m (10% of wall); 1 consults (3m), plan advice 5m
+master: 6 wakes, 1 of them check-ins; review latency median 3m over 3 reviews
+verdicts: agreed 1 accept 2 revise 1
 briefs:
   002-a 10m
   004-b 20m
+  005-c 10m
+  006-q 12m (stopped)
+  running: 007-r for 10m
 [exit 0]
 
 $ pair.sh metrics <T>/nowhere

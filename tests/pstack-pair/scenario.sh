@@ -178,7 +178,18 @@ e t 2800 master send-consult 004-b-c1 finding
 e t 2980 master wake 004-b-c1 advice:answered
 e t 3400 master wake 004-b report:done
 e t 3760 master log - "review: revise 004"
-run metrics "$m"
+# 005 runs 10m after a 7m idle gap; 006, queued at 3900, starts the second
+# 005's report lands, and the master's late wake on 005 must not end it. The
+# review's verdict sits mid-sentence. A new brief at 5100 stops 006 after 12m,
+# and 007 is still running 10m later, at the fixed now.
+e t 3800 master send-brief 005-c ""
+e t 3900 master queue 006-q ""
+e t 4400 sidekick report 005-c done
+e t 4400 sidekick send-brief 006-q queued
+e t 4420 master wake 005-c report:done
+e t 4600 master log - "review: unit 005 (c) accepted after a rerun"
+e t 5100 master send-brief 007-r ""
+PAIR_METRICS_NOW=5700 run metrics "$m"
 run metrics "$T/nowhere"
 printf '\n== store tree\n'
 (cd "$store" && find . -type f ! -name '*.seen' | sort | while read -r f; do printf -- '--- %s\n' "$f"; norm <"$f" | grep -v '^generated:'; done)

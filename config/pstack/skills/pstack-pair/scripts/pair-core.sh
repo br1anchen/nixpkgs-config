@@ -1159,31 +1159,36 @@ cmd_scratch() {
 }
 
 # Where a run's time went, from events.tsv. A sidekick is busy from a brief,
-# plan, answer, or objection steer until its report; idle from that report to
-# the next one. The same holds for the consultant between a plan or consult
-# and its advice. Review latency runs from a brief's report to the master's
-# next review log row.
+# plan, answer, or objection steer until its report for that unit, a new
+# send, or now if it is still running; idle from a report to the next send.
+# The same holds for the consultant between a plan or consult and its advice.
+# Review latency runs from a brief's report to the master's next review log
+# row. PAIR_METRICS_NOW fixes "now", for a view as of an earlier time.
 cmd_metrics() {
 	[ $# -eq 1 ] || die "usage: pair.sh metrics <store>"
 	local store="$1"
 	[ -s "$store/events.tsv" ] || die "no events.tsv in $store; it is written from the first command on"
-	awk -F '\t' '
+	awk -F '\t' -v now="${PAIR_METRICS_NOW:-$(date +%s)}" '
 	function median(a, n,    i, j, t) {
 		for (i = 2; i <= n; i++) { t = a[i]; for (j = i - 1; j >= 1 && a[j] > t; j--) a[j + 1] = a[j]; a[j + 1] = t }
 		return n ? a[int((n + 1) / 2)] : 0
 	}
 	function m(s) { return sprintf("%.0fm", s / 60) }
+	function seq(u) { return substr(u, 1, 3) }
 	function sk_start(t, u, kind) {
-		if (sk_on) return
-		if (sk_free != "") { sk_idle += t - sk_free; sk_gaps++ }
+		# A send while the sidekick still holds a unit means that unit stopped.
+		if (sk_on) sk_close(t, " (stopped)")
+		else if (sk_free != "") { sk_idle += t - sk_free; sk_gaps++; if (t == sk_free) pickups++ }
 		sk_on = 1; sk_since = t; sk_unit = u; sk_kind = kind
 	}
-	function sk_end(t, u) {
-		if (!sk_on) return
+	function sk_close(t, note) {
 		sk_on = 0; sk_busy += t - sk_since; sk_free = t
-		if (sk_kind == "brief") { nb++; bd[nb] = t - sk_since; bl = bl sprintf("  %s %s\n", sk_unit, m(t - sk_since)); review_from = t }
+		if (sk_kind == "brief") { nb++; bd[nb] = t - sk_since; bl = bl sprintf("  %s %s%s\n", sk_unit, m(t - sk_since), note); if (note == "") review_from = t }
 		else { np++; plan_sk += t - sk_since }
 	}
+	# Only a report for the unit the sidekick holds ends it; a late wake on
+	# the previous unit does not end the queued one it already took.
+	function sk_end(t, u) { if (sk_on && seq(u) == seq(sk_unit)) sk_close(t, u ~ /-[sq][0-9]+$/ ? " (paused)" : "") }
 	function co_start(t, kind) { if (!co_on) { co_on = 1; co_since = t; co_kind = kind } }
 	function co_end(t) {
 		if (!co_on) return
@@ -1195,11 +1200,12 @@ cmd_metrics() {
 		t = $2; actor = $3; ev = $4; u = $5; d = $6
 		if (first == "") first = t
 		last = t
-		if (ev == "send-brief" || ev == "send-answer") sk_start(t, u, "brief")
+		if (ev == "send-brief" || ev == "send-answer") { sk_start(t, u, "brief"); if (d == "queued") taken++ }
 		else if (ev == "send-plan" && d != "consultant") sk_start(t, u, "plan")
 		else if (ev == "send-plan" && d == "consultant") co_start(t, "plan")
 		else if (ev == "send-consult") co_start(t, "consult")
 		else if (ev == "send-steer" && d == "objection") sk_start(t, u, "brief")
+		else if (ev == "queue" && u != "-") queued[u] = 1
 		else if (actor == "sidekick" && ev == "report") sk_end(t, u)
 		else if (actor == "consultant" && ev == "advice") co_end(t)
 		else if (ev == "wake") {
@@ -1208,25 +1214,32 @@ cmd_metrics() {
 			if (d ~ /^report:/ || d ~ /^sidekick:/) sk_end(t, u)
 			if (d ~ /^advice:/ || d ~ /^consultant:/) co_end(t)
 		}
-		else if (ev == "log") {
-			split(d, w, " ")
-			if (w[1] == "review:" || w[1] == "plan:") verdicts[w[2]]++
-			if (w[1] == "review:" && review_from != "") { nr++; rl[nr] = t - review_from; review_from = "" }
+		else if (ev == "log" && (d ~ /^review:/ || d ~ /^plan:/)) {
+			# The decision is free text; its verdict is the first verdict word.
+			n = split(tolower(d), w, /[^a-z]+/)
+			for (i = 1; i <= n; i++) {
+				v = w[i]; sub(/ed$/, "", v); if (v == "accept" || v == "reject") { verdicts[v]++; break }
+				if (w[i] == "agreed" || w[i] == "revise") { verdicts[w[i]]++; break }
+			}
+			if (d ~ /^review:/ && review_from != "") { nr++; rl[nr] = t - review_from; review_from = "" }
 		}
 	}
 	END {
-		wall = last - first
-		printf "wall: %s from first to last event\n", m(wall)
+		end = (sk_on || co_on) && now >= last ? now : last
+		if (sk_on) { running = sprintf("running: %s for %s\n", sk_unit, m(end - sk_since)); sk_busy += end - sk_since }
+		wall = end - first
+		printf "wall: %s from first event to %s\n", m(wall), sk_on || co_on ? "now" : "last"
 		printf "sidekick: busy %s (%d%% of wall), idle %s across %d gaps; %d briefs (median %s), %d plan responses (%s)\n", \
 			m(sk_busy), wall ? 100 * sk_busy / wall : 0, m(sk_idle), sk_gaps, nb, m(median(bd, nb)), np, m(plan_sk)
-		if (co_busy || nc) printf "consultant: busy %s (%d%% of wall); %d consults (%s), plan advice %s\n", \
+		q = 0; for (k in queued) q++
+		if (q || taken) printf "queue: %d briefs queued, %d taken by the sidekick; %d started the moment a report landed\n", q, taken, pickups
+		if (co_busy || nc || co_on) printf "consultant: busy %s (%d%% of wall); %d consults (%s), plan advice %s\n", \
 			m(co_busy), wall ? 100 * co_busy / wall : 0, nc, m(consult_t), m(plan_co)
 		printf "master: %d wakes, %d of them check-ins; review latency median %s over %d reviews\n", wakes, checkins, m(median(rl, nr)), nr
 		v = ""; n = split("agreed accept revise reject", order, " ")
-		for (i = 1; i <= n; i++) if (order[i] in verdicts) { v = v sprintf(" %s %d", order[i], verdicts[order[i]]); delete verdicts[order[i]] }
-		for (k in verdicts) v = v sprintf(" %s %d", k, verdicts[k])
+		for (i = 1; i <= n; i++) if (order[i] in verdicts) v = v sprintf(" %s %d", order[i], verdicts[order[i]])
 		printf "verdicts:%s\n", v == "" ? " none" : v
-		if (nb) printf "briefs:\n%s", bl
+		if (nb || running != "") printf "briefs:\n%s%s", bl, running == "" ? "" : "  " running
 	}' "$store/events.tsv"
 }
 
