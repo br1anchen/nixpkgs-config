@@ -185,10 +185,27 @@ pending_report() {
 	local b r
 	while IFS= read -r b; do
 		[ -n "$b" ] || continue
+		# A unit the master already reviewed was seen, however it was read.
+		ls "$1"/reviews/"$(basename "$b" | cut -c1-3)"-*.md >/dev/null 2>&1 && continue
 		r="$(expected_report "$1" "$b")"
 		[ -f "$r" ] && { printf '%s\n' "$r"; return 0; }
 	done < <(jq -r '.pending // [] | .[]' "$1/pair.json")
 	return 1
+}
+
+# Before the master dispatches, the sidekick is idle and every earlier brief
+# has ended: drop those whose report or review exists, since the master read
+# them by some path, and only a brief still owed a report stays pending.
+prune_pending() {
+	local b keep=() list='[]'
+	while IFS= read -r b; do
+		[ -n "$b" ] || continue
+		[ -f "$(expected_report "$1" "$b")" ] && continue
+		ls "$1"/reviews/"$(basename "$b" | cut -c1-3)"-*.md >/dev/null 2>&1 && continue
+		keep+=("$b")
+	done < <(jq -r '.pending // [] | .[]' "$1/pair.json")
+	[ "${#keep[@]}" -eq 0 ] || list="$(printf '%s\n' "${keep[@]}" | jq -R . | jq -sc .)"
+	json_update "$1" --argjson keep "$list" '.pending = $keep'
 }
 
 # $1 store, $2 a report the master has now seen: drop its brief from pending.
@@ -214,16 +231,23 @@ file_mtime() {
 	stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
 }
 
-# The sidekick's reply to the last message sent: the newest report for that
-# unit written since the send, whether the unit's report, a plan response, a
-# steer objection, or an ask. An older report for the unit is not the reply.
+# The sidekick's reply to the last message sent: the newest report written
+# since the send that answers it: the unit's report or plan response
+# (reports/<unit>.md), a steer objection (-s<k>), or an ask (-q<k>). A stop
+# report shares the unit's number but answers a STOP, and one written late,
+# after a re-dispatch, is not the reply to the brief.
 fresh_reply() {
-	local sent epoch r
+	local sent unit epoch f r="" best=0 t
 	sent="$(field "$1" '.sent.file // empty')"
 	[ -n "$sent" ] || return 1
+	unit="$(basename "$sent" .md | sed -E 's/-a[0-9]+$//')"
 	epoch="$(field "$1" '.sent.epoch // 0')"
-	r="$(latest_report "$1" "$(basename "$sent" | cut -c1-3)")" || return 1
-	[ "$(file_mtime "$r")" -ge "$epoch" ] || return 1
+	for f in "$1/reports/$unit.md" "$1/reports/$unit"-[sq][0-9]*.md; do
+		[ -f "$f" ] || continue
+		t="$(file_mtime "$f")"
+		[ "$t" -ge "$epoch" ] && [ "$t" -ge "$best" ] && { best="$t"; r="$f"; }
+	done
+	[ -n "$r" ] || return 1
 	printf '%s\n' "$r"
 }
 
@@ -686,6 +710,7 @@ send_and_wait() {
 	esac
 	if [ "$kind" = BRIEF ]; then
 		[ "$(queued_brief "$store")" = "$file" ] && rm -f "$store/queue"
+		prune_pending "$store"
 		record_dispatch "$store" "$file"
 	else
 		record_sent "$store" "$file" "$kind"

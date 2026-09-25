@@ -531,16 +531,79 @@ $ pair.sh queue <T>/state/pstack/trio/demo --clear
 queue cleared
 [exit 0]
 
-$ pair.sh wait <T>/state/pstack/trio/demo --timeout 3000
-state: idle
+$ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/009-qseven.md --timeout 1000
+state: timeout
+{"error":{"code":"timeout"}}
 report: missing
+check-in: 009-qseven.md  elapsed <N>m of ?m
+progress: none yet
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 2
+  a.txt
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
 [exit 4]
-  herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 20
-  herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/009-qseven.md --wait --until working --timeout 30000
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent get demo-sidekick
+
+$ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 009-qseven.md  elapsed <N>m of ?m
+progress: none yet
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 2
+  a.txt
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent get demo-sidekick
+
+$ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/010-qeight.md --timeout 1000
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 010-qeight.md  elapsed <N>m of ?m
+progress: none yet
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 2
+  a.txt
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/010-qeight.md --wait --until working --timeout 30000
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent get demo-sidekick
+
+$ pair.sh wait <T>/state/pstack/trio/demo --timeout 3000
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 010-qeight.md  elapsed <N>m of ?m
+progress: none yet
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 2
+  a.txt
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent get demo-sidekick
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 004-qone-review --at <SHA>
 Preparing worktree (detached HEAD <SHA>)
@@ -556,14 +619,14 @@ removed <T>/state/pstack/trio/demo/scratch/004-qone-review
 [exit 0]
 
 $ pair.sh stop <T>/state/pstack/trio/demo
-sidekick_state: idle
+sidekick_state: working
 consultant_state: idle
-report: <T>/state/pstack/trio/demo/reports/009-stop.md (partial)
+report: <T>/state/pstack/trio/demo/reports/011-stop.md (partial)
 advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
+  herdr agent get demo-sidekick
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 20
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
@@ -1015,15 +1078,113 @@ report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
 with the REPORT line it gives.
---- ./briefs/009-qfour.md
-# Brief 009: qfour
+--- ./briefs/009-qseven.md
+# Brief 009: qseven
 
 playbook: investigation
 timebox: x
 commit: x
 plan: none
 standing: <T>/state/pstack/trio/demo/standing-orders.md
-report: <T>/state/pstack/trio/demo/reports/009-qfour.md
+report: <T>/state/pstack/trio/demo/reports/009-qseven.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Append one progress line per completed todolist step and per change of
+approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
+that log between check-ins. Write the report file named above using the
+report template in the pstack-trio skill, then run
+`~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
+what it prints: start the queued brief it names, in this turn, or end the turn
+with the REPORT line it gives.
+--- ./briefs/010-qeight.md
+# Brief 010: qeight
+
+playbook: investigation
+timebox: x
+commit: x
+plan: none
+standing: <T>/state/pstack/trio/demo/standing-orders.md
+report: <T>/state/pstack/trio/demo/reports/010-qeight.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Append one progress line per completed todolist step and per change of
+approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
+that log between check-ins. Write the report file named above using the
+report template in the pstack-trio skill, then run
+`~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
+what it prints: start the queued brief it names, in this turn, or end the turn
+with the REPORT line it gives.
+--- ./briefs/011-qfour.md
+# Brief 011: qfour
+
+playbook: investigation
+timebox: x
+commit: x
+plan: none
+standing: <T>/state/pstack/trio/demo/standing-orders.md
+report: <T>/state/pstack/trio/demo/reports/011-qfour.md
 
 ## Goal
 
@@ -1257,9 +1418,12 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	wake	007-qfive	report:done
 <TS>	<EPOCH>	master	queue	008-qsix	
 <TS>	<EPOCH>	master	queue	-	cleared
-<TS>	<EPOCH>	master	send-brief	009-qfour	
-<TS>	<EPOCH>	master	wake	009-qfour	report:done
-<TS>	<EPOCH>	master	wake	009-qfour	missing
+<TS>	<EPOCH>	master	send-brief	009-qseven	
+<TS>	<EPOCH>	master	wake	009-qseven	checkin
+<TS>	<EPOCH>	master	wake	009-qseven	checkin
+<TS>	<EPOCH>	master	send-brief	010-qeight	
+<TS>	<EPOCH>	master	wake	010-qeight	checkin
+<TS>	<EPOCH>	master	wake	010-qeight	checkin
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	send-stop	-	consultant
 --- ./gates.md
@@ -1296,18 +1460,18 @@ One entry per open question for the human: question, options, default on no answ
     "permission_mode": "auto"
   },
   "scratch": [],
+  "pending": [],
   "dispatch": {
-    "brief": "<T>/state/pstack/trio/demo/briefs/009-qfour.md",
+    "brief": "<T>/state/pstack/trio/demo/briefs/010-qeight.md",
     "at": "<TS>",
     "head": "<SHA>"
   },
   "sent": {
-    "file": "<T>/state/pstack/trio/demo/briefs/009-qfour.md",
+    "file": "<T>/state/pstack/trio/demo/briefs/010-qeight.md",
     "kind": "BRIEF",
     "at": "<TS>",
     "epoch": <EPOCH>
   },
-  "pending": [],
   "consult": {
     "file": "<T>/state/pstack/trio/demo/consults/003-build-c1.md",
     "at": "<TS>",
@@ -1403,7 +1567,15 @@ status: done
 # Report
 
 status: done
+--- ./reports/009-qseven.md
+# Report
+
+status: done
 --- ./reports/009-stop.md
+# Stop
+
+status: partial
+--- ./reports/011-stop.md
 # stop
 
 status: partial
@@ -1413,6 +1585,10 @@ head: abc
 
 verdict: agreed
 approval: not-required
+--- ./reviews/009-qseven.md
+# Review
+
+verdict: accept
 --- ./standing-orders.md
 # Standing orders
 

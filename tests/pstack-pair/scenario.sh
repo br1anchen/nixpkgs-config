@@ -178,6 +178,20 @@ run dispatch "$store" "$q5"
 run queue "$store" "$q6"
 rm -f "$FAKE/busy/demo-sidekick" "$FAKE/busy-on-brief"
 run queue "$store" --clear
+# a stop report written after the master re-dispatched the unit is not its
+# reply: the wait shows a check-in, not the stop (walkthrough-808, brief 112)
+q7="$("$P" new-brief "$store" qseven)"; fill "$q7"; set_hdr "$q7" playbook investigation; set_hdr "$q7" plan none
+: >"$FAKE/brief-working"
+run dispatch "$store" "$q7" --timeout 1000
+printf '# Stop\n\nstatus: partial\n' >"$store/reports/$(basename "$q7" | cut -c1-3)-stop.md"
+run wait "$store" --timeout 1500
+# a brief the master read and reviewed without a wait does not come back as
+# the reply to the next dispatch (kg-map, brief 003)
+printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$q7")"
+printf '# Review\n\nverdict: accept\n' >"$store/reviews/$(basename "$q7")"
+status "demo-sidekick" idle devin
+q8="$("$P" new-brief "$store" qeight)"; fill "$q8"; set_hdr "$q8" playbook investigation; set_hdr "$q8" plan none
+run dispatch "$store" "$q8" --timeout 1000
 # a settle that holds with no report ends the wait at its interval
 rm -f "$FAKE/brief-working"
 q4="$("$P" new-brief "$store" qfour)"; fill "$q4"; set_hdr "$q4" playbook investigation; set_hdr "$q4" plan none
