@@ -1,0 +1,594 @@
+
+$ pair.sh help
+usage: pair.sh <command> [args]
+
+  init <slug> [--store DIR]                 create or re-register the pair store; prints its path
+  spawn <store> --kind KIND [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
+                                            split from the master pane, start the sidekick with the master's
+                                            permission mode (default auto), bootstrap it
+  permission                                print the master's detected permission mode
+  new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
+  discuss <store> <plan-path> [--timeout MS]
+                                            send PLAN to the sidekick and wait for its agree/object response
+  new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
+  dispatch <store> <brief-path> [--timeout MS | --every MIN]
+                                            send BRIEF to the sidekick and wait for it to settle;
+                                            implementation playbooks require an agreed plan
+  wait <store> [--timeout MS | --every MIN] wait for the sidekick to settle; prints the report path,
+                                            or a check-in digest when the interval passes first
+  progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
+  new-steer <store> <NNN> [--supersedes STEER | --force]
+                                            create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
+                                            an objection; two fresh steers per brief
+  steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]
+                                            send STEER: to a working sidekick, return at once (its harness hands it
+                                            over between tool calls; --interrupt cancels the running one first);
+                                            to one paused on an objection, wait for it to settle
+  report <store> [NNN]                      print the latest (or NNN) report path
+  notify <store> <report-path>              sidekick -> master: prompt the master if it is idle
+  stop <store> [--timeout MS]               send STOP; the sidekick pauses safely and reports
+  status <store>                            table of briefs, reports, reviews, and live agent states
+  log <store> <phase> <decision> <why> <evidence> <result>
+                                            append a decisions.tsv row (show-me-your-work format)
+
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet, 5 sidekick busy, 6 plan not agreed, 7 steer cap reached
+[exit 0]
+
+$ pair.sh init BadSlug
+pair.sh: slug must match [a-z][a-z0-9_-]{0,21} (so <slug>-sidekick fits Herdr's 32-char name limit)
+[exit 1]
+
+$ pair.sh init demo
+store: <T>/state/pstack/pair/demo (master demo-master in p0)
+standing orders: <T>/state/pstack/pair/demo/standing-orders.md
+[exit 0]
+  herdr agent rename p0 demo-master
+
+$ pair.sh init demo
+store: <T>/state/pstack/pair/demo (re-registered master demo-master in p0)
+standing orders: <T>/state/pstack/pair/demo/standing-orders.md
+[exit 0]
+  herdr agent rename p0 demo-master
+
+$ pair.sh permission
+auto
+[exit 0]
+
+$ pair.sh spawn <T>/state/pstack/pair/demo --kind devin
+split p0 right -> p1
+sidekick demo-sidekick (devin) started in p1 with permission auto (master: auto)
+ready: <T>/state/pstack/pair/demo/reports/000-ready.md
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr pane layout --pane p0
+  herdr pane split --pane p0 --direction right --cwd <T>/repo --no-focus
+  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode smart
+  herdr agent prompt demo-sidekick Load the pstack-pair skill from ~/.agents/skills/pstack-pair/SKILL.md and take the sidekick role. Pair store: <T>/state/pstack/pair/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+
+$ pair.sh spawn <T>/state/pstack/pair/demo --kind devin
+sidekick demo-sidekick already live (idle) in p1
+[exit 0]
+  herdr agent get demo-sidekick
+
+new-plan -> <T>/state/pstack/pair/demo/plans/001-design.md
+
+$ pair.sh discuss <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/plans/001-design.md
+pair.sh: <T>/state/pstack/pair/demo/plans/001-design.md still has unfilled placeholders
+[exit 1]
+
+$ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/002-early.md
+pair.sh: plan <T>/state/pstack/pair/demo/plans/001-design.md has no review; run pair.sh discuss and write reviews/001-<slug>.md with verdict: agreed 6
+[exit 6]
+
+$ pair.sh discuss <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/plans/001-design.md
+state: idle
+report: missing
+[exit 4]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair PLAN <T>/state/pstack/pair/demo/plans/001-design.md --wait --timeout 540000
+  herdr agent get demo-sidekick
+
+$ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/002-early.md
+state: idle
+report: <T>/state/pstack/pair/demo/reports/002-early.md
+report_status: done
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/002-early.md --wait --timeout 540000
+
+$ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/003-build.md
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 003-build.md  elapsed <N>m of 30m
+progress: none yet
+touched: 0 files, 0 commits since dispatch
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/003-build.md --wait --timeout 540000
+  herdr agent get demo-sidekick
+
+$ pair.sh progress <T>/state/pstack/pair/demo step one done; next: two
+<T>/state/pstack/pair/demo/progress/003-build.md
+[exit 0]
+
+$ pair.sh wait <T>/state/pstack/pair/demo --every 1
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 003-build.md  elapsed <N>m of 30m
+progress: +1 lines (last <N>m ago)
+  <HM> step one done; next: two
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 1
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent wait demo-sidekick --timeout 60000
+  herdr agent get demo-sidekick
+
+$ pair.sh wait <T>/state/pstack/pair/demo
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 003-build.md  elapsed <N>m of 30m
+progress: +0 lines (last <N>m ago)
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 1
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent wait demo-sidekick --timeout 540000
+  herdr agent get demo-sidekick
+
+$ pair.sh steer <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/steers/003-build-s1.md
+steered demo-sidekick with <T>/state/pstack/pair/demo/steers/003-build-s1.md; its harness hands it over between tool calls and the ack lands in the progress log
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair STEER <T>/state/pstack/pair/demo/steers/003-build-s1.md
+  herdr agent send-keys demo-sidekick enter
+
+$ pair.sh steer <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/steers/003-build-s1.md --interrupt
+{"error":{"code":"timeout"}}
+pair.sh: sidekick demo-sidekick did not settle after esc; inspect: herdr agent read demo-sidekick --source visible --lines 60 3
+[exit 3]
+  herdr agent get demo-sidekick
+  herdr agent send-keys demo-sidekick esc
+  herdr agent wait demo-sidekick --until idle --until done --until blocked --timeout 15000
+
+$ pair.sh new-steer <T>/state/pstack/pair/demo 003
+pair.sh: unit 003 already has two fresh steers; stop the unit and re-brief, or pass --force 7
+[exit 7]
+
+$ pair.sh new-steer <T>/state/pstack/pair/demo 003 --supersedes <T>/state/pstack/pair/demo/steers/003-build-s1.md
+<T>/state/pstack/pair/demo/steers/003-build-s3.md
+[exit 0]
+
+$ pair.sh steer <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/steers/003-build-s3.md
+state: idle
+report: <T>/state/pstack/pair/demo/reports/003-build-s1.md
+report_status: object
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair STEER <T>/state/pstack/pair/demo/steers/003-build-s3.md --wait --timeout 540000
+
+$ pair.sh report <T>/state/pstack/pair/demo
+<T>/state/pstack/pair/demo/reports/003-build-s1.md
+[exit 0]
+
+$ pair.sh report <T>/state/pstack/pair/demo 001
+<T>/state/pstack/pair/demo/reports/001-design.md
+[exit 0]
+
+$ pair.sh notify <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/reports/000-ready.md
+prompted master demo-master (was idle) with REPORT <T>/state/pstack/pair/demo/reports/000-ready.md
+[exit 0]
+  herdr agent get demo-master
+  herdr agent prompt demo-master pstack-pair REPORT <T>/state/pstack/pair/demo/reports/000-ready.md
+
+$ pair.sh notify <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/reports/000-ready.md
+master demo-master is working; left <T>/state/pstack/pair/demo/reports/000-ready.md for its next wait or status check
+[exit 0]
+  herdr agent get demo-master
+
+$ pair.sh log <T>/state/pstack/pair/demo review accept 003 diff clean reviews/003 next
+
+[exit 0]
+
+$ pair.sh status <T>/state/pstack/pair/demo
+# Pair status
+
+generated: <TS>
+master: demo-master (p0) idle
+sidekick: demo-sidekick (p1) idle
+
+| seq | kind | unit | report | review |
+|---|---|---|---|---|
+| 001 | plan | design | agree | agreed |
+| 002 | brief | early | done | none |
+| 003 | brief | build | object | none |
+
+latest report: <T>/state/pstack/pair/demo/reports/003-build-s1.md
+[exit 0]
+  herdr agent get demo-master
+  herdr agent get demo-sidekick
+
+$ pair.sh stop <T>/state/pstack/pair/demo
+state: idle
+report: <T>/state/pstack/pair/demo/reports/003-stop.md
+report_status: partial
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair STOP <T>/state/pstack/pair/demo --wait --timeout 300000
+
+$ pair.sh bogus
+usage: pair.sh <command> [args]
+
+  init <slug> [--store DIR]                 create or re-register the pair store; prints its path
+  spawn <store> --kind KIND [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
+                                            split from the master pane, start the sidekick with the master's
+                                            permission mode (default auto), bootstrap it
+  permission                                print the master's detected permission mode
+  new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
+  discuss <store> <plan-path> [--timeout MS]
+                                            send PLAN to the sidekick and wait for its agree/object response
+  new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
+  dispatch <store> <brief-path> [--timeout MS | --every MIN]
+                                            send BRIEF to the sidekick and wait for it to settle;
+                                            implementation playbooks require an agreed plan
+  wait <store> [--timeout MS | --every MIN] wait for the sidekick to settle; prints the report path,
+                                            or a check-in digest when the interval passes first
+  progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
+  new-steer <store> <NNN> [--supersedes STEER | --force]
+                                            create steers/NNN-<slug>-s<k>.md; prints its path. --supersedes answers
+                                            an objection; two fresh steers per brief
+  steer <store> <steer-path> [--interrupt] [--force] [--timeout MS | --every MIN]
+                                            send STEER: to a working sidekick, return at once (its harness hands it
+                                            over between tool calls; --interrupt cancels the running one first);
+                                            to one paused on an objection, wait for it to settle
+  report <store> [NNN]                      print the latest (or NNN) report path
+  notify <store> <report-path>              sidekick -> master: prompt the master if it is idle
+  stop <store> [--timeout MS]               send STOP; the sidekick pauses safely and reports
+  status <store>                            table of briefs, reports, reviews, and live agent states
+  log <store> <phase> <decision> <why> <evidence> <result>
+                                            append a decisions.tsv row (show-me-your-work format)
+
+exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet, 5 sidekick busy, 6 plan not agreed, 7 steer cap reached
+pair.sh: unknown command: bogus
+[exit 1]
+
+== store tree
+--- ./briefs/002-early.md
+# Brief 002: early
+
+playbook: feature
+timebox: x
+plan: <T>/state/pstack/pair/demo/plans/001-design.md
+standing: <T>/state/pstack/pair/demo/standing-orders.md
+report: <T>/state/pstack/pair/demo/reports/002-early.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Append one progress line per completed todolist step and per change of
+approach with `pair.sh progress <T>/state/pstack/pair/demo "<line>"`; the master reads only
+that log between check-ins. Write the report file named above using the
+report template in the pstack-pair
+skill. End the turn with the single line `pstack-pair REPORT <path>`.
+--- ./briefs/003-build.md
+# Brief 003: build
+
+playbook: feature
+timebox: 30
+plan: <T>/state/pstack/pair/demo/plans/001-design.md
+standing: <T>/state/pstack/pair/demo/standing-orders.md
+report: <T>/state/pstack/pair/demo/reports/003-build.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Append one progress line per completed todolist step and per change of
+approach with `pair.sh progress <T>/state/pstack/pair/demo "<line>"`; the master reads only
+that log between check-ins. Write the report file named above using the
+report template in the pstack-pair
+skill. End the turn with the single line `pstack-pair REPORT <path>`.
+
+## Scope
+
+may write:
+- a.txt
+
+must not write:
+- x
+--- ./decisions.tsv
+ts	phase	decision	why	evidence	result
+<TS>	review	accept 003	diff clean	reviews/003	next
+--- ./gates.md
+# Gates
+
+One entry per open question for the human: question, options, default on no answer.
+--- ./pair.json
+{
+  "slug": "demo",
+  "store": "<T>/state/pstack/pair/demo",
+  "created_at": "<TS>",
+  "cwd": "<T>/repo",
+  "git_root": "<T>/repo",
+  "master": {
+    "name": "demo-master",
+    "pane_id": "p0",
+    "workspace_id": "w1",
+    "tab_id": "t1",
+    "registered_at": "<TS>",
+    "permission_mode": "auto"
+  },
+  "sidekick": {
+    "name": "demo-sidekick",
+    "pane_id": "p1",
+    "kind": "devin",
+    "started_at": "<TS>",
+    "permission_mode": "auto"
+  },
+  "dispatch": {
+    "brief": "<T>/state/pstack/pair/demo/briefs/003-build.md",
+    "at": "<TS>",
+    "head": "<SHA>"
+  }
+}
+--- ./plans/001-design.md
+# Plan 001: design
+
+round: x
+supersedes: x
+store: <T>/state/pstack/pair/demo
+
+## Goal
+
+x
+
+## Design
+
+x
+
+## Alternatives and trade-offs
+
+x
+
+| Option | Pros | Cons | Chosen |
+| --- | --- | --- | --- |
+| | | | |
+
+x
+
+## Steps
+
+x
+
+1.
+
+## Verification
+
+x
+
+## Risks
+
+x
+
+## Open questions
+
+x
+
+## Disagreements resolved
+
+x
+--- ./progress/003-build.md
+<HM> step one done; next: two
+--- ./reports/000-ready.md
+# ready
+
+status: done
+head: abc
+--- ./reports/001-design.md
+# plan
+
+status: agree
+head: abc
+--- ./reports/002-early.md
+# report
+
+status: done
+head: abc
+--- ./reports/003-build-s1.md
+# Objection
+
+status: object
+--- ./reports/003-stop.md
+# stop
+
+status: partial
+head: abc
+--- ./reviews/001-design.md
+# Review
+
+verdict: agreed
+approval: not-required
+--- ./standing-orders.md
+# Standing orders
+
+Numbered lines, one constraint each. The master pastes the path of this file
+into every brief. Append a line the moment you catch yourself repeating an
+instruction (the encode-lessons-in-structure principle).
+
+1. Sidekick writes only inside the brief's SCOPE. Anything else is a follow-up in the report.
+2. Every claim in a report carries its command output or file pointer in the same section.
+3. No push, no PR, no force-push, no rebase of shared branches unless the brief says so.
+4. On timebox expiry, stop, write a partial report, end the turn.
+5. A question for the human goes in the report under Questions with status `blocked`; the master owns the human.
+6. Approval dialogs: the master reads them and asks the human. Neither agent answers the other's dialogs.
+7. Both agents run in the same permission mode, auto unless the human said otherwise. Neither agent changes its own mode.
+8. Progress log: one line per completed todolist step and per change of approach, via `pair.sh progress`. A STEER is read the moment it arrives, between tool calls, and agreed or objected to there; two fresh steers per brief, two rounds each.
+--- ./status.md
+# Pair status
+
+master: demo-master (p0) idle
+sidekick: demo-sidekick (p1) idle
+
+| seq | kind | unit | report | review |
+|---|---|---|---|---|
+| 001 | plan | design | agree | agreed |
+| 002 | brief | early | done | none |
+| 003 | brief | build | object | none |
+
+latest report: <T>/state/pstack/pair/demo/reports/003-build-s1.md
+--- ./steers/003-build-s1.md
+# Steer 003-s1: build
+
+brief: <T>/state/pstack/pair/demo/briefs/003-build.md
+supersedes: none
+kind: redirect
+scope effect: none
+
+## Direction
+
+x
+
+## Keep
+
+x
+
+## Resolved
+
+x
+
+## Ack
+
+Read this the moment it reaches you, between tool calls, not at the end of
+the step. Agree: append
+`pair.sh progress <T>/state/pstack/pair/demo "steer s1 applied: <what changed>"` and continue
+the brief. Object: write `<T>/state/pstack/pair/demo/reports/003-build-s1.md` from the
+steer response template, notify, and end the turn; the master's answer arrives
+as the next STEER. List this steer under Deviations in the final report.
+--- ./steers/003-build-s2.md
+# Steer 003-s2: build
+
+brief: <T>/state/pstack/pair/demo/briefs/003-build.md
+supersedes: none
+kind: narrow
+scope effect: none
+
+## Direction
+
+x
+
+## Keep
+
+x
+
+## Resolved
+
+x
+
+## Ack
+
+Read this the moment it reaches you, between tool calls, not at the end of
+the step. Agree: append
+`pair.sh progress <T>/state/pstack/pair/demo "steer s2 applied: <what changed>"` and continue
+the brief. Object: write `<T>/state/pstack/pair/demo/reports/003-build-s2.md` from the
+steer response template, notify, and end the turn; the master's answer arrives
+as the next STEER. List this steer under Deviations in the final report.
+--- ./steers/003-build-s3.md
+# Steer 003-s3: build
+
+brief: <T>/state/pstack/pair/demo/briefs/003-build.md
+supersedes: <T>/state/pstack/pair/demo/steers/003-build-s1.md
+kind: redirect
+scope effect: none
+
+## Direction
+
+x
+
+## Keep
+
+x
+
+## Resolved
+
+x
+
+## Ack
+
+Read this the moment it reaches you, between tool calls, not at the end of
+the step. Agree: append
+`pair.sh progress <T>/state/pstack/pair/demo "steer s3 applied: <what changed>"` and continue
+the brief. Object: write `<T>/state/pstack/pair/demo/reports/003-build-s3.md` from the
+steer response template, notify, and end the turn; the master's answer arrives
+as the next STEER. List this steer under Deviations in the final report.
+
+== git status
+ M a.txt
+?? b.txt
+<T>/repo <SHA> [main]

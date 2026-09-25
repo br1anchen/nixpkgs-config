@@ -36,7 +36,10 @@ pair over Herdr; `pstack-pair-guided` is its experimental variant with
 scope-scaled human approval and a sidekick ask channel; `pstack-trio` adds a
 consultant of a different agent kind that joins every plan round, answers
 design and finding consults, and prototypes in a throwaway worktree. See
-their SKILL.md files. Other workflows use the current
+their SKILL.md files. The three share one script core,
+`pstack-pair/scripts/pair-core.sh`; each skill's `scripts/pair.sh` sets its
+variant, adds its own commands, and sources it. `tests/test_pstack_pair.py`
+drives all three against a fake `herdr` and compares golden transcripts. Other workflows use the current
 upstream revision plus the runtime adaptation. The old installation is backed
 up on sync, including any local edits outside SKILL.md.
 
@@ -108,7 +111,7 @@ never treats absent transcript evidence as permission to delete work.
 
 ```bash
 PYTHONDONTWRITEBYTECODE=1 python3 scripts/check-pstack.py
-PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_pstack_sync.py'
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s tests -p 'test_pstack_*.py'
 nix flake check --no-write-lock-file 'path:.'
 home-manager build --flake 'path:.#omarchy' --no-out-link
 home-manager build --flake 'path:.#darwin' --no-out-link

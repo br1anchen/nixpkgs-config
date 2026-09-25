@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+# Fake herdr for pair.sh tests. State lives in $FAKE: one file per agent
+# (status kind), one per pane. Every call is logged; `agent prompt` runs
+# $FAKE/hook NAME TEXT so a scenario can write the files a real agent would.
+set -u
+: "${FAKE:?}"
+mkdir -p "$FAKE/agents" "$FAKE/panes"
+printf '%s\n' "$*" >>"$FAKE/calls.log"
+ok() { printf '{"result":{"agent":{"agent_status":"%s","agent":"%s"}}}\n' "$1" "${2:-}"; }
+resolve() { if [ -s "$FAKE/panes/$1" ]; then cat "$FAKE/panes/$1"; else printf '%s' "$1"; fi; }
+status_of() { [ -f "$FAKE/agents/$1" ] && cut -d' ' -f1 "$FAKE/agents/$1"; }
+kind_of() { [ -f "$FAKE/agents/$1" ] && cut -d' ' -f2 "$FAKE/agents/$1"; }
+case "$1 $2" in
+"agent rename") printf 'idle claude\n' >"$FAKE/agents/$4"; printf '%s' "$4" >"$FAKE/panes/$3"; ok idle claude ;;
+"agent get")
+	n="$(resolve "$3")"; s="$(status_of "$n")" || { printf '{"error":{"code":"not_found"}}\n' >&2; exit 1; }
+	ok "$s" "$(kind_of "$n")" ;;
+"agent start")
+	name="$3"; kind=""; shift 3
+	while [ $# -gt 0 ]; do case "$1" in --kind) kind="$2"; shift 2 ;; --pane) printf '%s' "$name" >"$FAKE/panes/$2"; shift 2 ;; --) break ;; *) shift ;; esac; done
+	printf 'idle %s\n' "$kind" >"$FAKE/agents/$name"; ok idle "$kind" ;;
+"agent prompt")
+	name="$3"; text="$4"; wait=0
+	for a in "$@"; do [ "$a" = --wait ] && wait=1; done
+	[ -x "$FAKE/hook" ] && "$FAKE/hook" "$name" "$text"
+	if [ "$wait" = 1 ]; then
+		s="$(status_of "$name")"
+		if [ "$s" = working ]; then printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
+		ok "$s"
+	else ok "$(status_of "$name")"; fi ;;
+"agent wait")
+	s="$(status_of "$3")"
+	if [ "$s" = working ]; then printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
+	ok "$s" ;;
+"agent send-keys") ok "$(status_of "$3")" ;;
+"agent read") printf 'pane text\n' ;;
+"pane split") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/p$n"; printf '{"result":{"pane":{"pane_id":"p%s"}}}\n' "$n" ;;
+"pane get") [ -f "$FAKE/panes/$3" ] || exit 1; printf '{"result":{}}\n' ;;
+"pane layout") pane="$4"; printf '{"result":{"layout":{"panes":[{"pane_id":"%s","rect":{"width":200,"height":50}}]}}}\n' "$pane" ;;
+"notification show") printf '{}\n' ;;
+*) printf 'fake herdr: unhandled %s\n' "$*" >&2; exit 2 ;;
+esac
