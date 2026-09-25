@@ -53,6 +53,8 @@ usage: pair.sh <command> [args]
   status <store>                            table of briefs, reports, reviews, and live agent states
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
+  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
+                                            master wakes, review latency, verdicts
 
 exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 sidekick blocked, 4 no report yet, 5 sidekick busy, 6 plan not agreed or not approved, 7 ask or steer cap reached
 USAGE

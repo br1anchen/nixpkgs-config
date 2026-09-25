@@ -43,6 +43,8 @@ usage: pair.sh <command> [args]
   status <store>                            table of units, reports, advice, reviews, agent states, open scratch
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
+  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
+                                            master wakes, review latency, verdicts
 
 exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no report or advice yet,
             5 agent busy, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,
@@ -380,11 +382,28 @@ usage: pair.sh <command> [args]
   status <store>                            table of units, reports, advice, reviews, agent states, open scratch
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
+  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
+                                            master wakes, review latency, verdicts
 
 exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no report or advice yet,
             5 agent busy, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,
             8 agent kinds not diverse
 pair.sh: unknown command: bogus
+[exit 1]
+
+$ pair.sh metrics <T>/metrics
+wall: 46m from first to last event
+sidekick: busy 32m (69% of wall), idle 8m across 2 gaps; 2 briefs (median 10m), 1 plan responses (2m)
+consultant: busy 8m (17% of wall); 1 consults (3m), plan advice 5m
+master: 5 wakes, 1 of them check-ins; review latency median 1m over 2 reviews
+verdicts: agreed 1 accept 1 revise 1
+briefs:
+  002-a 10m
+  004-b 20m
+[exit 0]
+
+$ pair.sh metrics <T>/nowhere
+pair.sh: no events.tsv in <T>/nowhere; it is written from the first command on
 [exit 1]
 
 == store tree
@@ -617,6 +636,32 @@ Write the advice file named above from the advice template. Then
 --- ./decisions.tsv
 ts	phase	decision	why	evidence	result
 <TS>	review	accept 003	diff clean	reviews/003	next
+--- ./events.tsv
+<TS>	<EPOCH>	master	init	-	pstack-trio
+<TS>	<EPOCH>	master	init	-	pstack-trio
+<TS>	<EPOCH>	sidekick	spawn	-	devin:ready
+<TS>	<EPOCH>	consultant	spawn	-	codex:ready
+<TS>	<EPOCH>	master	send-plan	001-design	sidekick
+<TS>	<EPOCH>	master	send-plan	001-design	consultant
+<TS>	<EPOCH>	master	wake	001-design	sidekick:agree
+<TS>	<EPOCH>	master	wake	001-design	consultant:agree
+<TS>	<EPOCH>	master	send-brief	002-early	
+<TS>	<EPOCH>	master	wake	002-early	report:done
+<TS>	<EPOCH>	master	send-brief	003-build	
+<TS>	<EPOCH>	master	wake	003-build	checkin
+<TS>	<EPOCH>	sidekick	progress	003-build	
+<TS>	<EPOCH>	master	wake	003-build	checkin
+<TS>	<EPOCH>	master	wake	003-build	checkin
+<TS>	<EPOCH>	master	send-steer	003-build-s1	working
+<TS>	<EPOCH>	master	send-steer	003-build-s3	objection
+<TS>	<EPOCH>	master	wake	003-build-s1	report:object
+<TS>	<EPOCH>	sidekick	report	000-ready	done
+<TS>	<EPOCH>	sidekick	report	000-ready	done
+<TS>	<EPOCH>	master	log	-	review: accept 003
+<TS>	<EPOCH>	master	send-consult	003-build-c1	finding
+<TS>	<EPOCH>	master	wake	003-build-c1	advice:answered
+<TS>	<EPOCH>	master	send-stop	-	sidekick
+<TS>	<EPOCH>	master	send-stop	-	consultant
 --- ./gates.md
 # Gates
 

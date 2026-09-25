@@ -61,6 +61,8 @@ usage: pair.sh <command> [args]
   status <store>                            table of units, reports, advice, reviews, agent states, open scratch
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
+  metrics <store>                           where the time went, from events.tsv: busy and idle per agent,
+                                            master wakes, review latency, verdicts
 
 exit codes: 0 ok, 1 usage or precondition, 2 herdr error, 3 agent blocked, 4 no report or advice yet,
             5 agent busy, 6 plan not agreed or consultant advice missing, 7 steer or consult cap reached,
@@ -169,6 +171,7 @@ cmd_discuss() {
 	for role in sidekick consultant; do
 		name="$(field "$store" ".$role.name")"
 		herdr agent prompt "$name" "$PAIR_SKILL PLAN $plan" >/dev/null || die "herdr prompt failed for $name" 2
+		event "$store" master send-plan "$plan" "$role"
 		printf 'sent PLAN %s to %s %s\n' "$(basename "$plan")" "$role" "$name"
 	done
 	local rc=0 out err code file
@@ -194,6 +197,7 @@ cmd_discuss() {
 		if [ -n "$file" ]; then
 			printf '%s_response: %s\n' "$role" "$file"
 			printf '%s_status: %s\n' "$role" "$(header_field "$file" status)"
+			event "$store" master wake "$plan" "$role:$(header_field "$file" status)"
 		else
 			printf '%s_response: missing\n' "$role"
 			rc=4
@@ -227,6 +231,7 @@ cmd_stop() {
 		blocked) printf '%s %s is blocked; inspect it before stopping\n' "$role" "$name" >&2; rc=3; continue ;;
 		esac
 		code=0
+		event "$store" master send-stop - "$role"
 		out="$(herdr agent prompt "$name" "$PAIR_SKILL STOP $store" --wait --timeout "$timeout" 2>/dev/null)" || code=$?
 		status="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
 		[ "$code" -eq 0 ] || status="$(agent_status "$name")"
@@ -327,6 +332,7 @@ cmd_consult() {
 		'.consult = {file: $consult, at: $now, head: $head, sidekick_state: $sk}' \
 		"$store/pair.json" >"$store/pair.json.tmp"
 	mv "$store/pair.json.tmp" "$store/pair.json"
+	event "$store" master send-consult "$consult" "$kind"
 	errfile="$(mktemp)"
 	out="$(herdr agent prompt "$name" "$PAIR_SKILL CONSULT $consult" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
 	err="$(cat "$errfile")"
@@ -349,6 +355,7 @@ cmd_consult() {
 	if [ -f "$advice" ]; then
 		printf 'advice: %s\n' "$advice"
 		printf 'advice_status: %s\n' "$(header_field "$advice" status)"
+		event "$store" master wake "$advice" "advice:$(header_field "$advice" status)"
 		[ "$status" = blocked ] && exit 3
 		exit 0
 	fi

@@ -120,6 +120,18 @@ await_file() {
 	[ -f "$path" ]
 }
 
+# One row per channel event, so a run's timing is measured rather than guessed
+# from file times. $1 store, $2 actor, $3 event, $4 unit (a file's basename
+# without .md, or -), $5 detail. Never fails the command it records.
+event() {
+	local log="$1/events.tsv" unit="${4:-}"
+	unit="$(basename "${unit:--}" .md)"
+	{
+		[ -f "$log" ] || printf 'ts\tepoch\tactor\tevent\tunit\tdetail\n'
+		printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date +%s)" "$2" "$3" "$unit" "${5:-}"
+	} >>"$log" 2>/dev/null || true
+}
+
 header_field() {
 	# $1 file, $2 key: the value of a "key: value" header line, or empty.
 	grep -m1 -E "^$2:" "$1" | sed -E "s/^$2:[[:space:]]*//" || true
@@ -258,15 +270,21 @@ finish_wait() {
 	if { [ "$mode" = any ] && report="$(latest_report "$store")"; } || { [ "$mode" = brief ] && report="$(settle_report "$store")"; }; then
 		printf 'report: %s\n' "$report"
 		printf 'report_status: %s\n' "$(header_field "$report" status)"
+		event "$store" master wake "$report" "report:$(header_field "$report" status)"
 		[ "$state" = blocked ] && exit 3
 		exit 0
 	fi
 	printf 'report: missing\n'
+	local running
+	running="$(field "$store" '.dispatch.brief // empty')"
 	case "$state" in
-	blocked) exit 3 ;;
+	blocked) event "$store" master wake "$running" blocked; exit 3 ;;
 	esac
 	if [ "$(agent_status "$(field "$store" .sidekick.name)")" = working ]; then
+		event "$store" master wake "$running" checkin
 		checkin "$store" "$checkin_interval_m"
+	else
+		event "$store" master wake "$running" missing
 	fi
 	exit 4
 }
@@ -309,6 +327,7 @@ cmd_init() {
 			"${roles[@]}" >"$store/pair.json"
 		printf 'store: %s (master %s in %s)\n' "$store" "$master" "$HERDR_PANE_ID"
 	fi
+	event "$store" master init - "$PAIR_SKILL"
 	# The template comes from a read-only install, so give the copy its own mode.
 	[ -f "$store/standing-orders.md" ] || { cp "$skill_root/references/standing-orders-template.md" "$store/standing-orders.md" && chmod u+w "$store/standing-orders.md"; }
 	[ -f "$store/gates.md" ] || printf '# Gates\n\nOne entry per open question for the human: question, options, default on no answer.\n' >"$store/gates.md"
@@ -505,10 +524,12 @@ spawn_role() {
 	if [ "$code" -ne 0 ]; then
 		printf '%s bootstrap did not settle: %s\n' "$role" "$err" >&2
 		printf 'inspect: herdr agent read %s --source visible --lines 60\n' "$name" >&2
+		event "$store" "$role" spawn - "$kind:failed"
 		return 3
 	fi
 	if [ -f "$store/$ready" ]; then
 		printf 'ready: %s\n' "$store/$ready"
+		event "$store" "$role" spawn - "$kind:ready"
 	else
 		printf '%s settled but %s is missing; state=%s. Read the pane before prompting again.\n' "$role" "$ready" "$(agent_status "$name")" >&2
 		return 4
@@ -575,6 +596,7 @@ send_and_wait() {
 	*) die "sidekick $name is $status; run: pair.sh wait $store" 5 ;;
 	esac
 	[ "$kind" = BRIEF ] && record_dispatch "$store" "$file"
+	event "$store" master "send-${kind,,}" "$file"
 	errfile="$(mktemp)"
 	out="$(herdr agent prompt "$name" "$PAIR_SKILL $kind $file" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
 	err="$(cat "$errfile")"
@@ -660,6 +682,7 @@ cmd_notify() {
 	"$store"/advice/*) word=ADVICE ;;
 	*) word=REPORT ;;
 	esac
+	event "$store" "$([ "$word" = ADVICE ] && echo consultant || echo sidekick)" "${word,,}" "$file" "$(header_field "$file" status)"
 	master="$(field "$store" .master.name)"
 	status="$(agent_status "$master")"
 	case "$status" in
@@ -687,6 +710,7 @@ cmd_stop() {
 	absent) die "sidekick $name is not live" 2 ;;
 	blocked) die "sidekick $name is blocked; inspect it before stopping" 3 ;;
 	esac
+	event "$store" master send-stop - sidekick
 	errfile="$(mktemp)"
 	out="$(herdr agent prompt "$name" "$PAIR_SKILL STOP $store" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
 	err="$(cat "$errfile")"
@@ -701,6 +725,7 @@ cmd_progress() {
 	path="$(progress_path "$store")" || die "no brief dispatched yet; progress belongs to a running brief"
 	mkdir -p "$store/progress"
 	printf '%s %s\n' "$(date +%H:%M)" "$text" >>"$path"
+	event "$store" sidekick progress "$path"
 	printf '%s\n' "$path"
 }
 
@@ -777,6 +802,7 @@ cmd_steer() {
 				|| die "sidekick $name did not settle after esc; inspect: herdr agent read $name --source visible --lines 60" 3
 		fi
 		herdr agent prompt "$name" "$PAIR_SKILL STEER $steer" >/dev/null || die "herdr prompt failed for $name" 2
+		event "$store" master send-steer "$steer" working
 		# Devin parks a mid-turn message as "queued" until Enter is pressed again;
 		# Claude Code and Codex inject it between tool calls on their own.
 		[ "$(field "$store" .sidekick.kind)" = devin ] && { sleep 1; herdr agent send-keys "$name" enter >/dev/null; }
@@ -789,6 +815,7 @@ cmd_steer() {
 		[ -n "$objection" ] && [ "$(header_field "$objection" status)" = object ] \
 			|| die "sidekick $name is $status and no objection is open on unit $seq; fold the steer into the next brief instead" 5
 		[ "$(header_field "$steer" supersedes)" != none ] || die "$steer answers $objection but its supersedes: line says none"
+		event "$store" master send-steer "$steer" objection
 		errfile="$(mktemp)"
 		out="$(herdr agent prompt "$name" "$PAIR_SKILL STEER $steer" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
 		err="$(cat "$errfile")"
@@ -896,6 +923,79 @@ cmd_log() {
 	shift
 	[ -x "$log_helper" ] || die "show-me-your-work log helper not found at $log_helper"
 	"$log_helper" "$store/decisions.tsv" "$@"
+	event "$store" master log - "$1: $2"
+}
+
+# Where a run's time went, from events.tsv. A sidekick is busy from a brief,
+# plan, answer, or objection steer until its report; idle from that report to
+# the next one. The same holds for the consultant between a plan or consult
+# and its advice. Review latency runs from a brief's report to the master's
+# next review log row.
+cmd_metrics() {
+	[ $# -eq 1 ] || die "usage: pair.sh metrics <store>"
+	local store="$1"
+	[ -s "$store/events.tsv" ] || die "no events.tsv in $store; it is written from the first command on"
+	awk -F '\t' '
+	function median(a, n,    i, j, t) {
+		for (i = 2; i <= n; i++) { t = a[i]; for (j = i - 1; j >= 1 && a[j] > t; j--) a[j + 1] = a[j]; a[j + 1] = t }
+		return n ? a[int((n + 1) / 2)] : 0
+	}
+	function m(s) { return sprintf("%.0fm", s / 60) }
+	function sk_start(t, u, kind) {
+		if (sk_on) return
+		if (sk_free != "") { sk_idle += t - sk_free; sk_gaps++ }
+		sk_on = 1; sk_since = t; sk_unit = u; sk_kind = kind
+	}
+	function sk_end(t, u) {
+		if (!sk_on) return
+		sk_on = 0; sk_busy += t - sk_since; sk_free = t
+		if (sk_kind == "brief") { nb++; bd[nb] = t - sk_since; bl = bl sprintf("  %s %s\n", sk_unit, m(t - sk_since)); review_from = t }
+		else { np++; plan_sk += t - sk_since }
+	}
+	function co_start(t, kind) { if (!co_on) { co_on = 1; co_since = t; co_kind = kind } }
+	function co_end(t) {
+		if (!co_on) return
+		co_on = 0; co_busy += t - co_since
+		if (co_kind == "plan") plan_co += t - co_since; else { nc++; consult_t += t - co_since }
+	}
+	NR == 1 { next }
+	{
+		t = $2; actor = $3; ev = $4; u = $5; d = $6
+		if (first == "") first = t
+		last = t
+		if (ev == "send-brief" || ev == "send-answer") sk_start(t, u, "brief")
+		else if (ev == "send-plan" && d != "consultant") sk_start(t, u, "plan")
+		else if (ev == "send-plan" && d == "consultant") co_start(t, "plan")
+		else if (ev == "send-consult") co_start(t, "consult")
+		else if (ev == "send-steer" && d == "objection") sk_start(t, u, "brief")
+		else if (actor == "sidekick" && ev == "report") sk_end(t, u)
+		else if (actor == "consultant" && ev == "advice") co_end(t)
+		else if (ev == "wake") {
+			wakes++
+			if (d == "checkin") checkins++
+			if (d ~ /^report:/ || d ~ /^sidekick:/) sk_end(t, u)
+			if (d ~ /^advice:/ || d ~ /^consultant:/) co_end(t)
+		}
+		else if (ev == "log") {
+			split(d, w, " ")
+			if (w[1] == "review:" || w[1] == "plan:") verdicts[w[2]]++
+			if (w[1] == "review:" && review_from != "") { nr++; rl[nr] = t - review_from; review_from = "" }
+		}
+	}
+	END {
+		wall = last - first
+		printf "wall: %s from first to last event\n", m(wall)
+		printf "sidekick: busy %s (%d%% of wall), idle %s across %d gaps; %d briefs (median %s), %d plan responses (%s)\n", \
+			m(sk_busy), wall ? 100 * sk_busy / wall : 0, m(sk_idle), sk_gaps, nb, m(median(bd, nb)), np, m(plan_sk)
+		if (co_busy || nc) printf "consultant: busy %s (%d%% of wall); %d consults (%s), plan advice %s\n", \
+			m(co_busy), wall ? 100 * co_busy / wall : 0, nc, m(consult_t), m(plan_co)
+		printf "master: %d wakes, %d of them check-ins; review latency median %s over %d reviews\n", wakes, checkins, m(median(rl, nr)), nr
+		v = ""; n = split("agreed accept revise reject", order, " ")
+		for (i = 1; i <= n; i++) if (order[i] in verdicts) { v = v sprintf(" %s %d", order[i], verdicts[order[i]]); delete verdicts[order[i]] }
+		for (k in verdicts) v = v sprintf(" %s %d", k, verdicts[k])
+		printf "verdicts:%s\n", v == "" ? " none" : v
+		if (nb) printf "briefs:\n%s", bl
+	}' "$store/events.tsv"
 }
 
 pair_main() {

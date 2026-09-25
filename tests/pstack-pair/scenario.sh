@@ -41,7 +41,7 @@ chmod +x "$FAKE/hook"
 
 norm() { sed -E -e "s#$T#<T>#g" -e 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/<TS>/g' -e 's#/tmp/tmp\.[A-Za-z0-9]+#<TMP>#g' \
 	-e 's#/tmp/pair-spawn-err\.[0-9]+#<ERR>#g' -e 's/(^| )[0-9]{2}:[0-9]{2} /\1<HM> /' -e 's/elapsed [0-9]+m/elapsed <N>m/' -e 's/last [0-9]+m ago/last <N>m ago/' \
-	-e 's/[0-9a-f]{7,40}/<SHA>/g'; }
+	-e 's/\b1[0-9]{9}\b/<EPOCH>/g' -e 's/[0-9a-f]{7,40}/<SHA>/g'; }
 run() {
 	printf '\n$ pair.sh %s\n' "$*" | norm
 	local out code
@@ -126,6 +126,29 @@ if [ $variant = guided ]; then
 fi
 run stop "$store"
 run bogus
+# metrics over a known timeline: brief 002 runs 10m, the sidekick idles 4m,
+# plan 003 answers in 2m (the consultant in 5m), brief 004 runs 20m with one
+# check-in, and a 3m consult; reviews land 1m and 6m after their reports.
+m="$T/metrics"; mkdir -p "$m"
+e() { printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$@" >>"$m/events.tsv"; }
+e ts epoch actor event unit detail
+e t 1000 master init - x
+e t 1000 master send-brief 002-a ""
+e t 1600 sidekick report 002-a done
+e t 1660 master log - "review: accept 002"
+e t 1840 master send-plan 003-p sidekick
+e t 1840 master send-plan 003-p consultant
+e t 1960 master wake 003-p sidekick:agree
+e t 2140 master wake 003-p consultant:object
+e t 2200 master log - "plan: agreed 003"
+e t 2200 master send-brief 004-b ""
+e t 2740 master wake 004-b checkin
+e t 2800 master send-consult 004-b-c1 finding
+e t 2980 master wake 004-b-c1 advice:answered
+e t 3400 master wake 004-b report:done
+e t 3760 master log - "review: revise 004"
+run metrics "$m"
+run metrics "$T/nowhere"
 printf '\n== store tree\n'
 (cd "$store" && find . -type f ! -name '*.seen' | sort | while read -r f; do printf -- '--- %s\n' "$f"; norm <"$f" | grep -v '^generated:'; done)
 printf '\n== git status\n'; git status --porcelain | norm
