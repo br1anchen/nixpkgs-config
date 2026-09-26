@@ -176,7 +176,10 @@ not continuously, and corrects direction, not keystrokes.
 - A steer is a mid-brief correction from the master: `pair.sh new-steer`,
   then `pair.sh steer`. It lands in the sidekick's input queue while it works;
   the harness hands it over between tool calls and the sidekick acts on it
-  there, not at the end of the step. `--interrupt` cancels the running tool
+  there, not at the end of the step. A Devin sidekick gets it as a `STEER:`
+  line from its next `pair.sh step`, `notes`, or `progress` instead, since
+  the Enter that delivers a queued message to Devin cancels its running
+  command. `--interrupt` cancels the running tool
   call first, for a direction that cannot wait for it. Steers carry direction: an approach
   the agreed plan did not choose, scope drift, a step to skip, a Forbidden
   line about to be crossed, or news from the human. Anything the review can
@@ -238,8 +241,8 @@ of each step catches the same blockers while they are one commit old.
 - A problem that would waste the next steps, a wrong design rather than a
   wrong line, still goes out at once as a steer.
 - Each step runs the checks it names, and a brief's Verify runs the targeted
-  tests plus the landing gate's fast checks. The full test battery runs once,
-  in the landing brief.
+  tests plus the landing gate's fast checks. The full test battery runs once: in the landing brief, or, where the gate is
+  slow, in the issue's last implementation unit.
 - The final review reads only the report's `review-delta`, the diff since the
   last note, and accepts unless it finds a new blocking item.
 

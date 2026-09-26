@@ -260,7 +260,16 @@ fresh_reply() {
 		[ "$key" -gt "$best" ] && { best="$key"; r="$f"; }
 	done
 	[ -n "$r" ] || return 1
+	# A reply already shown to the master does not wake it again.
+	[ "$r:$(file_mtime "$r")" != "$(field "$1" '.sent.seen // empty')" ] || return 1
 	printf '%s\n' "$r"
+}
+
+# The reply the master was already shown for the last message, if it still exists.
+seen_reply() {
+	local seen
+	seen="$(field "$1" '.sent.seen // empty')"
+	[ -n "$seen" ] && [ -f "${seen%:*}" ] && printf '%s\n' "${seen%:*}"
 }
 
 # The report a message asks for: reports/<NNN-slug>.md, where an answer's
@@ -399,6 +408,35 @@ pause_notice() {
 	local reason
 	reason="$(paused_reason "$1")" || return 0
 	printf 'PAUSE: %s. This is your safe point: commit what is verified, write the report as partial with where you stopped and the next step under Deviations, run pair.sh finish, and end the turn.\n' "$reason"
+}
+
+# Steers on the running brief the sidekick has not acknowledged: no progress
+# line "steer s<k> applied|withdrawn|late" and no objection report for it.
+open_steers() {
+	local brief unit prog f k
+	brief="$(field "$1" '.dispatch.brief // empty')"
+	[ -n "$brief" ] || return 0
+	unit="$(basename "$brief" .md)"
+	prog="$1/progress/$unit.md"
+	for f in "$1"/steers/"$unit"-s[0-9]*.md; do
+		[ -e "$f" ] || continue
+		k="$(basename "$f" .md | sed -E 's/.*-s([0-9]+)$/\1/')"
+		[ -f "$prog" ] && grep -qE "steer s$k (applied|withdrawn|late)" "$prog" && continue
+		[ -f "$1/reports/$unit-s$k.md" ] && continue
+		printf '%s\n' "$f"
+	done
+}
+
+# Printed by the sidekick's step, notes, progress, and finish commands. This is
+# how a steer reaches a working Devin: Enter would deliver a queued message
+# now, but it cancels the command Devin is running.
+steer_notice() {
+	local f
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
+		printf 'STEER: read %s now, before your next tool call. Agree: apply it and run pair.sh progress %s "steer s%s applied: <what changed>". Object: write the steer response and run pair.sh finish on it.\n' \
+			"$f" "$1" "$(basename "$f" .md | sed -E 's/.*-s([0-9]+)$/\1/')"
+	done < <(open_steers "$1")
 }
 
 cmd_pause() {
@@ -555,6 +593,11 @@ finish_wait() {
 	paused_reason "$store" >/dev/null && printf 'paused: %s (start nothing new; record the next step in gates.md and end your turn)\n' "$(paused_reason "$store")"
 	if [ -n "$report" ] || { [ "$mode" = any ] && report="$(latest_report "$store")"; }; then
 		mark_seen "$store" "$report"
+		# Only a reply to the message last sent is marked shown; a queued
+		# brief's earlier report is not the reply to what runs now.
+		if [ "$(basename "$report" | cut -c1-3)" = "$(basename "$(field "$store" '.sent.file // "---"')" | cut -c1-3)" ]; then
+			json_update "$store" --arg s "$report:$(file_mtime "$report")" '.sent.seen = $s'
+		fi
 		printf 'report: %s\n' "$report"
 		printf 'report_status: %s\n' "$(header_field "$report" status)"
 		event "$store" master wake "$report" "report:$(header_field "$report" status)"
@@ -576,6 +619,12 @@ finish_wait() {
 		json_update "$store" --arg u "$(basename "$running" .md)" --argjson k "$(printf '%s\n' "$rows" | tail -1 | cut -f1)" '.shown[$u] = $k'
 		event "$store" master wake "$running" "steps:$first"
 		exit 0
+	fi
+	local shown
+	if shown="$(seen_reply "$store")" && [ "$code" -eq 0 ] && [ "$(agent_status "$(field "$store" .sidekick.name)")" != working ]; then
+		printf 'idle: the reply to %s was already shown (%s); send the next message\n' "$(basename "$(field "$store" '.sent.file // "-"')")" "$shown"
+		event "$store" master wake "$(field "$store" '.sent.file // "-"')" idle
+		exit 4
 	fi
 	printf 'report: missing\n'
 	case "$state" in
@@ -994,6 +1043,11 @@ wait_for_reply() {
 			state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)"
 			[ "$state" != blocked ] || break
 			{ pending_report "$store" >/dev/null || fresh_reply "$store" >/dev/null || steps_due "$store"; } && continue
+			if ! pane_busy "$name" && seen_reply "$store" >/dev/null; then
+				# Idle, and its reply to the last message was already shown:
+				# nothing is coming until the master sends the next one.
+				break
+			fi
 			if pane_busy "$name"; then
 				# herdr says settled, the pane says working: believe the pane.
 				settled_at=""
@@ -1116,6 +1170,7 @@ cmd_step() {
 	else
 		printf 'step %s recorded at %s; go on with the next step. At the next step boundary: pair.sh notes %s\n' "$k" "${full:0:9}" "$store"
 	fi
+	steer_notice "$store"
 }
 
 # The master's review of a unit's steps: a draft note covering the steps since
@@ -1137,7 +1192,12 @@ cmd_new_note() {
 	unit="$(basename "$brief" .md)"
 	file="$(steps_file "$store" "$unit")"
 	[ -s "$file" ] || die "unit $seq has no steps recorded"
-	[ -n "$through" ] || through="$(jq -r --arg u "$unit" '.shown[$u] // empty' "$store/pair.json")"
+	if [ -z "$through" ]; then
+		# The last range a wait showed, unless the notes already cover it:
+		# steps recorded without a wake then default to the latest.
+		through="$(jq -r --arg u "$unit" '.shown[$u] // empty' "$store/pair.json")"
+		[ -n "$through" ] && [ "$through" -gt "$(noted_through "$store" "$unit")" ] || through=""
+	fi
 	k="${through:-$(grep -c . "$file")}"
 	[[ "$k" =~ ^[0-9]+$ ]] && [ "$k" -le "$(grep -c . "$file")" ] || die "unit $seq has no step $k"
 	[ "$k" -gt "$(noted_through "$store" "$unit")" ] || die "unit $seq is reviewed through step $k already; wait for the next steps"
@@ -1181,6 +1241,7 @@ cmd_notes() {
 	brief="$(field "$store" '.dispatch.brief // empty')"
 	[ -n "$brief" ] || { printf 'notes: none open\n'; return 0; }
 	pause_notice "$store"
+	steer_notice "$store"
 	open="$(open_notes "$store" "$brief")"
 	if [ -z "$open" ]; then
 		printf 'notes: none open; go on with the next step\n'
@@ -1234,6 +1295,7 @@ $open
 Resolve each as a fixup commit, record it with pair.sh step $store <sha> <summary> --resolves <n-ids>, then finish again" 7
 	fi
 	cmd_notify "$store" "$report"
+	steer_notice "$store"
 	if [ "$status" = done ] && ! paused_reason "$store" >/dev/null && brief="$(take_queued "$store")"; then
 		printf 'next: the master queued %s BRIEF %s\n' "$PAIR_SKILL" "$brief"
 		printf 'Start that brief now, in this turn, as if the message had just arrived.\n'
@@ -1354,6 +1416,7 @@ cmd_progress() {
 	event "$store" sidekick progress "$path"
 	printf '%s\n' "$path"
 	pause_notice "$store"
+	steer_notice "$store"
 }
 
 # Fresh steers on a unit are capped at two; a steer that supersedes an objected
@@ -1428,12 +1491,16 @@ cmd_steer() {
 			herdr agent wait "$name" --until idle --until "done" --until blocked --timeout 15000 >/dev/null \
 				|| die "sidekick $name did not settle after esc; inspect: herdr agent read $name --source visible --lines 60" 3
 		fi
-		herdr agent prompt "$name" "$PAIR_SKILL STEER $steer" >/dev/null || die "herdr prompt failed for $name" 2
 		event "$store" master send-steer "$steer" working
-		# Devin parks a mid-turn message as "queued" until Enter is pressed again;
-		# Claude Code and Codex inject it between tool calls on their own.
-		[ "$(field "$store" .sidekick.kind)" = devin ] && { sleep 1; herdr agent send-keys "$name" enter >/dev/null; }
-		printf 'steered %s with %s; its harness hands it over between tool calls and the ack lands in the progress log\n' "$name" "$steer"
+		if [ "$(field "$store" .sidekick.kind)" = devin ] && [ "$interrupt" -eq 0 ]; then
+			# Devin parks a mid-turn message as queued, and the Enter that would
+			# deliver it cancels the running command. The steer stays in the
+			# store; the sidekick's next step, notes, or progress prints it.
+			printf 'steer %s left for %s: it lands at the sidekick'"'"'s next pair.sh step, notes, or progress, between tool calls; the ack lands in the progress log. Use --interrupt only to cancel the running command.\n' "$steer" "$name"
+		else
+			herdr agent prompt "$name" "$PAIR_SKILL STEER $steer" >/dev/null || die "herdr prompt failed for $name" 2
+			printf 'steered %s with %s; its harness hands it over between tool calls and the ack lands in the progress log\n' "$name" "$steer"
+		fi
 		;;
 	idle | done)
 		seq="$(basename "$steer" | cut -c1-3)"

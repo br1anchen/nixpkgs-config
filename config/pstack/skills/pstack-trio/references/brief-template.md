@@ -40,7 +40,8 @@ each step's commit while the next one is under way.}}
 ```bash
 {{exact commands the sidekick runs and pastes output from: the targeted tests
 for what this unit changes, plus the landing gate's fast checks (format,
-lint, typecheck). The full test battery runs once, in the landing brief.}}
+lint, typecheck). The full test battery runs once: in the landing brief, or in the issue's last
+implementation unit where the gate is slow.}}
 ```
 
 ## Forbidden

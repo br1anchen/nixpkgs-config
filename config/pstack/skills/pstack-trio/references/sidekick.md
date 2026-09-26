@@ -67,12 +67,16 @@ default, and the decision stays with the master.
    commit recorded with `--resolves <n-ids>`, then take the next step.
    Follow-ups are the master's list, not yours. A brief without Steps ends in
    one commit when it says `commit: yes`. The report's `head:` names the last
-   commit, and the master reviews only what its notes have not covered. Run
-   every Verify command as written and keep the output. After each completed
-   todolist step and at each change of approach, append one line with `pair.sh
-   progress <store> "<what is done>; next: <what>"`, no output pasted. Write
-   that line before, not after, any write outside Scope or departure from the
-   plan, so the master can steer in time.
+   commit, and the master reviews only what its notes have not covered. In a
+   landing brief, a mechanical gate failure (formatting, a lint autofix, a
+   pinned value the change moves on purpose) is yours: fix it, record the fix
+   as a step, and rerun the gate, up to three times. Only a failure that needs
+   judgment ends the brief as `failed`. Run every Verify command as written and
+   keep the output. After each completed todolist step and at each change of
+   approach, append one line with `pair.sh progress <store> "<what is done>;
+   next: <what>"`, no output pasted. Write that line before, not after, any
+   write outside Scope or departure from the plan, so the master can steer in
+   time.
 4. Write `reports/NNN-<slug>.md` at the path the brief names, from the report
    template. Status `done` needs every Acceptance line met and shown under Ran,
    and every Self-check line true: figures traced to Ran, each Acceptance line
@@ -88,16 +92,18 @@ default, and the decision stays with the master.
    brief; any other status leaves it for the master. `finish` refuses a `done`
    report while a blocking note is open; resolve it first. Never end a brief
    without running it: the master's wait and the queue both hang on it.
-6. When any `pair.sh` command prints `PAUSE:`, you are at a safe point:
-   commit what is verified, write the report as `partial` with where you
-   stopped and the next step under Deviations, run `pair.sh finish`, and end
-   the turn. Resume comes as the same brief dispatched again; continue from
-   the next unrecorded step.
+6. When any `pair.sh` command prints `PAUSE:`, you are at a safe point: commit
+   what is verified, write the report as `partial` with where you stopped and
+   the next step under Deviations, run `pair.sh finish`, and end the turn.
+   Resume comes as the same brief dispatched again; continue from the next
+   unrecorded step.
 
 ## On `pstack-trio STEER <path>`
 
-A steer arrives while you work: your harness hands it over between tool
-calls, so read it the moment you see it, not at the end of the step. One edit
+A steer arrives while you work, either handed over by your harness between
+tool calls or as a `STEER:` line in the output of `pair.sh step`, `notes`,
+`progress`, or `finish`. Read it the moment you see it, not at the end of the
+step. One edit
 leaves the tree consistent, so nothing needs finishing first; act on the steer
 before the next tool call the old direction would have made. A command the
 master interrupted stays interrupted unless the steer says otherwise. A steer

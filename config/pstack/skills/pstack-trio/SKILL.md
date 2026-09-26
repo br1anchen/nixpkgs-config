@@ -218,8 +218,8 @@ of each step catches the same blockers while they are one commit old.
 - A problem that would waste the next steps, a wrong design rather than a
   wrong line, still goes out at once as a steer.
 - Each step runs the checks it names, and a brief's Verify runs the targeted
-  tests plus the landing gate's fast checks. The full test battery runs once,
-  in the landing brief.
+  tests plus the landing gate's fast checks. The full test battery runs once: in the landing brief, or, where the gate is
+  slow, in the issue's last implementation unit.
 - The final review reads only the report's `review-delta`, the diff since the
   last note, and accepts unless it finds a new blocking item.
 

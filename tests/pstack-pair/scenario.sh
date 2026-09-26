@@ -87,6 +87,10 @@ run wait "$store" --timeout 1500
 seq="$(basename "$brief" | cut -c1-3)"
 s1="$("$P" new-steer "$store" "$seq")"; fill "$s1"; set_hdr "$s1" kind redirect; set_hdr "$s1" "scope effect" none; set_hdr "$s1" supersedes none
 run steer "$store" "$s1"
+# a working Devin gets the steer from its next pair.sh step, notes, or progress,
+# not as a message plus Enter, which cancels its running command
+run progress "$store" "still on step two"
+run progress "$store" "steer s1 applied: narrowed to the parser"
 run steer "$store" "$s1" --interrupt
 s2="$("$P" new-steer "$store" "$seq")"; fill "$s2"; set_hdr "$s2" kind narrow; set_hdr "$s2" "scope effect" none; set_hdr "$s2" supersedes none
 run new-steer "$store" "$seq"
@@ -240,6 +244,12 @@ run new-note "$store" "$qn"
 n3="$store/notes/$(basename "$qs" .md)-n3.md.draft"
 fill "$n3"; set_hdr "$n3" status clear
 run note "$store" "$n3"
+# a step recorded without a wake: new-note covers it instead of refusing
+run step "$store" "$(commit "step four")" "docs for the parser"
+run new-note "$store" "$qn"
+n4="$store/notes/$(basename "$qs" .md)-n4.md.draft"
+fill "$n4"; set_hdr "$n4" status clear
+run note "$store" "$n4"
 printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$qs")"
 run finish "$store" "$store/reports/$(basename "$qs")"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin

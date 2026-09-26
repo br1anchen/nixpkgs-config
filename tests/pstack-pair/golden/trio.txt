@@ -219,11 +219,18 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
 
 $ pair.sh steer <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/steers/003-build-s1.md
-steered demo-sidekick with <T>/state/pstack/trio/demo/steers/003-build-s1.md; its harness hands it over between tool calls and the ack lands in the progress log
+steer <T>/state/pstack/trio/demo/steers/003-build-s1.md left for demo-sidekick: it lands at the sidekick's next pair.sh step, notes, or progress, between tool calls; the ack lands in the progress log. Use --interrupt only to cancel the running command.
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent prompt demo-sidekick pstack-trio STEER <T>/state/pstack/trio/demo/steers/003-build-s1.md
-  herdr agent send-keys demo-sidekick enter
+
+$ pair.sh progress <T>/state/pstack/trio/demo still on step two
+<T>/state/pstack/trio/demo/progress/003-build.md
+STEER: read <T>/state/pstack/trio/demo/steers/003-build-s1.md now, before your next tool call. Agree: apply it and run pair.sh progress <T>/state/pstack/trio/demo "steer s1 applied: <what changed>". Object: write the steer response and run pair.sh finish on it.
+[exit 0]
+
+$ pair.sh progress <T>/state/pstack/trio/demo steer s1 applied: narrowed to the parser
+<T>/state/pstack/trio/demo/progress/003-build.md
+[exit 0]
 
 $ pair.sh steer <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/steers/003-build-s1.md --interrupt
 {"error":{"code":"timeout"}}
@@ -670,8 +677,8 @@ published <T>/state/pstack/trio/demo/notes/012-qsteps-n1.md (blocking)
 [exit 0]
 
 $ pair.sh new-note <T>/state/pstack/trio/demo 012
-pair.sh: unit 012 is reviewed through step 1 already; wait for the next steps
-[exit 1]
+<T>/state/pstack/trio/demo/notes/012-qsteps-n2.md.draft
+[exit 0]
 
 $ pair.sh notes <T>/state/pstack/trio/demo
 notes: 1 open. Fix each Blocking item as a fixup commit before the next step, then record it: pair.sh step <T>/state/pstack/trio/demo <sha> "<summary>" --resolves <n-ids>
@@ -717,6 +724,18 @@ $ pair.sh note <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/notes/012-q
 published <T>/state/pstack/trio/demo/notes/012-qsteps-n3.md (clear)
 [exit 0]
 
+$ pair.sh step <T>/state/pstack/trio/demo <SHA> docs for the parser
+step 4 recorded at <SHA>; go on with the next step. At the next step boundary: pair.sh notes <T>/state/pstack/trio/demo
+[exit 0]
+
+$ pair.sh new-note <T>/state/pstack/trio/demo 012
+<T>/state/pstack/trio/demo/notes/012-qsteps-n4.md.draft
+[exit 0]
+
+$ pair.sh note <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/notes/012-qsteps-n4.md.draft
+published <T>/state/pstack/trio/demo/notes/012-qsteps-n4.md (clear)
+[exit 0]
+
 $ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/012-qsteps.md
 prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/012-qsteps.md
 next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/012-qsteps.md
@@ -729,17 +748,18 @@ $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
 report: <T>/state/pstack/trio/demo/reports/012-qsteps.md
 report_status: done
-review-delta: <SHA>..<SHA> (steps reviewed through 3)
+review-delta: <SHA>..<SHA> (steps reviewed through 4)
 [exit 0]
   herdr agent get demo-sidekick
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
-report: <T>/state/pstack/trio/demo/reports/012-qsteps.md
-report_status: done
-review-delta: <SHA>..<SHA> (steps reviewed through 3)
-[exit 0]
+idle: the reply to 012-qsteps.md was already shown (<T>/state/pstack/trio/demo/reports/012-qsteps.md); send the next message
+[exit 4]
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source recent --lines 40
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/013-qscope.md --timeout 1000
 state: timeout
@@ -2041,6 +2061,8 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	wake	003-build	checkin
 <TS>	<EPOCH>	master	wake	003-build	checkin
 <TS>	<EPOCH>	master	send-steer	003-build-s1	working
+<TS>	<EPOCH>	sidekick	progress	003-build	
+<TS>	<EPOCH>	sidekick	progress	003-build	
 <TS>	<EPOCH>	master	send-steer	003-build-s3	objection
 <TS>	<EPOCH>	master	wake	003-build	report:done
 <TS>	<EPOCH>	sidekick	report	000-ready	done
@@ -2082,9 +2104,11 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	sidekick	step	012-qsteps	3:<SHA>
 <TS>	<EPOCH>	master	wake	012-qsteps	steps:2
 <TS>	<EPOCH>	master	note	012-qsteps	3:clear
+<TS>	<EPOCH>	sidekick	step	012-qsteps	4:<SHA>
+<TS>	<EPOCH>	master	note	012-qsteps	4:clear
 <TS>	<EPOCH>	sidekick	report	012-qsteps	done
 <TS>	<EPOCH>	master	wake	012-qsteps	report:done
-<TS>	<EPOCH>	master	wake	012-qsteps	report:done
+<TS>	<EPOCH>	master	wake	012-qsteps	idle
 <TS>	<EPOCH>	master	send-brief	013-qscope	
 <TS>	<EPOCH>	master	wake	013-qscope	checkin
 <TS>	<EPOCH>	master	send-brief	014-qnine	
@@ -2106,6 +2130,7 @@ ts	phase	decision	why	evidence	result
 --- ./followups.md
 - [012-qsteps n1] x
 - [012-qsteps n3] x
+- [012-qsteps n4] x
 --- ./gates.md
 # Gates
 
@@ -2131,11 +2156,53 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
 ## Follow-ups
 
 - x
+--- ./notes/012-qsteps-n2.md.draft
+# Note 012-qsteps n2
+
+unit: 012-qsteps
+through: step 2
+range: <SHA>..<SHA>
+status: {{blocking | clear}}
+
+<Review the range with `git diff <SHA>..<SHA>`, or `git show` per step. Blocking
+is only what would make the unit wrong to land: wrong behaviour, a missed
+consumer of a changed value, data or schema safety, a rollback hazard, a
+broken contract, or a test that does not test its claim. Everything else is a
+follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
+
+## Blocking
+
+- {{`file:line`, what is wrong, why it blocks landing, the expected behaviour; or none}}
+
+## Follow-ups
+
+- {{worth doing but not worth blocking this unit: naming, docs wording, one-owner cleanups, extra tests; or none. pair.sh note copies these to followups.md}}
 --- ./notes/012-qsteps-n3.md
 # Note 012-qsteps n3
 
 unit: 012-qsteps
 through: step 3
+range: <SHA>..<SHA>
+status: clear
+
+<Review the range with `git diff <SHA>..<SHA>`, or `git show` per step. Blocking
+is only what would make the unit wrong to land: wrong behaviour, a missed
+consumer of a changed value, data or schema safety, a rollback hazard, a
+broken contract, or a test that does not test its claim. Everything else is a
+follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
+
+## Blocking
+
+- x
+
+## Follow-ups
+
+- x
+--- ./notes/012-qsteps-n4.md
+# Note 012-qsteps n4
+
+unit: 012-qsteps
+through: step 4
 range: <SHA>..<SHA>
 status: clear
 
@@ -2192,7 +2259,8 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "file": "<T>/state/pstack/trio/demo/briefs/014-qnine.md",
     "kind": "BRIEF",
     "at": "<TS>",
-    "epoch": <EPOCH>
+    "epoch": <EPOCH>,
+    "seen": "<T>/state/pstack/trio/demo/reports/014-qnine.md:<EPOCH>"
   },
   "heads": {
     "002-early": "<SHA>",
@@ -2266,10 +2334,13 @@ x
 x
 --- ./progress/003-build.md
 <HM> step one done; next: two
+<HM> still on step two
+<HM> steer s1 applied: narrowed to the parser
 --- ./progress/012-qsteps.md
 <HM> step 1 <SHA>: parser reads v2
 <HM> step 2 <SHA>: consumers switched
 <HM> step 3 <SHA>: fixup: board consumer
+<HM> step 4 <SHA>: docs for the parser
 --- ./progress/014-qnine.md
 <HM> half of step one
 <HM> step 1 <SHA>: step one of nine
@@ -2480,6 +2551,7 @@ as the next STEER. List this steer under Deviations in the final report.
 1	<SHA>	<EPOCH>		parser reads v2
 2	<SHA>	<EPOCH>		consumers switched
 3	<SHA>	<EPOCH>	n1	fixup: board consumer
+4	<SHA>	<EPOCH>		docs for the parser
 --- ./steps/014-qnine.tsv
 1	<SHA>	<EPOCH>		step one of nine
 

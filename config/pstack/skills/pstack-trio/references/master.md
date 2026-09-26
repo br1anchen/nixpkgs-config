@@ -61,12 +61,15 @@ trio store is yours alone.
    lint, typecheck) in its Verify, so landing never fails on them. Copy the
    plan's steps for this slice into Steps, twenty to forty-five minutes each:
    you review each one's commit as it lands (see Draft-PR review). Verify runs
-   the targeted tests; the full test battery runs once, in the landing brief.
-   Name the pstack playbook the sidekick runs and put the agreed plan's path on
-   the `plan:` line; dispatch refuses implementation playbooks without an
-   agreed plan and its advice. Put prior review findings and advice in Context
-   by path. A field you cannot fill is a unit you have not scoped, so scope it
-   before dispatch. Dispatch refuses a brief with unfilled placeholders.
+   the targeted tests; the full test battery runs once: in the landing brief,
+   or, where the gate is slow or pins many values, in the issue's last
+   implementation unit, so its failures surface while the sidekick still has
+   the context. Name the pstack playbook the sidekick runs and put the agreed
+   plan's path on the `plan:` line; dispatch refuses implementation playbooks
+   without an agreed plan and its advice. Put prior review findings and advice
+   in Context by path. A field you cannot fill is a unit you have not scoped,
+   so scope it before dispatch. Dispatch refuses a brief with unfilled
+   placeholders.
 6. **Dispatch and check in.** `pair.sh dispatch <store> <brief> [--every MIN]`.
    Exit 0 prints the report path. Exit 3 means blocked: read the pane with
    `herdr agent read <name> --source visible --lines 60`, then follow the
@@ -111,9 +114,10 @@ trio store is yours alone.
    then back through step 4 before the next brief. Landing (commit shaping,
    push, PR through the Opening a PR playbook) is a brief like any other, gated
    by the standing orders. Its Scope lets the sidekick fix mechanical gate
-   failures (formatting, lint autofixes) and rerun the gate, up to twice,
-   before it reports `failed`; a failure that needs judgment still comes back
-   to you. Landing takes no consult: every discussion ends before it.
+   failures and rerun the gate, up to three times, before it reports `failed`:
+   formatting, lint autofixes, and pinned values (goldens, snapshots, fixture
+   pins) the change moves on purpose; a failure that needs judgment still comes
+   back to you. Landing takes no consult: every discussion ends before it.
 9. **Close.** When the predicate holds on the real artifact, run `pair.sh
    status <store>` and write the reply. An open scratch worktree in the status
    is the consultant's to remove; ask it with a design consult of one line if
@@ -160,6 +164,12 @@ change it, and go no shorter than a quarter of the timebox. Between check-ins
 you review steps as they land, draft and queue the next brief, review a
 finished unit at its commit, consult, or wait. You do not read the pane.
 
+A check-in, a steps wake, or a report is not the end of your turn. Act on it
+(a note, a steer, a review, a queued brief) and call `pair.sh wait` again in
+the same turn. End your turn only for the human: a gate, a pause, an
+approval dialog, or the close. A wait that prints `idle:` means the reply to
+your last message was already shown: send the next one.
+
 Read a digest for direction only, in this order:
 
 1. `outside scope`: the sidekick is writing where the brief forbids.
@@ -178,7 +188,10 @@ steer for naming, style, test shape, or anything the review catches at the
 end; those go in a note's Follow-ups. When the correction changes the design rather
 than restores it, consult first (kind design or finding) and cite the advice
 path in Direction. `pair.sh new-steer <store> <NNN>` creates the file; fill
-Direction and Keep, then `pair.sh steer <store> <path>`. It returns at once.
+Direction and Keep, then `pair.sh steer <store> <path>`. It returns at once. A Devin sidekick gets the
+steer as a `STEER:` line from its next `pair.sh step`, `notes`, or
+`progress`, not as a message: the Enter that delivers a queued message to
+Devin cancels its running command, so only `--interrupt` cuts in.
 The sidekick's harness hands the steer over between tool calls; the ack shows
 in the next digest as `steer s<k> applied` or `withdrawn`. When the digest
 shows a running command that must not finish, pass `--interrupt`. Log one
