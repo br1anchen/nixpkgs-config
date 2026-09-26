@@ -215,22 +215,34 @@ commit() { git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "$1";
 s1="$(commit "step one")"
 run step "$store" "$s1" "parser reads v2"
 run wait "$store" --timeout 1500
+# step two lands while the master reviews step one: the note covers only
+# what the wait showed, and step two waits for the next note
 s2="$(commit "step two")"
 run step "$store" "$s2" "consumers switched"
 run new-note "$store" "$qn"
-n2="$store/notes/$(basename "$qs" .md)-n2.md.draft"
-run note "$store" "$n2"
-fill "$n2"; set_hdr "$n2" status blocking
-run note "$store" "$n2"
+n1="$store/notes/$(basename "$qs" .md)-n1.md.draft"
+run note "$store" "$n1"
+fill "$n1"; set_hdr "$n1" status blocking
+run note "$store" "$n1"
 run new-note "$store" "$qn"
 run notes "$store"
 printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$qs")"
 run finish "$store" "$store/reports/$(basename "$qs")"
-s3="$(commit "fix n2")"
-run step "$store" "$s3" "fixup: board consumer" --resolves n2
+rm -f "$store/reports/$(basename "$qs")"
+run step "$store" "$(commit "stray")" "claims a note not published" --resolves n9
+s3="$(commit "fix n1")"
+run step "$store" "$s3" "fixup: board consumer" --resolves n1
 run notes "$store"
+run wait "$store" --timeout 1500
+run new-note "$store" "$qn"
+n3="$store/notes/$(basename "$qs" .md)-n3.md.draft"
+fill "$n3"; set_hdr "$n3" status clear
+run note "$store" "$n3"
+printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$qs")"
 run finish "$store" "$store/reports/$(basename "$qs")"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
+run wait "$store" --timeout 1500
+# a finished unit never holds a later wait on its steps
 run wait "$store" --timeout 1500
 # pause at a safe point: the master starts nothing new, the sidekick hears it
 # at its next step or progress boundary, reports partial, and ends the turn
@@ -248,10 +260,20 @@ run wait "$store" --timeout 1500
 run status "$store"
 run resume "$store"
 # stop reaches a working Devin: Enter follows the prompt, since Devin parks a
-# mid-turn message as queued (uxa's STOP sat unread that way)
+# mid-turn message as queued (uxa's STOP sat unread that way), and the wait
+# ends on the stop report, not on the running turn's settle
 status "demo-sidekick" working devin
 run stop "$store"
-status "demo-sidekick" idle devin
+# a working Claude Code or Codex sidekick takes STOP between tool calls: no Enter
+jq '.sidekick.kind = "claude"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
+status "demo-sidekick" working claude
+run stop "$store"
+jq '.sidekick.kind = "devin"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
+# herdr says done, and the pane shows only Devin's working placeholder
+status "demo-sidekick" done devin
+mkdir -p "$FAKE/busy-guide"; : >"$FAKE/busy-guide/demo-sidekick"
+run status "$store"
+rm -f "$FAKE/busy-guide/demo-sidekick"; status "demo-sidekick" idle devin
 run stop "$store"
 run bogus
 # metrics over a known timeline: brief 002 runs 10m, the sidekick idles 4m,

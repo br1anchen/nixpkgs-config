@@ -178,6 +178,7 @@ record_dispatch() {
 	json_update "$store" --arg brief "$brief" --arg now "$now" --arg head "$head" \
 		--argjson epoch "$(date +%s)" \
 		'.dispatch = {brief: $brief, at: $now, head: $head} | .sent = {file: $brief, kind: "BRIEF", at: $now, epoch: $epoch}
+		 | .heads[$brief | split("/") | last | rtrimstr(".md")] //= $head
 		 | .pending = ((.pending // []) + [$brief] | unique)'
 }
 
@@ -451,25 +452,35 @@ noted_through() {
 }
 
 # The commit a unit's next review starts from: the last noted step, or the
-# head the brief was dispatched at.
+# head the unit was first dispatched at. The running dispatch head is not it:
+# next and a re-dispatch after a pause overwrite that.
 review_base() {
-	local through file
-	through="$(noted_through "$1" "$2")"
-	file="$(steps_file "$1" "$2")"
+	local through file unit
+	unit="$(basename "$2" .md)"
+	through="$(noted_through "$1" "$unit")"
+	file="$(steps_file "$1" "$unit")"
 	if [ "$through" -gt 0 ] && [ -f "$file" ]; then
 		awk -F '\t' -v k="$through" '$1 == k {print $2}' "$file"
 	else
-		field "$1" '.dispatch.head // empty'
+		jq -r --arg u "$unit" '.heads[$u] // .dispatch.head // empty' "$(pair_file "$1")"
 	fi
 }
 
 # Steps of the running brief past the last note, as "k<TAB>sha<TAB>summary".
+# Once the unit reports after its last step, the final review reads those
+# steps through review-delta, so none are due: a finished unit never holds a
+# wait on steps. A unit resumed after a partial report has steps newer than
+# the report, and those are due again.
 unreviewed_steps() {
-	local brief file through
+	local brief file through report
 	brief="$(field "$1" '.dispatch.brief // empty')"
 	[ -n "$brief" ] || return 1
 	file="$(steps_file "$1" "$brief")"
 	[ -s "$file" ] || return 1
+	report="$(expected_report "$1" "$brief")"
+	if [ -f "$report" ] && [ "$(file_mtime "$report")" -ge "$(tail -1 "$file" | cut -f3)" ]; then
+		return 1
+	fi
 	through="$(noted_through "$1" "$brief")"
 	awk -F '\t' -v k="$through" '$1 > k {print $1 "\t" $2 "\t" $5}' "$file" | grep . || return 1
 }
@@ -535,6 +546,7 @@ finish_wait() {
 		printf '%s\n' "$rows" | awk -F '\t' '{printf "  %s %s %s\n", $1, substr($2, 1, 9), $3}'
 		printf 'range: %s..%s\n' "$(review_base "$store" "$running" | cut -c1-9)" "$(printf '%s\n' "$rows" | tail -1 | cut -f2 | cut -c1-9)"
 		printf 'next: review the range, then pair.sh new-note %s %s\n' "$store" "$(basename "$running" | cut -c1-3)"
+		json_update "$store" --arg u "$(basename "$running" .md)" --argjson k "$(printf '%s\n' "$rows" | tail -1 | cut -f1)" '.shown[$u] = $k'
 		event "$store" master wake "$running" "steps:$first"
 		exit 0
 	fi
@@ -931,7 +943,6 @@ wait_for_reply() {
 	steps_due=0
 	deadline=$(( $(date +%s) + timeout / 1000 ))
 	errfile="$(mktemp)"
-	steps_due=0
 	while :; do
 		if ready="$(pending_report "$store")" || ready="$(fresh_reply "$store")"; then
 			code=0
@@ -1061,6 +1072,10 @@ cmd_step() {
 	brief="$(field "$store" '.dispatch.brief // empty')"
 	[ -n "$brief" ] || die "no brief dispatched; a step belongs to a running brief"
 	full="$(git -C "$(field "$store" .cwd)" rev-parse --verify --quiet "$sha^{commit}")" || die "not a commit: $sha; commit the step first"
+	local id
+	for id in ${resolves//,/ }; do
+		[ -f "$store/notes/$(basename "$brief" .md)-$id.md" ] || die "--resolves $id: no published note $id on $(basename "$brief" .md); resolve only notes pair.sh notes printed"
+	done
 	mkdir -p "$store/steps" "$store/progress"
 	file="$(steps_file "$store" "$brief")"
 	k=1
@@ -1076,24 +1091,34 @@ cmd_step() {
 	fi
 }
 
-# The master's review of a unit's steps so far: a draft note covering every
-# step since the last note, published with pair.sh note once filled.
+# The master's review of a unit's steps: a draft note covering the steps since
+# the last note, through the last step a wait showed (or --through k), so a
+# step that lands while the master reviews is left for the next note.
+# Published with pair.sh note once filled.
 cmd_new_note() {
-	[ $# -eq 2 ] || die "usage: pair.sh new-note <store> <NNN>"
-	local store="$1" seq="$2" brief unit file k base to path
+	[ $# -ge 2 ] || die "usage: pair.sh new-note <store> <NNN> [--through K]"
+	local store="$1" seq="$2" brief unit file k base to path through=""
+	shift 2
+	case "${1:-}" in
+	--through) through="$2" ;;
+	"") ;;
+	*) die "unknown option $1" ;;
+	esac
 	pair_file "$store" >/dev/null
 	brief="$(ls "$store"/briefs/"$seq"-*.md 2>/dev/null | head -1 || true)"
 	[ -n "$brief" ] || die "no brief for unit $seq"
 	unit="$(basename "$brief" .md)"
 	file="$(steps_file "$store" "$unit")"
 	[ -s "$file" ] || die "unit $seq has no steps recorded"
-	k="$(grep -c . "$file")"
-	[ "$k" -gt "$(noted_through "$store" "$unit")" ] || die "unit $seq is reviewed through step $k already"
+	[ -n "$through" ] || through="$(jq -r --arg u "$unit" '.shown[$u] // empty' "$store/pair.json")"
+	k="${through:-$(grep -c . "$file")}"
+	[[ "$k" =~ ^[0-9]+$ ]] && [ "$k" -le "$(grep -c . "$file")" ] || die "unit $seq has no step $k"
+	[ "$k" -gt "$(noted_through "$store" "$unit")" ] || die "unit $seq is reviewed through step $k already; wait for the next steps"
 	base="$(review_base "$store" "$unit")"
-	to="$(tail -1 "$file" | cut -f2)"
+	to="$(awk -F '\t' -v k="$k" '$1 == k {print $2}' "$file")"
 	mkdir -p "$store/notes"
 	path="$store/notes/$unit-n$k.md.draft"
-	sed -e "s|{{UNIT}}|$unit|g" -e "s|{{K}}|$k|g" -e "s|{{RANGE}}|${base:0:9}..${to:0:9}|g" -e "s|{{STORE}}|$store|g" \
+	sed -e "s|{{UNIT}}|$unit|g" -e "s|{{K}}|$k|g" -e "s|{{RANGE}}|${base:0:9}..${to:0:9}|g" \
 		"$skill_root/references/note-template.md" >"$path"
 	printf '%s\n' "$path"
 }
@@ -1224,19 +1249,46 @@ cmd_notify() {
 	esac
 }
 
-# STOP for one role; sets code and out. An idle agent gets it with a wait. A
-# working Devin parks a mid-turn message as queued until Enter is pressed, so
-# Enter follows the prompt; Claude Code and Codex take it between tool calls.
+# A stop report or advice from $2, written at or after epoch $3.
+stop_written() {
+	local dir f
+	case "$2" in consultant) dir=advice ;; *) dir=reports ;; esac
+	for f in "$1/$dir"/[0-9][0-9][0-9]-stop.md; do
+		[ -f "$f" ] && [ "$(file_mtime "$f")" -ge "$3" ] && return 0
+	done
+	return 1
+}
+
+# STOP for one role; sets code, out, and err in the caller, which declares
+# them. An idle agent gets it with a wait. A working one may settle its
+# current turn before it reads STOP, so the wait ends on its stop report or
+# advice written after the send, not on a settle. A working Devin parks a
+# mid-turn message as queued until Enter is pressed, so Enter follows.
 stop_role() {
-	local store="$1" role="$2" timeout="$3" name errfile
+	local store="$1" role="$2" timeout="$3" name errfile epoch deadline
 	name="$(field "$store" ".$role.name")"
-	code=0
+	code=0 out="" err=""
 	errfile="$(mktemp)"
 	event "$store" master send-stop - "$role"
 	if [ "$(agent_status "$name")" = working ]; then
-		herdr agent prompt "$name" "$PAIR_SKILL STOP $store" >/dev/null 2>&1 || code=$?
+		epoch="$(date +%s)"
+		if ! herdr agent prompt "$name" "$PAIR_SKILL STOP $store" >/dev/null 2>"$errfile"; then
+			code=2
+			err="$(cat "$errfile")"
+			rm -f "$errfile"
+			return 0
+		fi
 		[ "$(field "$store" ".$role.kind")" = devin ] && { sleep 1; herdr agent send-keys "$name" enter >/dev/null 2>&1 || true; }
-		out="$(herdr agent wait "$name" --timeout "$timeout" 2>"$errfile")" || code=$?
+		deadline=$(( epoch + timeout / 1000 ))
+		until stop_written "$store" "$role" "$epoch"; do
+			if [ "$(date +%s)" -ge "$deadline" ]; then
+				code=1
+				printf '{"error":{"code":"timeout"}}\n' >"$errfile"
+				break
+			fi
+			sleep 5
+		done
+		out="$(herdr agent get "$name" 2>/dev/null || true)"
 	else
 		out="$(herdr agent prompt "$name" "$PAIR_SKILL STOP $store" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
 	fi

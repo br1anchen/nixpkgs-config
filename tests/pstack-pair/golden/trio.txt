@@ -639,41 +639,63 @@ step 2 recorded at <SHA>; go on with the next step. At the next step boundary: p
 [exit 0]
 
 $ pair.sh new-note <T>/state/pstack/trio/demo 012
-<T>/state/pstack/trio/demo/notes/012-qsteps-n2.md.draft
+<T>/state/pstack/trio/demo/notes/012-qsteps-n1.md.draft
 [exit 0]
 
-$ pair.sh note <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/notes/012-qsteps-n2.md.draft
-pair.sh: <T>/state/pstack/trio/demo/notes/012-qsteps-n2.md.draft still has unfilled placeholders
+$ pair.sh note <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/notes/012-qsteps-n1.md.draft
+pair.sh: <T>/state/pstack/trio/demo/notes/012-qsteps-n1.md.draft still has unfilled placeholders
 [exit 1]
 
-$ pair.sh note <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/notes/012-qsteps-n2.md.draft
-published <T>/state/pstack/trio/demo/notes/012-qsteps-n2.md (blocking)
+$ pair.sh note <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/notes/012-qsteps-n1.md.draft
+published <T>/state/pstack/trio/demo/notes/012-qsteps-n1.md (blocking)
 [exit 0]
 
 $ pair.sh new-note <T>/state/pstack/trio/demo 012
-pair.sh: unit 012 is reviewed through step 2 already
+pair.sh: unit 012 is reviewed through step 1 already; wait for the next steps
 [exit 1]
 
 $ pair.sh notes <T>/state/pstack/trio/demo
 notes: 1 open. Fix each Blocking item as a fixup commit before the next step, then record it: pair.sh step <T>/state/pstack/trio/demo <sha> "<summary>" --resolves <n-ids>
 
-=== n2 (<T>/state/pstack/trio/demo/notes/012-qsteps-n2.md)
+=== n1 (<T>/state/pstack/trio/demo/notes/012-qsteps-n1.md)
 
 - x
 [exit 0]
 
 $ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/012-qsteps.md
 pair.sh: blocking review notes are still open on 012-qsteps:
-<T>/state/pstack/trio/demo/notes/012-qsteps-n2.md
+<T>/state/pstack/trio/demo/notes/012-qsteps-n1.md
 Resolve each as a fixup commit, record it with pair.sh step <T>/state/pstack/trio/demo <sha> <summary> --resolves <n-ids>, then finish again 7
 [exit 7]
 
-$ pair.sh step <T>/state/pstack/trio/demo <SHA> fixup: board consumer --resolves n2
+$ pair.sh step <T>/state/pstack/trio/demo <SHA> claims a note not published --resolves n9
+pair.sh: --resolves n9: no published note n9 on 012-qsteps; resolve only notes pair.sh notes printed
+[exit 1]
+
+$ pair.sh step <T>/state/pstack/trio/demo <SHA> fixup: board consumer --resolves n1
 step 3 recorded at <SHA>; go on with the next step. At the next step boundary: pair.sh notes <T>/state/pstack/trio/demo
 [exit 0]
 
 $ pair.sh notes <T>/state/pstack/trio/demo
 notes: none open; go on with the next step
+[exit 0]
+
+$ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
+state: working
+steps: 2 to review on 012-qsteps
+  2 <SHA> consumers switched
+  3 <SHA> fixup: board consumer
+range: <SHA>..<SHA>
+next: review the range, then pair.sh new-note <T>/state/pstack/trio/demo 012
+[exit 0]
+  herdr agent get demo-sidekick
+
+$ pair.sh new-note <T>/state/pstack/trio/demo 012
+<T>/state/pstack/trio/demo/notes/012-qsteps-n3.md.draft
+[exit 0]
+
+$ pair.sh note <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/notes/012-qsteps-n3.md.draft
+published <T>/state/pstack/trio/demo/notes/012-qsteps-n3.md (clear)
 [exit 0]
 
 $ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/012-qsteps.md
@@ -688,7 +710,15 @@ $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
 report: <T>/state/pstack/trio/demo/reports/012-qsteps.md
 report_status: done
-review-delta: <SHA>..<SHA> (steps reviewed through 2)
+review-delta: <SHA>..<SHA> (steps reviewed through 3)
+[exit 0]
+  herdr agent get demo-sidekick
+
+$ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
+state: idle
+report: <T>/state/pstack/trio/demo/reports/012-qsteps.md
+report_status: done
+review-delta: <SHA>..<SHA> (steps reviewed through 3)
 [exit 0]
   herdr agent get demo-sidekick
 
@@ -775,13 +805,61 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
   herdr agent send-keys demo-sidekick enter
-  herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 20
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 20
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
+
+$ pair.sh stop <T>/state/pstack/trio/demo
+sidekick_state: working
+consultant_state: idle
+report: <T>/state/pstack/trio/demo/reports/013-stop.md (partial)
+advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
+  herdr agent get demo-sidekick
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
+
+$ pair.sh status <T>/state/pstack/trio/demo
+# Trio status
+
+generated: <TS>
+master: demo-master (p0) idle
+sidekick: demo-sidekick (p1) working
+consultant: demo-consultant (p2) idle
+
+| seq | kind | unit | report | advice | review |
+|---|---|---|---|---|---|
+| 001 | plan | design | agree | agree | agreed |
+| 002 | brief | early | done | none | none |
+| 003 | brief | build | done | answered (c1) | none |
+| 004 | brief | qone | done | none | none |
+| 005 | brief | qtwo | partial | none | none |
+| 006 | brief | qthree | done | none | none |
+| 007 | brief | qfive | done | none | none |
+| 008 | brief | qsix | none | none | none |
+| 009 | brief | qseven | done | none | accept |
+| 010 | brief | qeight | none | none | none |
+| 011 | brief | qfour | none | none | none |
+| 012 | brief | qsteps | done | none | none |
+| 013 | brief | qnine | partial | none | none |
+
+latest report: <T>/state/pstack/trio/demo/reports/013-stop.md
+latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
+[exit 0]
+  herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 20
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 20
 
 $ pair.sh stop <T>/state/pstack/trio/demo
 sidekick_state: idle
@@ -1839,9 +1917,12 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	sidekick	step	012-qsteps	1:<SHA>
 <TS>	<EPOCH>	master	wake	012-qsteps	steps:1
 <TS>	<EPOCH>	sidekick	step	012-qsteps	2:<SHA>
-<TS>	<EPOCH>	master	note	012-qsteps	2:blocking
+<TS>	<EPOCH>	master	note	012-qsteps	1:blocking
 <TS>	<EPOCH>	sidekick	step	012-qsteps	3:<SHA>
+<TS>	<EPOCH>	master	wake	012-qsteps	steps:2
+<TS>	<EPOCH>	master	note	012-qsteps	3:clear
 <TS>	<EPOCH>	sidekick	report	012-qsteps	done
+<TS>	<EPOCH>	master	wake	012-qsteps	report:done
 <TS>	<EPOCH>	master	wake	012-qsteps	report:done
 <TS>	<EPOCH>	master	send-brief	013-qnine	
 <TS>	<EPOCH>	master	wake	013-qnine	checkin
@@ -1855,19 +1936,43 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	send-stop	-	consultant
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	send-stop	-	consultant
+<TS>	<EPOCH>	master	send-stop	-	sidekick
+<TS>	<EPOCH>	master	send-stop	-	consultant
 --- ./followups.md
-- [012-qsteps n2] x
+- [012-qsteps n1] x
+- [012-qsteps n3] x
 --- ./gates.md
 # Gates
 
 One entry per open question for the human: question, options, default on no answer.
---- ./notes/012-qsteps-n2.md
-# Note 012-qsteps n2
+--- ./notes/012-qsteps-n1.md
+# Note 012-qsteps n1
 
 unit: 012-qsteps
-through: step 2
+through: step 1
 range: <SHA>..<SHA>
 status: blocking
+
+<Review the range with `git diff <SHA>..<SHA>`, or `git show` per step. Blocking
+is only what would make the unit wrong to land: wrong behaviour, a missed
+consumer of a changed value, data or schema safety, a rollback hazard, a
+broken contract, or a test that does not test its claim. Everything else is a
+follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
+
+## Blocking
+
+- x
+
+## Follow-ups
+
+- x
+--- ./notes/012-qsteps-n3.md
+# Note 012-qsteps n3
+
+unit: 012-qsteps
+through: step 3
+range: <SHA>..<SHA>
+status: clear
 
 <Review the range with `git diff <SHA>..<SHA>`, or `git show` per step. Blocking
 is only what would make the unit wrong to land: wrong behaviour, a missed
@@ -1924,11 +2029,27 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "at": "<TS>",
     "epoch": <EPOCH>
   },
+  "heads": {
+    "002-early": "<SHA>",
+    "003-build": "<SHA>",
+    "004-qone": "<SHA>",
+    "005-qtwo": "<SHA>",
+    "006-qthree": "<SHA>",
+    "007-qfive": "<SHA>",
+    "009-qseven": "<SHA>",
+    "010-qeight": "<SHA>",
+    "011-qfour": "<SHA>",
+    "012-qsteps": "<SHA>",
+    "013-qnine": "<SHA>"
+  },
   "consult": {
     "file": "<T>/state/pstack/trio/demo/consults/003-build-c1.md",
     "at": "<TS>",
     "head": "<SHA>",
     "sidekick_state": "working"
+  },
+  "shown": {
+    "012-qsteps": 3
   }
 }
 --- ./plans/001-design.md
@@ -2078,7 +2199,7 @@ instruction (the encode-lessons-in-structure principle).
 # Trio status
 
 master: demo-master (p0) idle
-sidekick: demo-sidekick (p1) idle
+sidekick: demo-sidekick (p1) working
 consultant: demo-consultant (p2) idle
 
 | seq | kind | unit | report | advice | review |
@@ -2097,9 +2218,8 @@ consultant: demo-consultant (p2) idle
 | 012 | brief | qsteps | done | none | none |
 | 013 | brief | qnine | partial | none | none |
 
-latest report: <T>/state/pstack/trio/demo/reports/013-qnine.md
+latest report: <T>/state/pstack/trio/demo/reports/013-stop.md
 latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
-paused: skill upgrade
 --- ./steers/003-build-s1.md
 # Steer 003-s1: build
 
@@ -2187,7 +2307,7 @@ as the next STEER. List this steer under Deviations in the final report.
 --- ./steps/012-qsteps.tsv
 1	<SHA>	<EPOCH>		parser reads v2
 2	<SHA>	<EPOCH>		consumers switched
-3	<SHA>	<EPOCH>	n2	fixup: board consumer
+3	<SHA>	<EPOCH>	n1	fixup: board consumer
 --- ./steps/013-qnine.tsv
 1	<SHA>	<EPOCH>		step one of nine
 

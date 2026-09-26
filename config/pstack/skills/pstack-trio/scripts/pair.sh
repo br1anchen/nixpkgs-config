@@ -239,7 +239,7 @@ cmd_stop() {
 		esac
 	done
 	checkin_interval_m=$((timeout / 60000))
-	local role name status rc=0 code out
+	local role name status rc=0 code out err
 	rm -f "$store/queue"
 	json_update "$store" '.pending = []'
 	for role in sidekick consultant; do
