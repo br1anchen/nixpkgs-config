@@ -122,10 +122,10 @@ kinds: master claude, sidekick devin, consultant codex
 [exit 0]
   herdr agent get p0
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr pane get p1
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
 
 new-plan -> <T>/state/pstack/trio/demo/plans/001-design.md
 
@@ -148,9 +148,9 @@ consultant_response: <T>/state/pstack/trio/demo/advice/001-design.md
 consultant_status: agree
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md
   herdr agent prompt demo-consultant pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md
   herdr agent wait demo-sidekick --timeout <MS>
@@ -162,7 +162,7 @@ report: <T>/state/pstack/trio/demo/reports/002-early.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/002-early.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
 
@@ -176,7 +176,7 @@ touched: 0 files, 0 commits since dispatch
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/003-build.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
@@ -247,7 +247,7 @@ report: <T>/state/pstack/trio/demo/reports/003-build.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio STEER <T>/state/pstack/trio/demo/steers/003-build-s3.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
 
@@ -263,7 +263,7 @@ $ pair.sh notify <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/0
 prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/000-ready.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/000-ready.md
 
 $ pair.sh notify <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/000-ready.md
@@ -293,11 +293,11 @@ latest report: <T>/state/pstack/trio/demo/reports/003-build.md
 latest advice: <T>/state/pstack/trio/demo/advice/001-design.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
 
 $ pair.sh new-consult <T>/state/pstack/trio/demo 003 --kind bogus
 pair.sh: --kind must be design, finding, objection, review, or glance
@@ -310,7 +310,7 @@ advice_status: answered
 [exit 0]
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent prompt demo-consultant pstack-trio CONSULT <T>/state/pstack/trio/demo/consults/003-build-c1.md --wait --timeout 900000
 
 $ pair.sh advice <T>/state/pstack/trio/demo
@@ -355,11 +355,11 @@ open scratch worktrees (remove with pair.sh scratch <store> <id> --remove):
   003-build-c1
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 003-build-c1 --remove
 removed <T>/state/pstack/trio/demo/scratch/003-build-c1
@@ -369,7 +369,7 @@ $ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/005
 pair.sh: sidekick demo-sidekick is idle; dispatch instead: pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/005-qtwo.md 5
 [exit 5]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/004-qone.md --timeout 1000
 state: timeout
@@ -386,7 +386,7 @@ outside scope: 2
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/004-qone.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
@@ -425,10 +425,10 @@ latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
 queued: <T>/state/pstack/trio/demo/briefs/005-qtwo.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
 
 $ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/004-qone.md
 prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/004-qone.md
@@ -436,7 +436,7 @@ next: the master queued pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/005-
 Start that brief now, in this turn, as if the message had just arrived.
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/004-qone.md
 
 $ pair.sh next <T>/state/pstack/trio/demo
@@ -461,7 +461,7 @@ prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/re
 next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/005-qtwo.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/005-qtwo.md
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
@@ -494,11 +494,11 @@ latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
 queued: <T>/state/pstack/trio/demo/briefs/006-qthree.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/006-qthree.md --timeout 20000
 state: idle
@@ -506,10 +506,10 @@ report: <T>/state/pstack/trio/demo/reports/006-qthree.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/006-qthree.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -519,14 +519,14 @@ report: <T>/state/pstack/trio/demo/reports/007-qfive.md
 report_status: done
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/007-qfive.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -534,7 +534,7 @@ $ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/008
 queued <T>/state/pstack/trio/demo/briefs/008-qsix.md; the sidekick takes it when its current report is written
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
 
 $ pair.sh queue <T>/state/pstack/trio/demo --clear
 queue cleared
@@ -555,7 +555,7 @@ outside scope: 2
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/009-qseven.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
@@ -592,7 +592,7 @@ outside scope: 2
 steers: 0 sent, 0 applied, 0 objected
 [exit 4]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/010-qeight.md --wait --until working --timeout 30000
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
@@ -602,11 +602,11 @@ state: idle
 report: missing
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 004-qone-review --at <SHA>
 Preparing worktree (detached HEAD <SHA>)
@@ -632,6 +632,25 @@ steps: 1 to review on 012-qsteps
 range: <SHA>..<SHA>
 next: review the range, then pair.sh new-note <T>/state/pstack/trio/demo 012
 [exit 0]
+  herdr agent get demo-sidekick
+
+$ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 012-qsteps.md  elapsed <N>m of ?m
+progress: +1 lines (last <N>m ago)  STALE
+  <HM> step 1 <SHA>: parser reads v2
+touched: 2 files, 1 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 2
+  a.txt
+  b.txt
+steers: 0 sent, 0 applied, 0 objected
+steps: 1 committed, reviewed through 0, 0 blocking notes open
+[exit 4]
+  herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
 $ pair.sh step <T>/state/pstack/trio/demo <SHA> consumers switched
@@ -703,7 +722,7 @@ prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/re
 next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/012-qsteps.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/012-qsteps.md
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
@@ -722,16 +741,35 @@ review-delta: <SHA>..<SHA> (steps reviewed through 3)
 [exit 0]
   herdr agent get demo-sidekick
 
+$ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/013-qscope.md --timeout 1000
+state: timeout
+{"error":{"code":"timeout"}}
+report: missing
+check-in: 013-qscope.md  elapsed <N>m of ?m
+progress: none yet
+touched: 2 files, 0 commits since dispatch
+  a.txt
+  b.txt
+outside scope: 1
+  a.txt
+steers: 0 sent, 0 applied, 0 objected
+[exit 4]
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source recent --lines 40
+  herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/013-qscope.md --wait --until working --timeout 30000
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent get demo-sidekick
+
 $ pair.sh pause <T>/state/pstack/trio/demo --reason skill upgrade
 paused <T>/state/pstack/trio/demo: the sidekick stops at its next step or progress boundary, and dispatch, queue, discuss, consult, and answer refuse until pair.sh resume
 [exit 0]
 
-$ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/013-qnine.md
+$ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/014-qnine.md
 pair.sh: the store is paused (skill upgrade): start nothing new; record where the work stands and end your turn, or run pair.sh resume <T>/state/pstack/trio/demo 5
 [exit 5]
 
 $ pair.sh progress <T>/state/pstack/trio/demo half of step one
-<T>/state/pstack/trio/demo/progress/013-qnine.md
+<T>/state/pstack/trio/demo/progress/014-qnine.md
 PAUSE: skill upgrade. This is your safe point: commit what is verified, write the report as partial with where you stopped and the next step under Deviations, run pair.sh finish, and end the turn.
 [exit 0]
 
@@ -740,18 +778,18 @@ step 1 recorded at <SHA>.
 PAUSE: skill upgrade. This is your safe point: commit what is verified, write the report as partial with where you stopped and the next step under Deviations, run pair.sh finish, and end the turn.
 [exit 0]
 
-$ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/013-qnine.md
-prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/013-qnine.md
-next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/013-qnine.md
+$ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/014-qnine.md
+prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/014-qnine.md
+next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/014-qnine.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
-  herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/013-qnine.md
+  herdr agent read demo-master --source recent --lines 40
+  herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/014-qnine.md
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
 state: idle
 paused: skill upgrade (start nothing new; record the next step in gates.md and end your turn)
-report: <T>/state/pstack/trio/demo/reports/013-qnine.md
+report: <T>/state/pstack/trio/demo/reports/014-qnine.md
 report_status: partial
 review-delta: <SHA>..<SHA> (steps reviewed through 0)
 [exit 0]
@@ -779,18 +817,19 @@ consultant: demo-consultant (p2) idle
 | 010 | brief | qeight | none | none | none |
 | 011 | brief | qfour | none | none | none |
 | 012 | brief | qsteps | done | none | none |
-| 013 | brief | qnine | partial | none | none |
+| 013 | brief | qscope | none | none | none |
+| 014 | brief | qnine | partial | none | none |
 
-latest report: <T>/state/pstack/trio/demo/reports/013-qnine.md
+latest report: <T>/state/pstack/trio/demo/reports/014-qnine.md
 latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
 paused: skill upgrade
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
 
 $ pair.sh resume <T>/state/pstack/trio/demo
 resumed <T>/state/pstack/trio/demo
@@ -799,7 +838,7 @@ resumed <T>/state/pstack/trio/demo
 $ pair.sh stop <T>/state/pstack/trio/demo
 sidekick_state: working
 consultant_state: idle
-report: <T>/state/pstack/trio/demo/reports/013-stop.md (partial)
+report: <T>/state/pstack/trio/demo/reports/014-stop.md (partial)
 advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 [exit 0]
   herdr agent get demo-sidekick
@@ -807,15 +846,15 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent send-keys demo-sidekick enter
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
 
 $ pair.sh stop <T>/state/pstack/trio/demo
 sidekick_state: working
 consultant_state: idle
-report: <T>/state/pstack/trio/demo/reports/013-slugged-stop.md (partial)
+report: <T>/state/pstack/trio/demo/reports/014-slugged-stop.md (partial)
 advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 [exit 0]
   herdr agent get demo-sidekick
@@ -823,24 +862,24 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent send-keys demo-sidekick enter
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
 
 $ pair.sh stop <T>/state/pstack/trio/demo
 sidekick_state: working
 consultant_state: idle
-report: <T>/state/pstack/trio/demo/reports/013-stop.md (partial)
+report: <T>/state/pstack/trio/demo/reports/014-stop.md (partial)
 advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 [exit 0]
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
 
 $ pair.sh status <T>/state/pstack/trio/demo
@@ -865,33 +904,69 @@ consultant: demo-consultant (p2) idle
 | 010 | brief | qeight | none | none | none |
 | 011 | brief | qfour | none | none | none |
 | 012 | brief | qsteps | done | none | none |
-| 013 | brief | qnine | partial | none | none |
+| 013 | brief | qscope | none | none | none |
+| 014 | brief | qnine | partial | none | none |
 
-latest report: <T>/state/pstack/trio/demo/reports/013-stop.md
+latest report: <T>/state/pstack/trio/demo/reports/014-stop.md
 latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
 [exit 0]
   herdr agent get demo-master
-  herdr agent read demo-master --source visible --lines 20
+  herdr agent read demo-master --source recent --lines 40
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
+
+$ pair.sh status <T>/state/pstack/trio/demo
+# Trio status
+
+generated: <TS>
+master: demo-master (p0) idle
+sidekick: demo-sidekick (p1) working
+consultant: demo-consultant (p2) idle
+
+| seq | kind | unit | report | advice | review |
+|---|---|---|---|---|---|
+| 001 | plan | design | agree | agree | agreed |
+| 002 | brief | early | done | none | none |
+| 003 | brief | build | done | answered (c1) | none |
+| 004 | brief | qone | done | none | none |
+| 005 | brief | qtwo | partial | none | none |
+| 006 | brief | qthree | done | none | none |
+| 007 | brief | qfive | done | none | none |
+| 008 | brief | qsix | none | none | none |
+| 009 | brief | qseven | done | none | accept |
+| 010 | brief | qeight | none | none | none |
+| 011 | brief | qfour | none | none | none |
+| 012 | brief | qsteps | done | none | none |
+| 013 | brief | qscope | none | none | none |
+| 014 | brief | qnine | partial | none | none |
+
+latest report: <T>/state/pstack/trio/demo/reports/014-stop.md
+latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
+[exit 0]
+  herdr agent get demo-master
+  herdr agent read demo-master --source recent --lines 40
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source recent --lines 40
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source recent --lines 40
 
 $ pair.sh stop <T>/state/pstack/trio/demo
 sidekick_state: idle
 consultant_state: idle
-report: <T>/state/pstack/trio/demo/reports/013-stop.md (partial)
+report: <T>/state/pstack/trio/demo/reports/014-stop.md (partial)
 advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 [exit 0]
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent read demo-sidekick --source recent --lines 40
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 20
+  herdr agent read demo-consultant --source recent --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
 
 $ pair.sh bogus
@@ -1667,15 +1742,84 @@ report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
 with the REPORT line it gives.
---- ./briefs/013-qnine.md
-# Brief 013: qnine
+--- ./briefs/013-qscope.md
+# Brief 013: qscope
 
 playbook: investigation
 timebox: x
 commit: x
 plan: none
 standing: <T>/state/pstack/trio/demo/standing-orders.md
-report: <T>/state/pstack/trio/demo/reports/013-qnine.md
+report: <T>/state/pstack/trio/demo/reports/013-qscope.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Steps
+
+x
+
+1. x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
+report template in the pstack-trio skill, then run
+`~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
+what it prints: start the queued brief it names, in this turn, or end the turn
+with the REPORT line it gives.
+
+## Scope
+
+may write:
+- `b.txt` — the fixture (new file)
+- docs/, notes.md (only a link)
+
+must not write:
+- x
+--- ./briefs/014-qnine.md
+# Brief 014: qnine
+
+playbook: investigation
+timebox: x
+commit: x
+plan: none
+standing: <T>/state/pstack/trio/demo/standing-orders.md
+report: <T>/state/pstack/trio/demo/reports/014-qnine.md
 
 ## Goal
 
@@ -1932,6 +2076,7 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	wake	012-qsteps	checkin
 <TS>	<EPOCH>	sidekick	step	012-qsteps	1:<SHA>
 <TS>	<EPOCH>	master	wake	012-qsteps	steps:1
+<TS>	<EPOCH>	master	wake	012-qsteps	checkin
 <TS>	<EPOCH>	sidekick	step	012-qsteps	2:<SHA>
 <TS>	<EPOCH>	master	note	012-qsteps	1:blocking
 <TS>	<EPOCH>	sidekick	step	012-qsteps	3:<SHA>
@@ -1940,13 +2085,15 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	sidekick	report	012-qsteps	done
 <TS>	<EPOCH>	master	wake	012-qsteps	report:done
 <TS>	<EPOCH>	master	wake	012-qsteps	report:done
-<TS>	<EPOCH>	master	send-brief	013-qnine	
-<TS>	<EPOCH>	master	wake	013-qnine	checkin
+<TS>	<EPOCH>	master	send-brief	013-qscope	
+<TS>	<EPOCH>	master	wake	013-qscope	checkin
+<TS>	<EPOCH>	master	send-brief	014-qnine	
+<TS>	<EPOCH>	master	wake	014-qnine	checkin
 <TS>	<EPOCH>	master	pause	-	skill upgrade
-<TS>	<EPOCH>	sidekick	progress	013-qnine	
-<TS>	<EPOCH>	sidekick	step	013-qnine	1:<SHA>
-<TS>	<EPOCH>	sidekick	report	013-qnine	partial
-<TS>	<EPOCH>	master	wake	013-qnine	report:partial
+<TS>	<EPOCH>	sidekick	progress	014-qnine	
+<TS>	<EPOCH>	sidekick	step	014-qnine	1:<SHA>
+<TS>	<EPOCH>	sidekick	report	014-qnine	partial
+<TS>	<EPOCH>	master	wake	014-qnine	report:partial
 <TS>	<EPOCH>	master	resume	-	
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	send-stop	-	consultant
@@ -2037,12 +2184,12 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
   "scratch": [],
   "pending": [],
   "dispatch": {
-    "brief": "<T>/state/pstack/trio/demo/briefs/013-qnine.md",
+    "brief": "<T>/state/pstack/trio/demo/briefs/014-qnine.md",
     "at": "<TS>",
     "head": "<SHA>"
   },
   "sent": {
-    "file": "<T>/state/pstack/trio/demo/briefs/013-qnine.md",
+    "file": "<T>/state/pstack/trio/demo/briefs/014-qnine.md",
     "kind": "BRIEF",
     "at": "<TS>",
     "epoch": <EPOCH>
@@ -2058,7 +2205,8 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "010-qeight": "<SHA>",
     "011-qfour": "<SHA>",
     "012-qsteps": "<SHA>",
-    "013-qnine": "<SHA>"
+    "013-qscope": "<SHA>",
+    "014-qnine": "<SHA>"
   },
   "consult": {
     "file": "<T>/state/pstack/trio/demo/consults/003-build-c1.md",
@@ -2122,7 +2270,7 @@ x
 <HM> step 1 <SHA>: parser reads v2
 <HM> step 2 <SHA>: consumers switched
 <HM> step 3 <SHA>: fixup: board consumer
---- ./progress/013-qnine.md
+--- ./progress/014-qnine.md
 <HM> half of step one
 <HM> step 1 <SHA>: step one of nine
 --- ./reports/000-ready.md
@@ -2177,16 +2325,16 @@ status: partial
 # Report
 
 status: done
---- ./reports/013-qnine.md
+--- ./reports/014-qnine.md
 # Report
 
 status: partial
---- ./reports/013-slugged-stop.md
+--- ./reports/014-slugged-stop.md
 # stop
 
 status: partial
 head: abc
---- ./reports/013-stop.md
+--- ./reports/014-stop.md
 # stop
 
 status: partial
@@ -2239,9 +2387,10 @@ consultant: demo-consultant (p2) idle
 | 010 | brief | qeight | none | none | none |
 | 011 | brief | qfour | none | none | none |
 | 012 | brief | qsteps | done | none | none |
-| 013 | brief | qnine | partial | none | none |
+| 013 | brief | qscope | none | none | none |
+| 014 | brief | qnine | partial | none | none |
 
-latest report: <T>/state/pstack/trio/demo/reports/013-stop.md
+latest report: <T>/state/pstack/trio/demo/reports/014-stop.md
 latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
 --- ./steers/003-build-s1.md
 # Steer 003-s1: build
@@ -2331,7 +2480,7 @@ as the next STEER. List this steer under Deviations in the final report.
 1	<SHA>	<EPOCH>		parser reads v2
 2	<SHA>	<EPOCH>		consumers switched
 3	<SHA>	<EPOCH>	n1	fixup: board consumer
---- ./steps/013-qnine.tsv
+--- ./steps/014-qnine.tsv
 1	<SHA>	<EPOCH>		step one of nine
 
 == git status

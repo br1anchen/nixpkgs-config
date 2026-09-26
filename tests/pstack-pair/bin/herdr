@@ -53,6 +53,7 @@ case "$1 $2" in
 	# The hint wraps, as it does in a 28-column Devin pane.
 	if [ -e "$FAKE/busy/$3" ]; then printf 'Thinking · 7m 52s (esc\n  twice to interrupt)\n'
 	elif [ -e "$FAKE/busy-guide/$3" ]; then printf '❭ Guide Devin while it\n  works\n'
+	elif [ -e "$FAKE/busy-queue/$3" ]; then printf '── 1 ↑ edit · ↵ send now ──\n○ pstack-trio STOP\n❭ Press Enter to send\n  queued messages now\n'
 	else printf 'pane text\n'; fi ;;
 "pane split") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/p$n"; printf '{"result":{"pane":{"pane_id":"p%s"}}}\n' "$n" ;;
 "pane get") [ -f "$FAKE/panes/$3" ] || exit 1; printf '{"result":{}}\n' ;;

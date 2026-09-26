@@ -70,12 +70,15 @@ has_role() {
 # run, reporting done while it works. Every agent kind shows "esc to
 # interrupt" (Devin: "esc twice to interrupt") in its status line while it
 # works, so a settled state is checked against the bottom of the pane. Devin
-# also swaps its input placeholder to "Guide Devin while it works", which
-# stays on screen while it thinks. A narrow pane wraps both across lines, so
-# the lines are joined first.
+# shows more signs, any of which means a turn is running: its input
+# placeholder "Guide Devin while it works", a queued-message block ("send
+# now"; messages queue only during a turn), and a status line such as
+# "Thinking · 7m". In an 11-row pane a queued block pushes the status line off
+# screen, so every sign counts. A narrow pane wraps them across lines, so the
+# lines are joined first.
 pane_busy() {
-	herdr agent read "$1" --source visible --lines 20 2>/dev/null | tr -s '\n\t ' ' ' \
-		| grep -qiE 'esc (twice )?to interrupt|guide devin while it works'
+	herdr agent read "$1" --source recent --lines 40 2>/dev/null | tr -s '\n\t ' ' ' \
+		| grep -qiE 'esc (twice )?to interrupt|guide devin while it works|send now|send queued messages|(thinking|typing|running tools|editing|reading|searching|writing) [^·]{0,160}· [0-9]+[ms]'
 }
 
 agent_status() {
@@ -315,7 +318,18 @@ checkin() {
 	[ -n "$head" ] && commits="$(git -C "$cwd" rev-list --count "$head"..HEAD 2>/dev/null || printf 0)"
 	printf 'touched: %d files, %d commits since dispatch\n' "${#touched[@]}" "$commits"
 	[ "${#touched[@]}" -gt 0 ] && printf '  %s\n' "${touched[@]:0:30}"
-	mapfile -t may < <(awk '/^may write:/{f=1;next} /^must not write:|^## /{f=0} f && /^- /{sub(/^- /,""); print}' "$brief")
+	# A may-write line is often annotated ("path — why", "path (new)", several
+	# paths separated by commas), so keep only its path-like tokens; a path
+	# ending in / covers everything under it.
+	mapfile -t may < <(awk '/^may write:/{f=1;next} /^must not write:|^## /{f=0}
+		f && /^- / {
+			sub(/^- /, ""); gsub(/`/, "")
+			n = split($0, w, /[ ,]+/)
+			for (i = 1; i <= n; i++) {
+				t = w[i]; gsub(/^[(*]+|[):;.*]+$/, "", t)
+				if (t ~ /\// || t ~ /^[A-Za-z0-9_.-]+\.[A-Za-z0-9]+$/) { if (w[i] ~ /\*\*?$/ || t ~ /\/$/) t = t "*"; print t }
+			}
+		}' "$brief")
 	local f p ok
 	for f in "${touched[@]}"; do
 		ok=0
@@ -483,6 +497,19 @@ unreviewed_steps() {
 	fi
 	through="$(noted_through "$1" "$brief")"
 	awk -F '\t' -v k="$through" '$1 > k {print $1 "\t" $2 "\t" $5}' "$file" | grep . || return 1
+}
+
+# True when a step landed that neither a note nor an earlier steps wake has
+# covered: once shown, a range does not wake the master again while it reviews.
+steps_due() {
+	local brief file shown noted last
+	unreviewed_steps "$1" >/dev/null || return 1
+	brief="$(field "$1" '.dispatch.brief // empty')"
+	file="$(steps_file "$1" "$brief")"
+	shown="$(jq -r --arg u "$(basename "$brief" .md)" '.shown[$u] // 0' "$1/pair.json")"
+	noted="$(noted_through "$1" "$brief")"
+	last="$(grep -c . "$file")"
+	[ "$last" -gt "$shown" ] && [ "$last" -gt "$noted" ]
 }
 
 # Blocking notes on a unit that no step has resolved yet, one path per line.
@@ -951,7 +978,7 @@ wait_for_reply() {
 			break
 		fi
 		ready=""
-		if unreviewed_steps "$store" >/dev/null; then
+		if steps_due "$store"; then
 			steps_due=1
 			code=0
 			out="$(herdr agent get "$name" 2>/dev/null || true)"
@@ -966,7 +993,7 @@ wait_for_reply() {
 		if [ "$code" -eq 0 ]; then
 			state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)"
 			[ "$state" != blocked ] || break
-			{ pending_report "$store" >/dev/null || fresh_reply "$store" >/dev/null || unreviewed_steps "$store" >/dev/null; } && continue
+			{ pending_report "$store" >/dev/null || fresh_reply "$store" >/dev/null || steps_due "$store"; } && continue
 			if pane_busy "$name"; then
 				# herdr says settled, the pane says working: believe the pane.
 				settled_at=""

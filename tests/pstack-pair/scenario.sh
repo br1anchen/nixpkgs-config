@@ -215,6 +215,8 @@ commit() { git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "$1";
 s1="$(commit "step one")"
 run step "$store" "$s1" "parser reads v2"
 run wait "$store" --timeout 1500
+# a range already shown does not wake the master again while it reviews
+run wait "$store" --timeout 1500
 # step two lands while the master reviews step one: the note covers only
 # what the wait showed, and step two waits for the next note
 s2="$(commit "step two")"
@@ -244,6 +246,12 @@ rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 run wait "$store" --timeout 1500
 # a finished unit never holds a later wait on its steps
 run wait "$store" --timeout 1500
+# annotated may-write lines: paths with notes, comma lists, and a directory
+qa="$("$P" new-brief "$store" qscope)"; fill "$qa"; set_hdr "$qa" playbook investigation; set_hdr "$qa" plan none
+printf -- '\n## Scope\n\nmay write:\n- `b.txt` — the fixture (new file)\n- docs/, notes.md (only a link)\n\nmust not write:\n- x\n' >>"$qa"
+status "demo-sidekick" idle devin; : >"$FAKE/brief-working"
+run dispatch "$store" "$qa" --timeout 1000
+rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 # pause at a safe point: the master starts nothing new, the sidekick hears it
 # at its next step or progress boundary, reports partial, and ends the turn
 q9="$("$P" new-brief "$store" qnine)"; fill "$q9"; set_hdr "$q9" playbook investigation; set_hdr "$q9" plan none
@@ -275,6 +283,11 @@ jq '.sidekick.kind = "claude"' "$store/pair.json" >"$store/pair.json.t" && mv "$
 status "demo-sidekick" working claude
 run stop "$store"
 jq '.sidekick.kind = "devin"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
+# herdr says done, and an 11-row pane shows only a queued-message block
+status "demo-sidekick" done devin
+mkdir -p "$FAKE/busy-queue"; : >"$FAKE/busy-queue/demo-sidekick"
+run status "$store"
+rm -f "$FAKE/busy-queue/demo-sidekick"
 # herdr says done, and the pane shows only Devin's working placeholder
 status "demo-sidekick" done devin
 mkdir -p "$FAKE/busy-guide"; : >"$FAKE/busy-guide/demo-sidekick"

@@ -14,7 +14,7 @@ report: {{STORE}}/reports/{{SEQ}}-{{SLUG}}.md
 ## Scope
 
 may write:
-- {{path or glob}}
+- {{path or glob, one per line; a note may follow after " — "}}
 
 must not write:
 - {{path or glob}}
