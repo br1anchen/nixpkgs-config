@@ -63,8 +63,12 @@ case "$1 $2" in
 "agent read")
 	# $FAKE/busy/<name>: the pane shows a working agent whatever herdr's state says.
 	# The hint wraps, as it does in a 28-column Devin pane.
-	if [ -s "$FAKE/typing/$3" ]; then printf 'Running tools · 3m (esc\n  twice to interrupt)\n❭ %s\n' "$(cat "$FAKE/typing/$3")"
-	elif [ -s "$FAKE/queued/$3" ]; then printf '── 1 ↑ edit · ↵ send now ──\n○ %s\n❭ Press Enter to send\n  queued messages now\n' "$(cat "$FAKE/queued/$3")"
+	# Devin's input: a queued block (with the send-now hint) above the input
+	# box, which holds typed text or, when only the queue is left, the prompt
+	# to send it.
+	if [ -s "$FAKE/typing/$3" ] || [ -s "$FAKE/queued/$3" ]; then
+		[ -s "$FAKE/queued/$3" ] && printf '── 1 ↑ edit · ↵ send now ──\n○ %s\n' "$(cat "$FAKE/queued/$3")"
+		if [ -s "$FAKE/typing/$3" ]; then printf '❭ %s\n' "$(cat "$FAKE/typing/$3")"; else printf '❭ Press Enter to send\n  queued messages now\n'; fi
 	elif [ -e "$FAKE/busy/$3" ]; then printf 'Thinking · 7m 52s (esc\n  twice to interrupt)\n'
 	elif [ -e "$FAKE/busy-guide/$3" ]; then printf '❭ Guide Devin while it\n  works\n'
 	elif [ -e "$FAKE/busy-queue/$3" ]; then printf '── 1 ↑ edit · ↵ send now ──\n○ pstack-trio STOP\n❭ Press Enter to send\n  queued messages now\n'

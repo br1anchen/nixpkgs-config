@@ -923,6 +923,58 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 $ pair.sh stop <T>/state/pstack/trio/demo
 sidekick_state: working
 consultant_state: idle
+report: <T>/state/pstack/trio/demo/reports/015-stop.md (partial)
+advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
+  herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent send-keys demo-sidekick enter
+  herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent send-keys demo-sidekick enter
+  herdr agent get demo-sidekick
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 40
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 40
+  herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
+
+$ pair.sh stop <T>/state/pstack/trio/demo
+sidekick_state: working
+consultant_state: idle
+report: <T>/state/pstack/trio/demo/reports/015-same-second.md (partial)
+advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
+  herdr agent get demo-sidekick
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 40
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 40
+  herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
+
+$ pair.sh stop <T>/state/pstack/trio/demo --timeout 3000
+sidekick: STOP never showed in the pane; sent one Enter as a fallback
+sidekick_state: working
+consultant_state: idle
+report: <T>/state/pstack/trio/demo/reports/015-same-second.md (partial)
+advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
+  herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent send-keys demo-sidekick enter
+  herdr agent get demo-sidekick
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 40
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 40
+  herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 3000
+
+$ pair.sh stop <T>/state/pstack/trio/demo
+sidekick_state: working
+consultant_state: idle
 report: <T>/state/pstack/trio/demo/reports/015-land-partial1.md (partial)
 advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 [exit 0]
@@ -936,6 +988,7 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
 
 $ pair.sh stop <T>/state/pstack/trio/demo --timeout 3000
+sidekick: STOP never showed in the pane; sent one Enter as a fallback
 sidekick_state: working
 consultant_state: idle
 report: <T>/state/pstack/trio/demo/reports/015-bus-stop.md (partial)
@@ -944,6 +997,7 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
   herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent send-keys demo-sidekick enter
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
@@ -2270,6 +2324,12 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	send-stop	-	consultant
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	send-stop	-	consultant
+<TS>	<EPOCH>	master	send-stop	-	sidekick
+<TS>	<EPOCH>	master	send-stop	-	consultant
+<TS>	<EPOCH>	master	send-stop	-	sidekick
+<TS>	<EPOCH>	master	send-stop	-	consultant
+<TS>	<EPOCH>	master	send-stop	-	sidekick
+<TS>	<EPOCH>	master	send-stop	-	consultant
 --- ./followups.md
 - [012-qsteps n1] x
 - [012-qsteps n2] x
@@ -2559,6 +2619,11 @@ head: abc
 # Report
 
 status: partial
+--- ./reports/015-same-second.md
+# STOP
+
+status: partial
+head: abc
 --- ./reports/015-stop.md
 # stop
 

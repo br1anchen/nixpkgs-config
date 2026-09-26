@@ -302,7 +302,23 @@ run stop "$store"
 # to send it now; the pane says which is due (uxa's STOP sat typed for 87 min)
 : >"$FAKE/devin-input"; status "demo-sidekick" working devin
 run stop "$store"
-rm -f "$FAKE/devin-input"
+# an older queued message already shows the send-now hint while STOP is still
+# typed: STOP is submitted first, then the queue holding it is sent
+mkdir -p "$FAKE/queued"; printf 'an older steer' >"$FAKE/queued/demo-sidekick"
+run stop "$store"
+rm -f "$FAKE/devin-input" "$FAKE/queued/demo-sidekick"
+# a report written in the same second as the STOP still counts; only reports
+# that existed before the send are ignored
+cp "$FAKE/hook" "$FAKE/hook.same"
+sed -i 's#sleep 1.1; body stop partial >"\(.*\)-stop.md"#body STOP partial >"\1-same-second.md"#' "$FAKE/hook"
+status "demo-sidekick" working devin
+run stop "$store"
+# a STOP the pane never shows gets one fallback Enter and a warning, and the
+# pane watch ends at the caller's --timeout
+sed -i 's#body STOP partial >"\(.*\)-same-second.md"#:#' "$FAKE/hook"
+status "demo-sidekick" working devin
+run stop "$store" --timeout 3000
+mv "$FAKE/hook.same" "$FAKE/hook"
 # a stop report under another name, with STOP in its heading, as Devin writes
 # it ("060-862-land-partial1.md": "partial (STOP)"), also ends the wait
 cp "$FAKE/hook" "$FAKE/hook.orig"

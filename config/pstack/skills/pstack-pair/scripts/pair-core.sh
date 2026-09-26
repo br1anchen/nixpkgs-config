@@ -76,8 +76,14 @@ has_role() {
 # In an 11-row pane the queued block pushes the interrupt hint off screen, so
 # each sign counts on its own. A narrow pane wraps them, so lines are joined.
 pane_busy() {
-	herdr agent read "$1" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ' \
-		| grep -qiE 'esc (twice )?to interrupt|guide devin while it works|send queued messages now|↵ send now|ctrl\+enter to send now'
+	grep -qiE 'esc (twice )?to interrupt|guide devin while it works|send queued messages now|↵ send now|ctrl\+enter to send now' <<<"$(pane_text "$1")"
+}
+
+# The pane's visible screen as one line. Callers match it with a here-string:
+# under pipefail, `cmd | grep -q` fails when grep exits early and cmd takes
+# SIGPIPE, which turned matches into misses at random.
+pane_text() {
+	herdr agent read "$1" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ' || true
 }
 
 agent_status() {
@@ -865,7 +871,7 @@ spawn_role() {
 	out="$(herdr agent prompt "$name" "$bootstrap" --wait --timeout 240000 2>"$errfile")" || code=$?
 	err="$(cat "$errfile")"
 	rm -f "$errfile"
-	if [ "$code" -ne 0 ] && printf '%s' "$err" | grep -q agent_prompt_stalled; then
+	if [ "$code" -ne 0 ] && grep -q agent_prompt_stalled <<<"$err"; then
 		# State detection can lag on a narrow pane (Devin's status line wraps)
 		# while the agent is in fact working. The ready file is the real signal.
 		printf '%s prompt looked stalled; waiting for %s instead\n' "$role" "$ready"
@@ -1347,25 +1353,33 @@ cmd_notify() {
 	esac
 }
 
-# A stop report or advice from $2, written after epoch $3. The role
-# docs name it NNN-stop.md, but Devin also writes NNN-<slug>-stop.md or
-# NNN-<slug>-partial1.md, so any report written since the STOP counts when its
-# heading says STOP in capitals ("partial (STOP)") or its status mentions a
-# stop ("stopped-partial"). A report whose slug merely contains "stop"
-# ("bus-stop") does not.
-stop_written() {
+# The stop-like reports (or advice) of role $2 on disk, as "path:mtime" lines.
+stop_candidates() {
 	local dir f
 	case "$2" in consultant) dir=advice ;; *) dir=reports ;; esac
-	# Strictly after the send: an agent cannot answer STOP within the second it
-	# was sent, and an earlier report can share that second.
 	for f in "$1/$dir"/[0-9][0-9][0-9]-*.md; do
-		[ -f "$f" ] && [ "$(file_mtime "$f")" -gt "$3" ] || continue
+		[ -f "$f" ] || continue
 		case "$(basename "$f")" in
-		[0-9][0-9][0-9]-stop.md) return 0 ;;
+		[0-9][0-9][0-9]-stop.md) ;;
+		*) grep -q 'STOP' <<<"$(head -1 "$f")" || grep -qi stop <<<"$(header_field "$f" status)" || continue ;;
 		esac
-		head -1 "$f" | grep -q 'STOP' && return 0
-		header_field "$f" status | grep -qi stop && return 0
+		printf '%s:%s\n' "$f" "$(file_mtime "$f")"
 	done
+}
+
+# True when role $2 wrote a stop report or advice since the snapshot $3 that
+# stop_candidates took before the send. The role docs name it NNN-stop.md,
+# but Devin also writes NNN-<slug>-stop.md or NNN-<slug>-partial1.md, so any
+# report counts when its heading says STOP in capitals ("partial (STOP)") or
+# its status mentions a stop ("stopped-partial"); a slug that merely contains
+# "stop" ("bus-stop") does not. Comparing against the snapshot, not the send
+# time, keeps a report from the same second and drops an older one.
+stop_written() {
+	local line
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		grep -qxF "$line" <<<"$3" || return 0
+	done < <(stop_candidates "$1" "$2")
 	return 1
 }
 
@@ -1373,23 +1387,40 @@ stop_written() {
 # two Enters: one submits the text to its queue, the next sends the queue now,
 # cancelling the running command. A fixed sleep before one Enter could land
 # before Devin took the text, leaving STOP unsubmitted for over an hour, so
-# the pane is watched for up to 20 seconds instead, until the queue is sent
-# or the stop report shows Devin took the message on its own. $1 store, $2
-# role, $3 agent name, $4 prompt text, $5 epoch of the send. Returns 1 only
-# when the text is still sitting in the input box at the end.
+# the pane is watched instead: Enter while the text sits in the input box,
+# then Enter once it shows in the queue with the "send now" hint, which an
+# older queued message alone does not satisfy. The watch ends early once the
+# stop report exists, and after 20 seconds or the caller's deadline, whichever
+# comes first. When the pane never showed the text, one Enter goes as a
+# fallback. $1 store, $2 role, $3 agent name, $4 prompt text, $5 snapshot
+# from stop_candidates, $6 deadline (epoch). Returns 1 with a reason on stderr
+# when delivery could not be confirmed.
 devin_send_now() {
-	local store="$1" role="$2" name="$3" text="$4" epoch="$5" i screen
-	for i in $(seq 20); do
-		stop_written "$store" "$role" "$epoch" && return 0
-		screen="$(herdr agent read "$name" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ')"
-		if printf '%s' "$screen" | grep -qiE 'send queued messages now|↵ send now'; then
+	local store="$1" role="$2" name="$3" text="$4" before="$5" deadline="$6" end screen seen=0
+	end=$(( $(date +%s) + 20 ))
+	[ "$end" -le "$deadline" ] || end="$deadline"
+	while [ "$(date +%s)" -lt "$end" ]; do
+		stop_written "$store" "$role" "$before" && return 0
+		screen="$(pane_text "$name")"
+		if grep -qF "❭ $text" <<<"$screen"; then
+			seen=1
+			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+		elif grep -qF "○ $text" <<<"$screen" && grep -qiE 'send queued messages now|↵ send now' <<<"$screen"; then
 			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
 			return 0
 		fi
-		printf '%s' "$screen" | grep -qF "❭ $text" && herdr agent send-keys "$name" enter >/dev/null 2>&1
 		sleep 1
 	done
-	herdr agent read "$name" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ' | grep -qF "❭ $text" && return 1
+	stop_written "$store" "$role" "$before" && return 0
+	if grep -qF "❭ $text" <<<"$(pane_text "$name")"; then
+		printf '%s: STOP is still typed in the input box; read it: herdr agent read %s --source visible\n' "$role" "$name" >&2
+		return 1
+	fi
+	if [ "$seen" -eq 0 ]; then
+		herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+		printf '%s: STOP never showed in the pane; sent one Enter as a fallback\n' "$role" >&2
+		return 1
+	fi
 	return 0
 }
 
@@ -1399,25 +1430,25 @@ devin_send_now() {
 # advice written after the send, not on a settle. A working Devin parks a
 # mid-turn message as queued until Enter is pressed, so Enter follows.
 stop_role() {
-	local store="$1" role="$2" timeout="$3" name errfile epoch deadline
+	local store="$1" role="$2" timeout="$3" name errfile epoch deadline before
 	name="$(field "$store" ".$role.name")"
 	code=0 out="" err=""
 	errfile="$(mktemp)"
 	event "$store" master send-stop - "$role"
 	if [ "$(agent_status "$name")" = working ]; then
 		epoch="$(date +%s)"
+		before="$(stop_candidates "$store" "$role")"
 		if ! herdr agent prompt "$name" "$PAIR_SKILL STOP $store" >/dev/null 2>"$errfile"; then
 			code=2
 			err="$(cat "$errfile")"
 			rm -f "$errfile"
 			return 0
 		fi
-		if [ "$(field "$store" ".$role.kind")" = devin ]; then
-			devin_send_now "$store" "$role" "$name" "$PAIR_SKILL STOP" "$epoch" \
-				|| printf '%s: STOP is still typed in the input box; read it: herdr agent read %s --source visible\n' "$role" "$name" >&2
-		fi
 		deadline=$(( epoch + timeout / 1000 ))
-		until stop_written "$store" "$role" "$epoch"; do
+		if [ "$(field "$store" ".$role.kind")" = devin ]; then
+			devin_send_now "$store" "$role" "$name" "$PAIR_SKILL STOP" "$before" "$deadline" || true
+		fi
+		until stop_written "$store" "$role" "$before"; do
 			if [ "$(date +%s)" -ge "$deadline" ]; then
 				code=1
 				printf '{"error":{"code":"timeout"}}\n' >"$errfile"
