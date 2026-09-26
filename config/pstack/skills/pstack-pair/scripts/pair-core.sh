@@ -1253,7 +1253,8 @@ cmd_notify() {
 stop_written() {
 	local dir f
 	case "$2" in consultant) dir=advice ;; *) dir=reports ;; esac
-	for f in "$1/$dir"/[0-9][0-9][0-9]-stop.md; do
+	# The role docs name it NNN-stop.md; Devin also writes NNN-<slug>-stop.md.
+	for f in "$1/$dir"/[0-9][0-9][0-9]-stop.md "$1/$dir"/[0-9][0-9][0-9]-*-stop.md; do
 		[ -f "$f" ] && [ "$(file_mtime "$f")" -ge "$3" ] && return 0
 	done
 	return 1

@@ -732,6 +732,16 @@ report_status: partial
 
 $ pair.sh stop <T>/state/pstack/pair-guided/demo
 state: working
+report: <T>/state/pstack/pair-guided/demo/reports/014-slugged-stop.md
+report_status: partial
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair-guided STOP <T>/state/pstack/pair-guided/demo
+  herdr agent send-keys demo-sidekick enter
+  herdr agent get demo-sidekick
+
+$ pair.sh stop <T>/state/pstack/pair-guided/demo
+state: working
 report: <T>/state/pstack/pair-guided/demo/reports/014-stop.md
 report_status: partial
 [exit 0]
@@ -1739,6 +1749,8 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	wake	014-stop	report:partial
 <TS>	<EPOCH>	master	send-stop	-	sidekick
+<TS>	<EPOCH>	master	wake	014-slugged-stop	report:partial
+<TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	wake	014-stop	report:partial
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	wake	014-stop	report:partial
@@ -1999,6 +2011,11 @@ status: done
 # Report
 
 status: partial
+--- ./reports/014-slugged-stop.md
+# stop
+
+status: partial
+head: abc
 --- ./reports/014-stop.md
 # stop
 

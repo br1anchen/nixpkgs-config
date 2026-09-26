@@ -264,6 +264,12 @@ run resume "$store"
 # ends on the stop report, not on the running turn's settle
 status "demo-sidekick" working devin
 run stop "$store"
+# a stop report named NNN-<slug>-stop.md, as Devin writes it, also ends the wait
+cp "$FAKE/hook" "$FAKE/hook.orig"
+sed -i 's#-stop.md"#-slugged-stop.md"#' "$FAKE/hook"
+status "demo-sidekick" working devin
+run stop "$store"
+mv "$FAKE/hook.orig" "$FAKE/hook"
 # a working Claude Code or Codex sidekick takes STOP between tool calls: no Enter
 jq '.sidekick.kind = "claude"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 status "demo-sidekick" working claude
