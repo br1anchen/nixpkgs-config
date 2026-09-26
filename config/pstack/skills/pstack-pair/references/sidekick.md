@@ -18,8 +18,9 @@ in a report file; the terminal is not the record.
    back into its Non-negotiables, Comments, Subagents, and Writing the reply
    sections, so it must be in context before the first brief.
 4. Write `reports/000-ready.md` with status `done`, your runtime and model if
-   you know them, the permission mode from `pair.json` `.sidekick.permission_mode`,
-   cwd, branch, head, and tree state, following the report template. Reply `READY` and end the turn.
+   you know them, the permission mode from `pair.json`
+   `.sidekick.permission_mode`, cwd, branch, head, and tree state, following
+   the report template. Reply `READY` and end the turn.
 
 ## On `pstack-pair PLAN <path>`
 
@@ -28,17 +29,16 @@ cons. You brainstorm against them and check whether the plan survives contact
 with the code. Your answer is your real judgment, not agreement by default,
 and the decision stays with the master.
 
-1. Read the plan. Ground every step against the code, read-only: open the
-   files it names, run `how` or `why` where the design rests on history, run
+1. Read the plan. Ground every step against the code, read-only: open the files
+   it names, run `how` or `why` where the design rests on history, run
    read-only commands. Answer each open question from evidence.
 2. Brainstorm the trade-offs: for each option in the master's table, add the
-   pros and cons the code reveals, name options the table misses, and say
-   which you would pick and why.
-3. Write `reports/NNN-<slug>.md` from the plan response template, with the
-   same NNN as the plan. Status `agree` when every step is executable as
-   written and its check would prove it. Status `object` otherwise, with one
-   objection per line pointing into Grounding, and a concrete alternative for
-   each.
+   pros and cons the code reveals, name options the table misses, and say which
+   you would pick and why.
+3. Write `reports/NNN-<slug>.md` from the plan response template, with the same
+   NNN as the plan. Status `agree` when every step is executable as written and
+   its check would prove it. Status `object` otherwise, with one objection per
+   line pointing into Grounding, and a concrete alternative for each.
 4. `pair.sh finish <store> <report>`, then end the turn with the REPORT line it
    prints. A new plan round arrives as a new PLAN message.
 
@@ -52,31 +52,43 @@ and the decision stays with the master.
 2. Open the playbook the brief names, from
    `../poteto-mode/playbooks/<playbook>.md`; `pstack-tdd` is the sibling skill
    of that name. Re-open poteto-mode only when its sections are no longer in
-   context, as after compaction; the bootstrap already loaded it once.
-   Copy its steps into your todolist verbatim. The brief's Scope and Forbidden sections override any
-   playbook step that would cross them; record such a step as `skip: brief
-   forbids`. Opening a PR runs only when the brief says so.
-3. Do the work inside Scope. When the brief says `commit: yes`, end the unit
-   in one commit: the report's `head:` names it, and the master reviews it
-   there while you move on. Run every Verify
-   command as written and keep the output.
-   After each completed todolist step and at each change of approach, append
-   one line with `pair.sh progress <store> "<what is done>; next: <what>"`,
-   no output pasted. Write that line before, not after, any write outside
-   Scope or departure from the plan, so the master can steer in time.
+   context, as after compaction; the bootstrap already loaded it once. Copy its
+   steps into your todolist verbatim. The brief's Scope and Forbidden sections
+   override any playbook step that would cross them; record such a step as
+   `skip: brief forbids`. Opening a PR runs only when the brief says so.
+3. Do the work inside Scope. Work the brief's Steps in order. End each in a
+   commit and record it with `pair.sh step <store> <sha> "<what it does>"`,
+   then go straight on; never wait for review. At each step boundary run
+   `pair.sh notes <store>`: fix each open blocking item first, as a fixup
+   commit recorded with `--resolves <n-ids>`, then take the next step.
+   Follow-ups are the master's list, not yours. A brief without Steps ends in
+   one commit when it says `commit: yes`. The report's `head:` names the last
+   commit, and the master reviews only what its notes have not covered. Run
+   every Verify command as written and keep the output. After each completed
+   todolist step and at each change of approach, append one line with `pair.sh
+   progress <store> "<what is done>; next: <what>"`, no output pasted. Write
+   that line before, not after, any write outside Scope or departure from the
+   plan, so the master can steer in time.
 4. Write `reports/NNN-<slug>.md` at the path the brief names, from the report
    template. Status `done` needs every Acceptance line met and shown under Ran,
    and every Self-check line true: figures traced to Ran, each Acceptance line
-   mapped to a command, callers of changed shared symbols searched, no stale cache behind a green
-   check, and the landing gate's fast checks (format, lint, typecheck) passing
-   on the commit. Those are what reviews and landings most often send back.
-   Anything less is `partial`, `blocked`, or `failed`, with the reason.
+   mapped to a command, callers and consumers of every changed shared symbol or
+   value searched, no stale cache behind a green check, and the landing gate's
+   fast checks (format, lint, typecheck) passing on the commit. Those are what
+   reviews and landings most often send back. Anything less is `partial`,
+   `blocked`, or `failed`, with the reason.
 5. `pair.sh finish <store> <report>`, and do what it prints. It tells the
-   master, then either names a brief the master queued while you worked,
-   which you start now, in this turn, as if the message had just arrived, or
-   gives the REPORT line to end the turn with. Only a `done` report takes a
-   queued brief; any other status leaves it for the master. Never end a brief
+   master, then either names a brief the master queued while you worked, which
+   you start now, in this turn, as if the message had just arrived, or gives
+   the REPORT line to end the turn with. Only a `done` report takes a queued
+   brief; any other status leaves it for the master. `finish` refuses a `done`
+   report while a blocking note is open; resolve it first. Never end a brief
    without running it: the master's wait and the queue both hang on it.
+6. When any `pair.sh` command prints `PAUSE:`, you are at a safe point:
+   commit what is verified, write the report as `partial` with where you
+   stopped and the next step under Deviations, run `pair.sh finish`, and end
+   the turn. Resume comes as the same brief dispatched again; continue from
+   the next unrecorded step.
 
 ## On `pstack-pair STEER <path>`
 

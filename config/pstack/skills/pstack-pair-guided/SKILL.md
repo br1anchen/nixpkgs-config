@@ -71,6 +71,9 @@ Sidekick: [references/sidekick.md](references/sidekick.md).
 | `decisions.tsv` | master via `pair.sh log` | the show-me-your-work trail |
 | `status.md` | `pair.sh status` | derived table; never hand-edited |
 | `queue` | master via `pair.sh queue`; the sidekick empties it with `pair.sh next` | the next brief's path, one slot |
+| `steps/NNN-<slug>.tsv` | sidekick via `pair.sh step` | one row per committed step: number, commit, time, notes it resolves, summary |
+| `notes/NNN-<slug>-n<k>.md` | master via `pair.sh new-note` and `note` | review of the unit's steps through step k, from [the note template](references/note-template.md): blocking items and follow-ups |
+| `followups.md` | master via `pair.sh note` | follow-ups from every note, for a later brief or an issue |
 | `events.tsv` | every `pair.sh` command | one row per message, report, wake, and log entry, read by `pair.sh metrics` |
 
 `NNN` is a zero-padded sequence shared by plan or brief, report, and review, so
@@ -209,6 +212,59 @@ sidekick from waiting on the master.
 `pair.sh metrics <store>` reads `events.tsv` and shows where the time went:
 sidekick busy and idle, master wakes, review latency, verdicts. Sidekick idle
 time is the number to drive down.
+
+## Draft-PR review
+
+A brief is a draft PR that the master reads as it grows, not a diff it meets
+at the end. Review that arrives after hours of work returns long finding
+lists, and each fix round widens the change and reruns every check; review
+of each step catches the same blockers while they are one commit old.
+
+- The brief's Steps are commit-sized, twenty to forty-five minutes each. The
+  sidekick commits each step, records it with `pair.sh step`, and goes
+  straight on. It never waits for review.
+- The master's `wait` returns `steps:` when a step lands that no note covers.
+  The master reads that range, writes a note with `pair.sh new-note`, and
+  publishes it with `pair.sh note`, while the sidekick works on.
+- A note, like a review, splits its findings. Blocking is only what would
+  make the unit wrong to land: wrong behaviour, a missed consumer of a
+  changed value, data or schema safety, a rollback hazard, a broken
+  contract, a test that does not test its claim. Everything else is a
+  follow-up: `note` copies those to `followups.md`, and they never widen the
+  unit or cause a revise.
+- At each step boundary the sidekick runs `pair.sh notes`, fixes the open
+  blocking items first as fixup commits, and records them with `pair.sh step
+  --resolves`. `finish` refuses a `done` report while one is open.
+- A problem that would waste the next steps, a wrong design rather than a
+  wrong line, still goes out at once as a steer.
+- Each step runs the checks it names, and a brief's Verify runs the targeted
+  tests plus the landing gate's fast checks. The full test battery runs once,
+  in the landing brief.
+- The final review reads only the report's `review-delta`, the diff since the
+  last note, and accepts unless it finds a new blocking item.
+
+A brief without Steps runs as before, with one review at the end.
+
+## Pausing
+
+`pair.sh pause <store> --reason <why>` stops the work at the next safe point,
+for a skill upgrade or anything else that needs all agents quiet. Anyone may
+run it, including the human or another session.
+
+- The sidekick sees `PAUSE:` in the output of its next `pair.sh step`,
+  `notes`, or `progress`. It commits what is verified, writes the report as
+  `partial` with where it stopped and the next step, runs `pair.sh finish`,
+  and ends the turn. `finish` hands out no queued brief while paused.
+- The master's `dispatch`, `queue`, and `discuss` refuse while paused, and so
+  do `consult` and `answer` where the skill has them. A wait prints `paused:`.
+  The master finishes the step it is in, records where the work stands and
+  the exact next step in `gates.md`, and ends its turn.
+- `pair.sh resume <store>` lifts the pause. The master re-reads the skill if
+  it changed, then re-dispatches the paused brief; the sidekick's step log
+  says where to continue.
+
+`pair.sh stop` is the immediate variant, for a sidekick that must stop
+mid-step.
 
 ## Shared rules
 

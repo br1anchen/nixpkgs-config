@@ -29,6 +29,12 @@ usage: pair.sh <command> [args]
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
                                             current report is written. One slot. queue <store> --clear empties it
+  step <store> <sha> <summary> [--resolves n1,n2]
+                                            sidekick: record a committed step of the running brief and go on;
+                                            the master's wait picks it up for review
+  notes <store>                             sidekick, at each step boundary: print blocking review notes still open
+  new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
+  note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
                                             the queued brief to start (after a done report) or the line to end on
   next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
@@ -48,6 +54,9 @@ usage: pair.sh <command> [args]
   scratch <store> <id> [--at SHA] [--remove]
                                             a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
                                             diff applied, or exactly at SHA to recheck a unit while the sidekick works
+  pause <store> [--reason TEXT]             pause at the next safe point: the sidekick stops at its next step or
+                                            progress boundary; dispatch, queue, discuss, consult, answer refuse
+  resume <store>                            lift the pause; re-dispatch the paused brief to continue it
   status <store>                            table of units, reports, advice, reviews, agent states, open scratch
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
@@ -589,21 +598,15 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
 
 $ pair.sh wait <T>/state/pstack/trio/demo --timeout 3000
-state: timeout
-{"error":{"code":"timeout"}}
+state: idle
 report: missing
-check-in: 010-qeight.md  elapsed <N>m of ?m
-progress: none yet
-touched: 2 files, 0 commits since dispatch
-  a.txt
-  b.txt
-outside scope: 2
-  a.txt
-  b.txt
-steers: 0 sent, 0 applied, 0 objected
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent wait demo-sidekick --timeout <MS>
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 20
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 004-qone-review --at <SHA>
 Preparing worktree (detached HEAD <SHA>)
@@ -618,15 +621,160 @@ $ pair.sh scratch <T>/state/pstack/trio/demo 004-qone-review --remove
 removed <T>/state/pstack/trio/demo/scratch/004-qone-review
 [exit 0]
 
+$ pair.sh step <T>/state/pstack/trio/demo <SHA> parser reads v2
+step 1 recorded at <SHA>; go on with the next step. At the next step boundary: pair.sh notes <T>/state/pstack/trio/demo
+[exit 0]
+
+$ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
+state: working
+steps: 1 to review on 012-qsteps
+  1 <SHA> parser reads v2
+range: <SHA>..<SHA>
+next: review the range, then pair.sh new-note <T>/state/pstack/trio/demo 012
+[exit 0]
+  herdr agent get demo-sidekick
+
+$ pair.sh step <T>/state/pstack/trio/demo <SHA> consumers switched
+step 2 recorded at <SHA>; go on with the next step. At the next step boundary: pair.sh notes <T>/state/pstack/trio/demo
+[exit 0]
+
+$ pair.sh new-note <T>/state/pstack/trio/demo 012
+<T>/state/pstack/trio/demo/notes/012-qsteps-n2.md.draft
+[exit 0]
+
+$ pair.sh note <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/notes/012-qsteps-n2.md.draft
+pair.sh: <T>/state/pstack/trio/demo/notes/012-qsteps-n2.md.draft still has unfilled placeholders
+[exit 1]
+
+$ pair.sh note <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/notes/012-qsteps-n2.md.draft
+published <T>/state/pstack/trio/demo/notes/012-qsteps-n2.md (blocking)
+[exit 0]
+
+$ pair.sh new-note <T>/state/pstack/trio/demo 012
+pair.sh: unit 012 is reviewed through step 2 already
+[exit 1]
+
+$ pair.sh notes <T>/state/pstack/trio/demo
+notes: 1 open. Fix each Blocking item as a fixup commit before the next step, then record it: pair.sh step <T>/state/pstack/trio/demo <sha> "<summary>" --resolves <n-ids>
+
+=== n2 (<T>/state/pstack/trio/demo/notes/012-qsteps-n2.md)
+
+- x
+[exit 0]
+
+$ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/012-qsteps.md
+pair.sh: blocking review notes are still open on 012-qsteps:
+<T>/state/pstack/trio/demo/notes/012-qsteps-n2.md
+Resolve each as a fixup commit, record it with pair.sh step <T>/state/pstack/trio/demo <sha> <summary> --resolves <n-ids>, then finish again 7
+[exit 7]
+
+$ pair.sh step <T>/state/pstack/trio/demo <SHA> fixup: board consumer --resolves n2
+step 3 recorded at <SHA>; go on with the next step. At the next step boundary: pair.sh notes <T>/state/pstack/trio/demo
+[exit 0]
+
+$ pair.sh notes <T>/state/pstack/trio/demo
+notes: none open; go on with the next step
+[exit 0]
+
+$ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/012-qsteps.md
+prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/012-qsteps.md
+next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/012-qsteps.md
+[exit 0]
+  herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 20
+  herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/012-qsteps.md
+
+$ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
+state: idle
+report: <T>/state/pstack/trio/demo/reports/012-qsteps.md
+report_status: done
+review-delta: <SHA>..<SHA> (steps reviewed through 2)
+[exit 0]
+  herdr agent get demo-sidekick
+
+$ pair.sh pause <T>/state/pstack/trio/demo --reason skill upgrade
+paused <T>/state/pstack/trio/demo: the sidekick stops at its next step or progress boundary, and dispatch, queue, discuss, consult, and answer refuse until pair.sh resume
+[exit 0]
+
+$ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/013-qnine.md
+pair.sh: the store is paused (skill upgrade): start nothing new; record where the work stands and end your turn, or run pair.sh resume <T>/state/pstack/trio/demo 5
+[exit 5]
+
+$ pair.sh progress <T>/state/pstack/trio/demo half of step one
+<T>/state/pstack/trio/demo/progress/013-qnine.md
+PAUSE: skill upgrade. This is your safe point: commit what is verified, write the report as partial with where you stopped and the next step under Deviations, run pair.sh finish, and end the turn.
+[exit 0]
+
+$ pair.sh step <T>/state/pstack/trio/demo <SHA> step one of nine
+step 1 recorded at <SHA>.
+PAUSE: skill upgrade. This is your safe point: commit what is verified, write the report as partial with where you stopped and the next step under Deviations, run pair.sh finish, and end the turn.
+[exit 0]
+
+$ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/013-qnine.md
+prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/013-qnine.md
+next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/013-qnine.md
+[exit 0]
+  herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 20
+  herdr agent prompt demo-master pstack-trio REPORT <T>/state/pstack/trio/demo/reports/013-qnine.md
+
+$ pair.sh wait <T>/state/pstack/trio/demo --timeout 1500
+state: idle
+paused: skill upgrade (start nothing new; record the next step in gates.md and end your turn)
+report: <T>/state/pstack/trio/demo/reports/013-qnine.md
+report_status: partial
+review-delta: <SHA>..<SHA> (steps reviewed through 0)
+[exit 0]
+  herdr agent get demo-sidekick
+
+$ pair.sh status <T>/state/pstack/trio/demo
+# Trio status
+
+generated: <TS>
+master: demo-master (p0) idle
+sidekick: demo-sidekick (p1) idle
+consultant: demo-consultant (p2) idle
+
+| seq | kind | unit | report | advice | review |
+|---|---|---|---|---|---|
+| 001 | plan | design | agree | agree | agreed |
+| 002 | brief | early | done | none | none |
+| 003 | brief | build | done | answered (c1) | none |
+| 004 | brief | qone | done | none | none |
+| 005 | brief | qtwo | partial | none | none |
+| 006 | brief | qthree | done | none | none |
+| 007 | brief | qfive | done | none | none |
+| 008 | brief | qsix | none | none | none |
+| 009 | brief | qseven | done | none | accept |
+| 010 | brief | qeight | none | none | none |
+| 011 | brief | qfour | none | none | none |
+| 012 | brief | qsteps | done | none | none |
+| 013 | brief | qnine | partial | none | none |
+
+latest report: <T>/state/pstack/trio/demo/reports/013-qnine.md
+latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
+paused: skill upgrade
+[exit 0]
+  herdr agent get demo-master
+  herdr agent read demo-master --source visible --lines 20
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 20
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 20
+
+$ pair.sh resume <T>/state/pstack/trio/demo
+resumed <T>/state/pstack/trio/demo
+[exit 0]
+
 $ pair.sh stop <T>/state/pstack/trio/demo
-sidekick_state: working
+sidekick_state: idle
 consultant_state: idle
-report: <T>/state/pstack/trio/demo/reports/011-stop.md (partial)
+report: <T>/state/pstack/trio/demo/reports/013-stop.md (partial)
 advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 [exit 0]
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
-  herdr agent get demo-sidekick
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 20
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
@@ -661,6 +809,12 @@ usage: pair.sh <command> [args]
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
                                             current report is written. One slot. queue <store> --clear empties it
+  step <store> <sha> <summary> [--resolves n1,n2]
+                                            sidekick: record a committed step of the running brief and go on;
+                                            the master's wait picks it up for review
+  notes <store>                             sidekick, at each step boundary: print blocking review notes still open
+  new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
+  note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
                                             the queued brief to start (after a done report) or the line to end on
   next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
@@ -680,6 +834,9 @@ usage: pair.sh <command> [args]
   scratch <store> <id> [--at SHA] [--remove]
                                             a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
                                             diff applied, or exactly at SHA to recheck a unit while the sidekick works
+  pause <store> [--reason TEXT]             pause at the next safe point: the sidekick stops at its next step or
+                                            progress boundary; dispatch, queue, discuss, consult, answer refuse
+  resume <store>                            lift the pause; re-dispatch the paused brief to continue it
   status <store>                            table of units, reports, advice, reviews, agent states, open scratch
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
@@ -749,6 +906,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -769,9 +932,14 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -798,6 +966,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -818,9 +992,14 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -855,6 +1034,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -875,9 +1060,14 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -904,6 +1094,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -924,9 +1120,14 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -953,6 +1154,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -973,9 +1180,14 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -1002,6 +1214,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -1022,9 +1240,14 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -1051,6 +1274,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -1071,9 +1300,14 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -1100,6 +1334,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -1120,9 +1360,14 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -1149,6 +1394,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -1169,9 +1420,14 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -1198,6 +1454,12 @@ may write:
 must not write:
 - x
 
+## Steps
+
+x
+
+1. x
+
 ## Context
 
 - x
@@ -1218,9 +1480,134 @@ x
 
 ## Report
 
-Append one progress line per completed todolist step and per change of
-approach with `pair.sh progress <T>/state/pstack/trio/demo "<line>"`; the master reads only
-that log between check-ins. Write the report file named above using the
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
+report template in the pstack-trio skill, then run
+`~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
+what it prints: start the queued brief it names, in this turn, or end the turn
+with the REPORT line it gives.
+--- ./briefs/012-qsteps.md
+# Brief 012: qsteps
+
+playbook: investigation
+timebox: x
+commit: x
+plan: none
+standing: <T>/state/pstack/trio/demo/standing-orders.md
+report: <T>/state/pstack/trio/demo/reports/012-qsteps.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Steps
+
+x
+
+1. x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
+report template in the pstack-trio skill, then run
+`~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
+what it prints: start the queued brief it names, in this turn, or end the turn
+with the REPORT line it gives.
+--- ./briefs/013-qnine.md
+# Brief 013: qnine
+
+playbook: investigation
+timebox: x
+commit: x
+plan: none
+standing: <T>/state/pstack/trio/demo/standing-orders.md
+report: <T>/state/pstack/trio/demo/reports/013-qnine.md
+
+## Goal
+
+x
+
+## Scope
+
+may write:
+- x
+
+must not write:
+- x
+
+## Steps
+
+x
+
+1. x
+
+## Context
+
+- x
+
+## Acceptance
+
+- x
+
+## Verify
+
+```bash
+x
+```
+
+## Forbidden
+
+- x
+
+## Report
+
+Work the Steps in order. End each in a commit, record it with
+`pair.sh step <T>/state/pstack/trio/demo <sha> "<what it does>"`, and go straight on; do not
+wait for review. At each step boundary run `pair.sh notes <T>/state/pstack/trio/demo` and fix
+any open blocking note first, as a fixup commit recorded with `--resolves`.
+Append one progress line per change of approach with
+`pair.sh progress <T>/state/pstack/trio/demo "<line>"`. When any `pair.sh` command prints
+`PAUSE:`, stop at that safe point: commit what is verified and report
+`partial` with the next step. Write the report file named above using the
 report template in the pstack-trio skill, then run
 `~/.agents/skills/pstack-trio/scripts/pair.sh finish <T>/state/pstack/trio/demo <report path>` and do
 what it prints: start the queued brief it names, in this turn, or end the turn
@@ -1423,13 +1810,55 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	wake	009-qseven	checkin
 <TS>	<EPOCH>	master	send-brief	010-qeight	
 <TS>	<EPOCH>	master	wake	010-qeight	checkin
-<TS>	<EPOCH>	master	wake	010-qeight	checkin
+<TS>	<EPOCH>	master	send-brief	011-qfour	
+<TS>	<EPOCH>	master	wake	011-qfour	report:done
+<TS>	<EPOCH>	master	wake	011-qfour	missing
+<TS>	<EPOCH>	master	send-brief	012-qsteps	
+<TS>	<EPOCH>	master	wake	012-qsteps	checkin
+<TS>	<EPOCH>	sidekick	step	012-qsteps	1:<SHA>
+<TS>	<EPOCH>	master	wake	012-qsteps	steps:1
+<TS>	<EPOCH>	sidekick	step	012-qsteps	2:<SHA>
+<TS>	<EPOCH>	master	note	012-qsteps	2:blocking
+<TS>	<EPOCH>	sidekick	step	012-qsteps	3:<SHA>
+<TS>	<EPOCH>	sidekick	report	012-qsteps	done
+<TS>	<EPOCH>	master	wake	012-qsteps	report:done
+<TS>	<EPOCH>	master	send-brief	013-qnine	
+<TS>	<EPOCH>	master	wake	013-qnine	checkin
+<TS>	<EPOCH>	master	pause	-	skill upgrade
+<TS>	<EPOCH>	sidekick	progress	013-qnine	
+<TS>	<EPOCH>	sidekick	step	013-qnine	1:<SHA>
+<TS>	<EPOCH>	sidekick	report	013-qnine	partial
+<TS>	<EPOCH>	master	wake	013-qnine	report:partial
+<TS>	<EPOCH>	master	resume	-	
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	send-stop	-	consultant
+--- ./followups.md
+- [012-qsteps n2] x
 --- ./gates.md
 # Gates
 
 One entry per open question for the human: question, options, default on no answer.
+--- ./notes/012-qsteps-n2.md
+# Note 012-qsteps n2
+
+unit: 012-qsteps
+through: step 2
+range: <SHA>..<SHA>
+status: blocking
+
+<Review the range with `git diff <SHA>..<SHA>`, or `git show` per step. Blocking
+is only what would make the unit wrong to land: wrong behaviour, a missed
+consumer of a changed value, data or schema safety, a rollback hazard, a
+broken contract, or a test that does not test its claim. Everything else is a
+follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
+
+## Blocking
+
+- x
+
+## Follow-ups
+
+- x
 --- ./pair.json
 {
   "slug": "demo",
@@ -1462,12 +1891,12 @@ One entry per open question for the human: question, options, default on no answ
   "scratch": [],
   "pending": [],
   "dispatch": {
-    "brief": "<T>/state/pstack/trio/demo/briefs/010-qeight.md",
+    "brief": "<T>/state/pstack/trio/demo/briefs/013-qnine.md",
     "at": "<TS>",
     "head": "<SHA>"
   },
   "sent": {
-    "file": "<T>/state/pstack/trio/demo/briefs/010-qeight.md",
+    "file": "<T>/state/pstack/trio/demo/briefs/013-qnine.md",
     "kind": "BRIEF",
     "at": "<TS>",
     "epoch": <EPOCH>
@@ -1527,6 +1956,13 @@ x
 x
 --- ./progress/003-build.md
 <HM> step one done; next: two
+--- ./progress/012-qsteps.md
+<HM> step 1 <SHA>: parser reads v2
+<HM> step 2 <SHA>: consumers switched
+<HM> step 3 <SHA>: fixup: board consumer
+--- ./progress/013-qnine.md
+<HM> half of step one
+<HM> step 1 <SHA>: step one of nine
 --- ./reports/000-ready.md
 # ready
 
@@ -1575,7 +2011,15 @@ status: done
 # Stop
 
 status: partial
---- ./reports/011-stop.md
+--- ./reports/012-qsteps.md
+# Report
+
+status: done
+--- ./reports/013-qnine.md
+# Report
+
+status: partial
+--- ./reports/013-stop.md
 # stop
 
 status: partial
@@ -1621,11 +2065,18 @@ consultant: demo-consultant (p2) idle
 | 003 | brief | build | done | answered (c1) | none |
 | 004 | brief | qone | done | none | none |
 | 005 | brief | qtwo | partial | none | none |
-| 006 | brief | qthree | none | none | none |
+| 006 | brief | qthree | done | none | none |
+| 007 | brief | qfive | done | none | none |
+| 008 | brief | qsix | none | none | none |
+| 009 | brief | qseven | done | none | accept |
+| 010 | brief | qeight | none | none | none |
+| 011 | brief | qfour | none | none | none |
+| 012 | brief | qsteps | done | none | none |
+| 013 | brief | qnine | partial | none | none |
 
-latest report: <T>/state/pstack/trio/demo/reports/005-qtwo.md
+latest report: <T>/state/pstack/trio/demo/reports/013-qnine.md
 latest advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md
-queued: <T>/state/pstack/trio/demo/briefs/006-qthree.md
+paused: skill upgrade
 --- ./steers/003-build-s1.md
 # Steer 003-s1: build
 
@@ -1710,6 +2161,12 @@ the step. Agree: append
 the brief. Object: write `<T>/state/pstack/trio/demo/reports/003-build-s3.md` from the
 steer response template, run `pair.sh finish`, and end the turn; the master's answer arrives
 as the next STEER. List this steer under Deviations in the final report.
+--- ./steps/012-qsteps.tsv
+1	<SHA>	<EPOCH>		parser reads v2
+2	<SHA>	<EPOCH>		consumers switched
+3	<SHA>	<EPOCH>	n2	fixup: board consumer
+--- ./steps/013-qnine.tsv
+1	<SHA>	<EPOCH>		step one of nine
 
 == git status
  M a.txt

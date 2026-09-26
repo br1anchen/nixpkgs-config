@@ -20,10 +20,19 @@ carries. "none" otherwise.>
 <what the master read and ran: diff ranges, commands with outcome, which
 review skills were used>
 
-## Findings
+## Blocking
 
-<`file:line`, what is wrong, why it matters, and the expected behaviour. One
-per line. Empty for accept.>
+<Only what makes the unit wrong to land: wrong behaviour, a missed consumer of
+a changed value, data or schema safety, a rollback hazard, a broken contract,
+a test that does not test its claim. `file:line`, what is wrong, the expected
+behaviour. One per line; empty for accept. Only these make a revise. With
+steps, review the report's review-delta only; the notes covered the rest.>
+
+## Follow-ups
+
+<Everything else worth doing, one per line: naming, docs wording, cleanups,
+extra tests. They go to followups.md for a later brief or an issue and are
+never a reason to revise. "none" when empty.>
 
 ## Overruled
 

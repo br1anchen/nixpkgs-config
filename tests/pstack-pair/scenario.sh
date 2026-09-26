@@ -193,7 +193,7 @@ status "demo-sidekick" idle devin
 q8="$("$P" new-brief "$store" qeight)"; fill "$q8"; set_hdr "$q8" playbook investigation; set_hdr "$q8" plan none
 run dispatch "$store" "$q8" --timeout 1000
 # a settle that holds with no report ends the wait at its interval
-rm -f "$FAKE/brief-working"
+rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 q4="$("$P" new-brief "$store" qfour)"; fill "$q4"; set_hdr "$q4" playbook investigation; set_hdr "$q4" plan none
 "$P" dispatch "$store" "$q4" --timeout 1000 >/dev/null 2>&1; : >"$FAKE/calls.log"
 rm -f "$store/reports/$(basename "$q4")"
@@ -203,6 +203,50 @@ rid="$(basename "$q1" .md)-review"
 run scratch "$store" "$rid" --at "$(git rev-parse HEAD)"
 run scratch "$store" 099-bad-review --at deadbeef
 run scratch "$store" "$rid" --remove
+# draft-PR review: the sidekick commits each step and goes on; a wait
+# returns the steps not yet reviewed; the master publishes a note; blocking
+# notes reach the sidekick at its next step boundary, and finish refuses a
+# done report while one is open. The final wait gives only the delta.
+qs="$("$P" new-brief "$store" qsteps)"; fill "$qs"; set_hdr "$qs" playbook investigation; set_hdr "$qs" plan none
+qn="$(basename "$qs" | cut -c1-3)"
+status "demo-sidekick" idle devin; : >"$FAKE/brief-working"
+"$P" dispatch "$store" "$qs" --timeout 1000 >/dev/null 2>&1; : >"$FAKE/calls.log"
+commit() { git -c user.email=t@t -c user.name=t commit -q --allow-empty -m "$1"; git rev-parse HEAD; }
+s1="$(commit "step one")"
+run step "$store" "$s1" "parser reads v2"
+run wait "$store" --timeout 1500
+s2="$(commit "step two")"
+run step "$store" "$s2" "consumers switched"
+run new-note "$store" "$qn"
+n2="$store/notes/$(basename "$qs" .md)-n2.md.draft"
+run note "$store" "$n2"
+fill "$n2"; set_hdr "$n2" status blocking
+run note "$store" "$n2"
+run new-note "$store" "$qn"
+run notes "$store"
+printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$qs")"
+run finish "$store" "$store/reports/$(basename "$qs")"
+s3="$(commit "fix n2")"
+run step "$store" "$s3" "fixup: board consumer" --resolves n2
+run notes "$store"
+run finish "$store" "$store/reports/$(basename "$qs")"
+rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
+run wait "$store" --timeout 1500
+# pause at a safe point: the master starts nothing new, the sidekick hears it
+# at its next step or progress boundary, reports partial, and ends the turn
+q9="$("$P" new-brief "$store" qnine)"; fill "$q9"; set_hdr "$q9" playbook investigation; set_hdr "$q9" plan none
+status "demo-sidekick" idle devin; : >"$FAKE/brief-working"
+"$P" dispatch "$store" "$q9" --timeout 1000 >/dev/null 2>&1; : >"$FAKE/calls.log"
+run pause "$store" --reason "skill upgrade"
+run queue "$store" "$q9"
+run progress "$store" "half of step one"
+run step "$store" "$(commit "step one of nine")" "step one of nine"
+printf '# Report\n\nstatus: partial\n' >"$store/reports/$(basename "$q9")"
+run finish "$store" "$store/reports/$(basename "$q9")"
+rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
+run wait "$store" --timeout 1500
+run status "$store"
+run resume "$store"
 run stop "$store"
 run bogus
 # metrics over a known timeline: brief 002 runs 10m, the sidekick idles 4m,

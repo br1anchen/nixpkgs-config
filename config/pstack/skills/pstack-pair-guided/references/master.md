@@ -30,7 +30,8 @@ is yours alone.
    `architect` (parallel design exploration) and `how` over the affected
    subsystem yourself, then `pair.sh new-plan <store> <slug>` and fill the plan
    template: goal, the chosen design, the alternatives with their pros and
-   cons, one step per future brief with its check, verification, risks, open
+   cons, one block per future brief, each a slice that lands on its own and is
+   split into commit-sized steps with their checks, verification, risks, open
    questions. Send it with `pair.sh discuss <store> <plan>`. Exit 0 prints the
    sidekick's response. Read its Trade-offs brainstorm and its status. `object`
    means you either revise (a new plan round via `new-plan`, every objection
@@ -56,13 +57,18 @@ is yours alone.
    request`, add a `gates.md` entry, end your turn, and set `approval: human`
    only after the human approves. If the human redirects, that is a new plan
    round. Dispatch checks approval against scale.
-6. **Brief.** `pair.sh new-brief <store> <unit-slug>` and fill every field. Set `commit: yes` for a unit that writes the tree, so the review and the
-   next unit start from a commit, and put the landing gate's fast checks
-   (format, lint, typecheck) in its Verify, so landing never fails on them. Name the pstack playbook the sidekick runs and put
-   the agreed plan's path on the `plan:` line; dispatch refuses implementation
-   playbooks without one. Put prior review findings in Context by path. A field
-   you cannot fill is a unit you have not scoped, so scope it before dispatch.
-   Dispatch refuses a brief with unfilled placeholders.
+6. **Brief.** `pair.sh new-brief <store> <unit-slug>` and fill every field. Set
+   `commit: yes` for a unit that writes the tree, so the review and the next
+   unit start from a commit, and put the landing gate's fast checks (format,
+   lint, typecheck) in its Verify, so landing never fails on them. Copy the
+   plan's steps for this slice into Steps, twenty to forty-five minutes each:
+   you review each one's commit as it lands (see Draft-PR review). Verify runs
+   the targeted tests; the full test battery runs once, in the landing brief.
+   Name the pstack playbook the sidekick runs and put the agreed plan's path on
+   the `plan:` line; dispatch refuses implementation playbooks without one. Put
+   prior review findings in Context by path. A field you cannot fill is a unit
+   you have not scoped, so scope it before dispatch. Dispatch refuses a brief
+   with unfilled placeholders.
 7. **Dispatch and check in.** `pair.sh dispatch <store> <brief> [--every MIN]`.
    Exit 0 prints the report path. Exit 3 means blocked: read the pane with
    `herdr agent read <name> --source visible --lines 60`, then follow the
@@ -71,11 +77,15 @@ is yours alone.
    Check-ins and steers), draft the next unit's brief and queue it (see
    Queueing), then `pair.sh wait <store> [--every MIN]` again. Exit 0 with
    `running:` means the sidekick already took the queued brief; review the
-   finished unit while it works. Exit 4 without a digest means the sidekick
-   settled without a report; see Recovery. A steer is the only message that may
-   reach a working sidekick; a second brief never does, it waits in the queue.
-   `report_status: asking` means the sidekick paused on a question; see Asks
-   below.
+   finished unit while it works. Exit 0 with `steps:` means steps landed that
+   no note covers: read the range it prints (`git diff`), run `pair.sh new-note
+   <store> <NNN>`, fill Blocking and Follow-ups, publish it with `pair.sh note
+   <store> <draft>`, and wait again. The sidekick picks the note up at its next
+   step boundary; never hold a note for the end. Exit 4 without a digest means
+   the sidekick settled without a report; see Recovery. A steer is the only
+   message that may reach a working sidekick; a second brief never does, it
+   waits in the queue. `report_status: asking` means the sidekick paused on a
+   question; see Asks below.
 8. **Review.** Read the report, then read the unit's commit yourself: `git show
    <head>` for the report's head, or `git diff` and `git log` from the head the
    brief recorded. Do it while the sidekick works on the queued unit. Rerun
@@ -83,20 +93,26 @@ is yours alone.
    the shared tree: the Verify commands whose evidence under Ran you doubt and
    the one behind the riskiest claim, not the whole gate by default, since
    every run competes with the sidekick for the machine. Remove the scratch
-   after the verdict. Route through the review skills the change warrants:
-   `blast-radius` for a small diff you distrust, `no-comments` before
-   accepting, `interrogate` for a contested design. Write
-   `reviews/NNN-<slug>.md` from the review template with one verdict. Log one
-   `pair.sh log` row per verdict.
+   after the verdict. When the unit has steps, the report comes with
+   `review-delta:`: read only that range, since the notes covered the rest and
+   `finish` made sure their blocking items were resolved. Split what you find
+   into Blocking and Follow-ups as the review template says; only a blocking
+   finding makes a revise, and follow-ups go to `followups.md`. Route through
+   the review skills the change warrants: `blast-radius` for a small diff you
+   distrust, `no-comments` before accepting, `interrogate` for a contested
+   design. Write `reviews/NNN-<slug>.md` from the review template with one
+   verdict. Log one `pair.sh log` row per verdict.
 9. **Loop.** `revise` becomes the next brief with the review path in Context;
    when the sidekick already took a queued unit, queue the revise behind it,
-   and steer the running unit only when the findings invalidate it. `accept`
-   moves to the next unit. A finding that changes the design, not just one
-   unit, goes back through step 4 before the next brief. Landing (commit shaping, push, PR through the Opening a PR playbook) is a
-   brief like any other, gated by the standing orders. Its Scope lets the
-   sidekick fix mechanical gate failures (formatting, lint autofixes) and
-   rerun the gate, up to twice, before it reports `failed`; a failure that
-   needs judgment still comes back to you.
+   and steer the running unit only when the findings invalidate it. A unit's
+   third revise is not sent: accept what is safe with the rest as follow-ups,
+   or take the unit back to a plan round. `accept` moves to the next unit. A
+   finding that changes the design, not just one unit, goes back through step 4
+   before the next brief. Landing (commit shaping, push, PR through the Opening
+   a PR playbook) is a brief like any other, gated by the standing orders. Its
+   Scope lets the sidekick fix mechanical gate failures (formatting, lint
+   autofixes) and rerun the gate, up to twice, before it reports `failed`; a
+   failure that needs judgment still comes back to you.
 10. **Close.** When the predicate holds on the real artifact, run `pair.sh
     status <store>` and write the reply. Leave the sidekick pane open unless
     the human asked you to close it; `pair.sh stop <store>` makes it pause
@@ -130,15 +146,17 @@ only if the unit is nearly done, otherwise stop the unit and re-plan.
 You are the driver in the pairing sense: you look up on a cadence, not at
 every keystroke. The default interval is nine minutes; pass `--every MIN` to
 change it, and go no shorter than a quarter of the timebox. Between check-ins
-you draft and queue the next brief, review a finished unit at its commit, or
-wait. You do not read the pane.
+you review steps as they land, draft and queue the next brief, review a
+finished unit at its commit, or wait. You do not read the pane.
 
 Read a digest for direction only, in this order:
 
 1. `outside scope`: the sidekick is writing where the brief forbids.
-2. Progress lines naming an approach the agreed plan did not choose, or a
-   step the plan skipped.
-3. `elapsed` past the timebox with no Verify step in the log.
+2. Progress lines naming an approach the agreed plan did not choose, or a step
+   the plan skipped.
+3. `elapsed` past the timebox: decide now and log it. Either stop the unit so
+   it reports `partial` with its verified steps committed, or extend the
+   timebox once, with the reason. Never let it run on unexamined.
 4. `STALE`, no progress line for a whole interval: read the pane once with
    `herdr agent read <name> --source visible --lines 40` to tell stuck from
    quiet.
@@ -146,7 +164,7 @@ Read a digest for direction only, in this order:
 Steer when the answer to "if the sidekick finishes as it is going, would my
 review say revise?" is yes and one sentence now saves a unit later. Do not
 steer for naming, style, test shape, or anything the review catches at the
-end; those go in the review. `pair.sh new-steer <store> <NNN>` creates the
+end; those go in a note's Follow-ups. `pair.sh new-steer <store> <NNN>` creates the
 file; fill Direction and Keep, then `pair.sh steer <store> <path>`. It returns
 at once. The sidekick's harness hands the steer over between tool calls, so
 it acts within one tool call, not at the end of the step; the ack shows in
@@ -179,6 +197,15 @@ so a report written while you were busy is never skipped; `running:` names
 the brief the sidekick moved on to, `queued:` one still waiting. A queued
 brief behind a report that was not `done` waits for you: dispatch it or clear
 it.
+
+## Pausing
+
+When a wait prints `paused:` or a command refuses because the store is
+paused, finish the step you are in and start nothing new. Write where the
+work stands and the exact next step in `gates.md`, log a row, and end your
+turn. After `pair.sh resume`, re-read this skill if it changed, have the
+sidekick re-read its role file, and re-dispatch the paused brief with its
+partial report in Context.
 
 ## Approval dialogs
 

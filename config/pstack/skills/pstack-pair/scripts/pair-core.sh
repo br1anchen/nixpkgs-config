@@ -237,15 +237,20 @@ file_mtime() {
 # report shares the unit's number but answers a STOP, and one written late,
 # after a re-dispatch, is not the reply to the brief.
 fresh_reply() {
-	local sent unit epoch f r="" best=0 t
+	local sent unit epoch f r="" best=-1 t rank key
 	sent="$(field "$1" '.sent.file // empty')"
 	[ -n "$sent" ] || return 1
 	unit="$(basename "$sent" .md | sed -E 's/-a[0-9]+$//')"
 	epoch="$(field "$1" '.sent.epoch // 0')"
+	# Mtimes are whole seconds, so a tie goes to the unit's own report, then to
+	# the highest-numbered objection or ask: the one written last.
 	for f in "$1/reports/$unit.md" "$1/reports/$unit"-[sq][0-9]*.md; do
 		[ -f "$f" ] || continue
 		t="$(file_mtime "$f")"
-		[ "$t" -ge "$epoch" ] && [ "$t" -ge "$best" ] && { best="$t"; r="$f"; }
+		[ "$t" -ge "$epoch" ] || continue
+		rank="$(basename "$f" .md | sed -nE 's/.*-[sq]([0-9]+)$/\1/p')"
+		key=$(( t * 1000 + ${rank:-999} ))
+		[ "$key" -gt "$best" ] && { best="$key"; r="$f"; }
 	done
 	[ -n "$r" ] || return 1
 	printf '%s\n' "$r"
@@ -325,6 +330,12 @@ checkin() {
 	objected="$(ls "$store"/reports/"$seq"-*-s[0-9]*.md 2>/dev/null | wc -l || true)"
 	[ -f "$prog" ] && applied="$(grep -cE ' steer s[0-9]+ applied' "$prog" || true)"
 	printf 'steers: %d sent, %d applied, %d objected\n' "$sent" "${applied:-0}" "$objected"
+	local sfile
+	sfile="$(steps_file "$store" "$brief")"
+	if [ -s "$sfile" ]; then
+		printf 'steps: %d committed, reviewed through %s, %d blocking notes open\n' "$(grep -c . "$sfile")" \
+			"$(noted_through "$store" "$brief")" "$(open_notes "$store" "$brief" | grep -c . || true)"
+	fi
 }
 
 # Variant hook: further gates on an agreed plan, called with the store, the
@@ -351,6 +362,50 @@ require_agreed_plan() {
 	plan_gate_extra "$store" "$plan" "$review" "$seq"
 }
 
+# A pause asked for at the next safe point: the sidekick stops at its next
+# step or progress boundary with its work committed, and the master starts
+# nothing new. $store/paused holds the reason; pair.sh resume removes it.
+paused_reason() {
+	[ -f "$1/paused" ] && head -1 "$1/paused"
+}
+
+require_not_paused() {
+	local reason
+	reason="$(paused_reason "$1")" || return 0
+	die "the store is paused ($reason): start nothing new; record where the work stands and end your turn, or run pair.sh resume $1" 5
+}
+
+# Printed by the sidekick's step, notes, progress, and finish commands, so a
+# pause reaches it at the next boundary without a message.
+pause_notice() {
+	local reason
+	reason="$(paused_reason "$1")" || return 0
+	printf 'PAUSE: %s. This is your safe point: commit what is verified, write the report as partial with where you stopped and the next step under Deviations, run pair.sh finish, and end the turn.\n' "$reason"
+}
+
+cmd_pause() {
+	[ $# -ge 1 ] || die "usage: pair.sh pause <store> [--reason TEXT]"
+	local store="$1" reason="paused by the human"
+	shift
+	case "${1:-}" in
+	--reason) reason="$2" ;;
+	"") ;;
+	*) die "unknown option $1" ;;
+	esac
+	pair_file "$store" >/dev/null
+	printf '%s\n' "$reason" >"$store/paused"
+	event "$store" master pause - "$reason"
+	printf 'paused %s: the sidekick stops at its next step or progress boundary, and dispatch, queue, discuss, consult, and answer refuse until pair.sh resume\n' "$store"
+}
+
+cmd_resume() {
+	[ $# -eq 1 ] || die "usage: pair.sh resume <store>"
+	pair_file "$1" >/dev/null
+	rm -f "$1/paused"
+	event "$1" master resume -
+	printf 'resumed %s\n' "$1"
+}
+
 queued_brief() {
 	# $1 store: the brief waiting in the queue, or empty.
 	[ -f "$1/queue" ] && cat "$1/queue" || true
@@ -369,10 +424,84 @@ queue_note() {
 	return 0
 }
 
+# Draft-PR review. The sidekick commits each step of a brief and records it
+# with pair.sh step, then goes on without waiting. A wait returns each step
+# the master has not reviewed; the master reviews that diff and publishes a
+# note: blocking items the sidekick resolves at its next step boundary, and
+# follow-ups that go to followups.md instead of widening the unit. The final
+# review then reads only the diff since the last note.
+
+# steps/<unit>.tsv, one row per step: k, sha, epoch, notes it resolves, summary.
+steps_file() {
+	printf '%s/steps/%s.tsv\n' "$1" "$(basename "$2" .md)"
+}
+
+# The step a unit's notes have reviewed through: the highest n<k> published.
+noted_through() {
+	local f k max=0
+	for f in "$1"/notes/"$(basename "$2" .md)"-n[0-9]*.md; do
+		[ -e "$f" ] || continue
+		k="$(basename "$f" .md | sed -E 's/.*-n([0-9]+)$/\1/')"
+		[ "$k" -gt "$max" ] && max="$k"
+	done
+	printf '%s\n' "$max"
+}
+
+# The commit a unit's next review starts from: the last noted step, or the
+# head the brief was dispatched at.
+review_base() {
+	local through file
+	through="$(noted_through "$1" "$2")"
+	file="$(steps_file "$1" "$2")"
+	if [ "$through" -gt 0 ] && [ -f "$file" ]; then
+		awk -F '\t' -v k="$through" '$1 == k {print $2}' "$file"
+	else
+		field "$1" '.dispatch.head // empty'
+	fi
+}
+
+# Steps of the running brief past the last note, as "k<TAB>sha<TAB>summary".
+unreviewed_steps() {
+	local brief file through
+	brief="$(field "$1" '.dispatch.brief // empty')"
+	[ -n "$brief" ] || return 1
+	file="$(steps_file "$1" "$brief")"
+	[ -s "$file" ] || return 1
+	through="$(noted_through "$1" "$brief")"
+	awk -F '\t' -v k="$through" '$1 > k {print $1 "\t" $2 "\t" $5}' "$file" | grep . || return 1
+}
+
+# Blocking notes on a unit that no step has resolved yet, one path per line.
+open_notes() {
+	local unit f id file
+	unit="$(basename "$2" .md)"
+	file="$(steps_file "$1" "$unit")"
+	for f in "$1"/notes/"$unit"-n[0-9]*.md; do
+		[ -e "$f" ] || continue
+		[ "$(header_field "$f" status)" = blocking ] || continue
+		id="$(basename "$f" .md | sed -E 's/.*-(n[0-9]+)$/\1/')"
+		if [ -f "$file" ] && awk -F '\t' -v id="$id" '{n = split($4, r, ","); for (i = 1; i <= n; i++) if (r[i] == id) found = 1} END {exit !found}' "$file"; then
+			continue
+		fi
+		printf '%s\n' "$f"
+	done
+}
+
+# With a report on a unit that has steps: the one diff the final review reads.
+review_delta() {
+	local store="$1" report="$2" unit file head
+	unit="$(basename "$report" .md)"
+	file="$(steps_file "$store" "$unit")"
+	[ -s "$file" ] || return 0
+	head="$(header_field "$report" head | grep -oE '^[0-9a-f]{7,40}' || true)"
+	[ -n "$head" ] || head="$(tail -1 "$file" | cut -f2)"
+	printf 'review-delta: %s..%s (steps reviewed through %s)\n' "$(review_base "$store" "$unit" | cut -c1-9)" "${head:0:9}" "$(noted_through "$store" "$unit")"
+}
+
 finish_wait() {
 	# $1 store, $2 herdr exit code, $3 herdr stdout, $4 herdr stderr,
-	# $5 "reply" (the report in $6, empty when none landed) or "any" (the
-	# newest report at all)
+	# $5 "reply" (the report in $6, empty when none landed), "steps" (steps
+	# to review, none landed yet), or "any" (the newest report at all)
 	local store="$1" code="$2" out="$3" err="$4" mode="$5" report="${6:-}" state
 	if [ "$code" -ne 0 ]; then
 		state="$(printf '%s' "$err" | jq -r '.error.code // .error // "herdr_error"' 2>/dev/null || printf 'herdr_error')"
@@ -382,18 +511,31 @@ finish_wait() {
 		state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
 		printf 'state: %s\n' "$state"
 	fi
+	paused_reason "$store" >/dev/null && printf 'paused: %s (start nothing new; record the next step in gates.md and end your turn)\n' "$(paused_reason "$store")"
 	if [ -n "$report" ] || { [ "$mode" = any ] && report="$(latest_report "$store")"; }; then
 		mark_seen "$store" "$report"
 		printf 'report: %s\n' "$report"
 		printf 'report_status: %s\n' "$(header_field "$report" status)"
 		event "$store" master wake "$report" "report:$(header_field "$report" status)"
 		queue_note "$store" "$report"
+		review_delta "$store" "$report"
 		[ "$state" = blocked ] && exit 3
 		exit 0
 	fi
-	printf 'report: missing\n'
 	local running
 	running="$(field "$store" '.dispatch.brief // empty')"
+	if [ "$mode" = steps ]; then
+		local rows first
+		rows="$(unreviewed_steps "$store")"
+		first="$(printf '%s\n' "$rows" | head -1 | cut -f1)"
+		printf 'steps: %s to review on %s\n' "$(printf '%s\n' "$rows" | grep -c .)" "$(basename "$running" .md)"
+		printf '%s\n' "$rows" | awk -F '\t' '{printf "  %s %s %s\n", $1, substr($2, 1, 9), $3}'
+		printf 'range: %s..%s\n' "$(review_base "$store" "$running" | cut -c1-9)" "$(printf '%s\n' "$rows" | tail -1 | cut -f2 | cut -c1-9)"
+		printf 'next: review the range, then pair.sh new-note %s %s\n' "$store" "$(basename "$running" | cut -c1-3)"
+		event "$store" master wake "$running" "steps:$first"
+		exit 0
+	fi
+	printf 'report: missing\n'
 	case "$state" in
 	blocked) event "$store" master wake "$running" blocked; exit 3 ;;
 	esac
@@ -719,7 +861,7 @@ send_and_wait() {
 	prompt_sidekick "$name" "$PAIR_SKILL $kind $file"
 	local ready
 	wait_for_reply "$store" "$name" "$timeout"
-	finish_wait "$store" "$code" "$out" "$err" reply "$ready"
+	finish_wait "$store" "$code" "$out" "$err" "$(reply_mode)" "$ready"
 }
 
 # Parse the options every waiting command shares; sets $timeout and the
@@ -748,6 +890,7 @@ cmd_discuss() {
 	wait_opts "$@"
 	no_extra_opts
 	[ -f "$plan" ] || die "plan not found: $plan"
+	require_not_paused "$store"
 	send_and_wait "$store" "$(readlink -f "$plan")" PLAN "$timeout"
 }
 
@@ -760,6 +903,7 @@ cmd_dispatch() {
 	no_extra_opts
 	[ -f "$brief" ] || die "brief not found: $brief"
 	brief="$(readlink -f "$brief")"
+	require_not_paused "$store"
 	require_agreed_plan "$store" "$brief"
 	local queued
 	queued="$(queued_brief "$store")"
@@ -781,8 +925,10 @@ busy_poll_s="${PAIR_BUSY_POLL:-10}"
 # code, out, err, and ready (the report, or empty) for finish_wait.
 wait_for_reply() {
 	local store="$1" name="$2" timeout="$3" deadline slice settled_at="" errfile state
+	steps_due=0
 	deadline=$(( $(date +%s) + timeout / 1000 ))
 	errfile="$(mktemp)"
+	steps_due=0
 	while :; do
 		if ready="$(pending_report "$store")" || ready="$(fresh_reply "$store")"; then
 			code=0
@@ -791,6 +937,13 @@ wait_for_reply() {
 			break
 		fi
 		ready=""
+		if unreviewed_steps "$store" >/dev/null; then
+			steps_due=1
+			code=0
+			out="$(herdr agent get "$name" 2>/dev/null || true)"
+			: >"$errfile"
+			break
+		fi
 		slice=$(( (deadline - $(date +%s)) * 1000 ))
 		[ "$slice" -le 30000 ] || slice=30000
 		[ "$slice" -ge 1000 ] || slice=1000
@@ -799,7 +952,7 @@ wait_for_reply() {
 		if [ "$code" -eq 0 ]; then
 			state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)"
 			[ "$state" != blocked ] || break
-			{ pending_report "$store" >/dev/null || fresh_reply "$store" >/dev/null; } && continue
+			{ pending_report "$store" >/dev/null || fresh_reply "$store" >/dev/null || unreviewed_steps "$store" >/dev/null; } && continue
 			if pane_busy "$name"; then
 				# herdr says settled, the pane says working: believe the pane.
 				settled_at=""
@@ -819,6 +972,10 @@ wait_for_reply() {
 	done
 	err="$(cat "$errfile")"
 	rm -f "$errfile"
+}
+
+reply_mode() {
+	if [ -z "$ready" ] && [ "${steps_due:-0}" = 1 ]; then printf 'steps\n'; else printf 'reply\n'; fi
 }
 
 # Sends one message and confirms the sidekick took it. A narrow pane can hide
@@ -845,7 +1002,7 @@ cmd_wait() {
 	wait_opts "$@"
 	no_extra_opts
 	wait_for_reply "$store" "$(field "$store" .sidekick.name)" "$timeout"
-	finish_wait "$store" "$code" "$out" "$err" reply "$ready"
+	finish_wait "$store" "$code" "$out" "$err" "$(reply_mode)" "$ready"
 }
 
 # The master's next brief, held for the sidekick to take the moment its
@@ -867,6 +1024,7 @@ cmd_queue() {
 	esac
 	[ -f "$brief" ] || die "brief not found: $brief"
 	brief="$(readlink -f "$brief")"
+	require_not_paused "$store"
 	require_filled "$brief"
 	require_agreed_plan "$store" "$brief"
 	queued="$(queued_brief "$store")"
@@ -882,6 +1040,102 @@ cmd_queue() {
 	mv "$store/queue.tmp" "$store/queue"
 	event "$store" master queue "$brief"
 	printf 'queued %s; the sidekick takes it when its current report is written\n' "$brief"
+}
+
+# The sidekick records a committed step and goes straight on; the master's
+# wait picks it up for review. --resolves names the notes the step fixes.
+cmd_step() {
+	[ $# -ge 3 ] || die "usage: pair.sh step <store> <sha> <summary> [--resolves n1,n2]"
+	local store="$1" sha="$2" summary="$3" resolves="" brief file full k
+	shift 3
+	case "${1:-}" in
+	--resolves) resolves="$2" ;;
+	"") ;;
+	*) die "unknown option $1" ;;
+	esac
+	[[ "$resolves" =~ ^(n[0-9]+(,n[0-9]+)*)?$ ]] || die "--resolves takes note ids like n2,n3"
+	pair_file "$store" >/dev/null
+	brief="$(field "$store" '.dispatch.brief // empty')"
+	[ -n "$brief" ] || die "no brief dispatched; a step belongs to a running brief"
+	full="$(git -C "$(field "$store" .cwd)" rev-parse --verify --quiet "$sha^{commit}")" || die "not a commit: $sha; commit the step first"
+	mkdir -p "$store/steps" "$store/progress"
+	file="$(steps_file "$store" "$brief")"
+	k=1
+	[ -f "$file" ] && k=$(( $(grep -c . "$file") + 1 ))
+	printf '%s\t%s\t%s\t%s\t%s\n' "$k" "$full" "$(date +%s)" "$resolves" "$(printf '%s' "$summary" | tr '\t\n' '  ')" >>"$file"
+	printf '%s step %s %s: %s\n' "$(date +%H:%M)" "$k" "${full:0:9}" "$summary" >>"$(progress_path "$store")"
+	event "$store" sidekick step "$brief" "$k:${full:0:9}"
+	if paused_reason "$store" >/dev/null; then
+		printf 'step %s recorded at %s.\n' "$k" "${full:0:9}"
+		pause_notice "$store"
+	else
+		printf 'step %s recorded at %s; go on with the next step. At the next step boundary: pair.sh notes %s\n' "$k" "${full:0:9}" "$store"
+	fi
+}
+
+# The master's review of a unit's steps so far: a draft note covering every
+# step since the last note, published with pair.sh note once filled.
+cmd_new_note() {
+	[ $# -eq 2 ] || die "usage: pair.sh new-note <store> <NNN>"
+	local store="$1" seq="$2" brief unit file k base to path
+	pair_file "$store" >/dev/null
+	brief="$(ls "$store"/briefs/"$seq"-*.md 2>/dev/null | head -1 || true)"
+	[ -n "$brief" ] || die "no brief for unit $seq"
+	unit="$(basename "$brief" .md)"
+	file="$(steps_file "$store" "$unit")"
+	[ -s "$file" ] || die "unit $seq has no steps recorded"
+	k="$(grep -c . "$file")"
+	[ "$k" -gt "$(noted_through "$store" "$unit")" ] || die "unit $seq is reviewed through step $k already"
+	base="$(review_base "$store" "$unit")"
+	to="$(tail -1 "$file" | cut -f2)"
+	mkdir -p "$store/notes"
+	path="$store/notes/$unit-n$k.md.draft"
+	sed -e "s|{{UNIT}}|$unit|g" -e "s|{{K}}|$k|g" -e "s|{{RANGE}}|${base:0:9}..${to:0:9}|g" -e "s|{{STORE}}|$store|g" \
+		"$skill_root/references/note-template.md" >"$path"
+	printf '%s\n' "$path"
+}
+
+# Publishes a filled note: the sidekick sees it at its next step boundary,
+# and its follow-ups go to followups.md rather than into the unit.
+cmd_note() {
+	[ $# -eq 2 ] || die "usage: pair.sh note <store> <note-draft-path>"
+	local store="$1" draft="$2" path status k unit
+	[ -f "$draft" ] || die "note not found: $draft"
+	case "$draft" in *.md.draft) ;; *) die "publish the .md.draft file new-note printed" ;; esac
+	require_filled "$draft"
+	status="$(header_field "$draft" status)"
+	case "$status" in
+	blocking | clear) ;;
+	*) die "$draft needs status: blocking or clear" ;;
+	esac
+	path="${draft%.draft}"
+	mv "$draft" "$path"
+	unit="$(basename "$path" .md | sed -E 's/-n[0-9]+$//')"
+	k="$(basename "$path" .md | sed -E 's/.*-n([0-9]+)$/\1/')"
+	awk -v tag="$unit n$k" '/^## Follow-ups/{f=1;next} /^## /{f=0} f && /^- / && !/^- none$/ {sub(/^- /, ""); print "- [" tag "] " $0}' "$path" >>"$store/followups.md"
+	event "$store" master note "$unit" "$k:$status"
+	printf 'published %s (%s)\n' "$path" "$status"
+}
+
+# The sidekick's check at each step boundary: blocking notes still open on
+# the running brief, printed in full so they can be fixed without another read.
+cmd_notes() {
+	[ $# -eq 1 ] || die "usage: pair.sh notes <store>"
+	local store="$1" brief open f
+	pair_file "$store" >/dev/null
+	brief="$(field "$store" '.dispatch.brief // empty')"
+	[ -n "$brief" ] || { printf 'notes: none open\n'; return 0; }
+	pause_notice "$store"
+	open="$(open_notes "$store" "$brief")"
+	if [ -z "$open" ]; then
+		printf 'notes: none open; go on with the next step\n'
+		return 0
+	fi
+	printf 'notes: %s open. Fix each Blocking item as a fixup commit before the next step, then record it: pair.sh step %s <sha> "<summary>" --resolves <n-ids>\n' "$(printf '%s\n' "$open" | grep -c .)" "$store"
+	while IFS= read -r f; do
+		printf '\n=== %s (%s)\n' "$(basename "$f" .md | sed -E 's/.*-(n[0-9]+)$/\1/')" "$f"
+		awk '/^## Blocking/{p=1;next} /^## /{p=0} p' "$f"
+	done <<<"$open"
 }
 
 # Takes the queued brief, if any: records its dispatch and prints its path.
@@ -917,8 +1171,15 @@ cmd_finish() {
 	report="$(readlink -f "$2")"
 	[ -f "$report" ] || die "report not found: $report; write it first"
 	status="$(header_field "$report" status)"
+	if [ "$status" = done ]; then
+		local open
+		open="$(open_notes "$store" "$report")"
+		[ -z "$open" ] || die "blocking review notes are still open on $(basename "$report" .md):
+$open
+Resolve each as a fixup commit, record it with pair.sh step $store <sha> <summary> --resolves <n-ids>, then finish again" 7
+	fi
 	cmd_notify "$store" "$report"
-	if [ "$status" = done ] && brief="$(take_queued "$store")"; then
+	if [ "$status" = done ] && ! paused_reason "$store" >/dev/null && brief="$(take_queued "$store")"; then
 		printf 'next: the master queued %s BRIEF %s\n' "$PAIR_SKILL" "$brief"
 		printf 'Start that brief now, in this turn, as if the message had just arrived.\n'
 	else
@@ -993,6 +1254,7 @@ cmd_progress() {
 	printf '%s %s\n' "$(date +%H:%M)" "$text" >>"$path"
 	event "$store" sidekick progress "$path"
 	printf '%s\n' "$path"
+	pause_notice "$store"
 }
 
 # Fresh steers on a unit are capped at two; a steer that supersedes an objected
@@ -1087,7 +1349,7 @@ cmd_steer() {
 		prompt_sidekick "$name" "$PAIR_SKILL STEER $steer"
 		local ready
 		wait_for_reply "$store" "$name" "$timeout"
-		finish_wait "$store" "$code" "$out" "$err" reply "$ready"
+		finish_wait "$store" "$code" "$out" "$err" "$(reply_mode)" "$ready"
 		;;
 	unknown)
 		[ "$force" -eq 1 ] || die "sidekick $name is unknown; read the pane, then pass --force to steer anyway" 5
@@ -1162,6 +1424,9 @@ cmd_status() {
 		fi
 		if [ -f "$store/queue" ]; then
 			printf 'queued: %s\n' "$(queued_brief "$store")"
+		fi
+		if [ -f "$store/paused" ]; then
+			printf 'paused: %s\n' "$(paused_reason "$store")"
 		fi
 		local open
 		open="$(jq -r '.scratch // [] | .[]' "$store/pair.json" 2>/dev/null || true)"
@@ -1308,6 +1573,13 @@ cmd_metrics() {
 		else if (ev == "send-consult") co_start(t, "consult")
 		else if (ev == "send-steer" && d == "objection") sk_start(t, u, "brief")
 		else if (ev == "queue" && u != "-") queued[u] = 1
+		else if (ev == "step") { nsteps++; split(d, sk, ":"); st[u, sk[1]] = t }
+		else if (ev == "note") {
+			# A note reviews every step of its unit since the last note.
+			nnotes++; split(d, nk, ":"); if (nk[2] == "blocking") nblock++
+			for (i = noted[u] + 1; i <= nk[1]; i++) if ((u, i) in st) { nsl++; sl[nsl] = t - st[u, i] }
+			noted[u] = nk[1]
+		}
 		else if (actor == "sidekick" && ev == "report") sk_end(t, u)
 		else if (actor == "consultant" && ev == "advice") co_end(t)
 		else if (ev == "wake") {
@@ -1338,6 +1610,7 @@ cmd_metrics() {
 		if (co_busy || nc || co_on) printf "consultant: busy %s (%d%% of wall); %d consults (%s), plan advice %s\n", \
 			m(co_busy), wall ? 100 * co_busy / wall : 0, nc, m(consult_t), m(plan_co)
 		printf "master: %d wakes, %d of them check-ins; review latency median %s over %d reviews\n", wakes, checkins, m(median(rl, nr)), nr
+		if (nsteps) printf "steps: %d committed, %d notes (%d blocking); step to note median %s\n", nsteps, nnotes, nblock, m(median(sl, nsl))
 		v = ""; n = split("agreed accept revise reject", order, " ")
 		for (i = 1; i <= n; i++) if (order[i] in verdicts) v = v sprintf(" %s %d", order[i], verdicts[order[i]])
 		printf "verdicts:%s\n", v == "" ? " none" : v

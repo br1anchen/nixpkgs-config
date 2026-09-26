@@ -42,6 +42,12 @@ usage: pair.sh <command> [args]
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
                                             current report is written. One slot. queue <store> --clear empties it
+  step <store> <sha> <summary> [--resolves n1,n2]
+                                            sidekick: record a committed step of the running brief and go on;
+                                            the master's wait picks it up for review
+  notes <store>                             sidekick, at each step boundary: print blocking review notes still open
+  new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
+  note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
                                             the queued brief to start (after a done report) or the line to end on
   next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
@@ -59,6 +65,9 @@ usage: pair.sh <command> [args]
   scratch <store> <id> [--at SHA] [--remove]
                                             a throwaway worktree under <store>/scratch/<id>: at HEAD with the live
                                             diff applied, or exactly at SHA to recheck a unit while the sidekick works
+  pause <store> [--reason TEXT]             pause at the next safe point: the sidekick stops at its next step or
+                                            progress boundary; dispatch, queue, discuss, consult, answer refuse
+  resume <store>                            lift the pause; re-dispatch the paused brief to continue it
   status <store>                            table of briefs, reports, reviews, and live agent states
   log <store> <phase> <decision> <why> <evidence> <result>
                                             append a decisions.tsv row (show-me-your-work format)
@@ -137,6 +146,7 @@ cmd_answer() {
 	done
 	checkin_interval_m=$((timeout / 60000))
 	[ -f "$answer" ] || die "answer not found: $answer"
+	require_not_paused "$store"
 	grep -q '^## Answer' "$answer" || die "not an answer file: $answer"
 	send_and_wait "$store" "$(readlink -f "$answer")" ANSWER "$timeout"
 }

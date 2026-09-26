@@ -75,8 +75,10 @@ against the code. You check whether the design is the right one.
      on the evidence and what the superseding steer should say.
    - review: read the diff against the head the brief recorded and the plan
      it serves; run `blast-radius` when the diff is small and the change is
-     not; give accept, revise, or reject with findings as `file:line`.
-   - glance: five minutes on the diff so far against the brief and the plan.
+     not; give accept, revise, or reject with findings as `file:line`, split into
+     blocking and follow-ups as the review template does.
+   - glance: five minutes on the step range or diff the consult names,
+     against the brief and the plan.
      Would the review say revise? One line per risk with `file:line`, or
      `none`. No prototype, no scratch.
 3. When reading will not settle it, prototype: `pair.sh scratch <store>

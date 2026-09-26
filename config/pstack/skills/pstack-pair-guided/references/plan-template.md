@@ -37,7 +37,9 @@ row per option; the chosen one marked.}}
 
 ## Steps
 
-{{One numbered step per future brief. Each names the files it touches, the
+{{One numbered block per future brief, each a slice that lands on its own.
+Under each, its commit-sized steps (twenty to forty-five minutes): the files,
+the commit, the check. Each block names the files it touches, the
 playbook it runs, and the check that proves it, so the sequence proves itself
 per principle-sequence-verifiable-units.}}
 

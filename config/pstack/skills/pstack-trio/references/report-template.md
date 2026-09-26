@@ -21,7 +21,8 @@ relevant excerpt with the omitted line count>
 <required for done, one line each:
 figures: every number above comes from Ran or a file it names
 acceptance: each Acceptance line and the Ran block that shows it
-callers: each changed shared symbol, the search for its callers, and the count
+callers: each changed shared symbol or value, the search for its callers and
+consumers, and the count
 fresh: the checks ran on fresh caches, or which ones might not have
 gate: the landing gate's fast checks (format, lint, typecheck) pass on the
 commit, or which were skipped and why>
