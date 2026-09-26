@@ -69,16 +69,15 @@ has_role() {
 # herdr's state detection can miss a Devin agent in a narrow pane for a whole
 # run, reporting done while it works. Every agent kind shows "esc to
 # interrupt" (Devin: "esc twice to interrupt") in its status line while it
-# works, so a settled state is checked against the bottom of the pane. Devin
-# shows more signs, any of which means a turn is running: its input
-# placeholder "Guide Devin while it works", a queued-message block ("send
-# now"; messages queue only during a turn), and a status line such as
-# "Thinking · 7m". In an 11-row pane a queued block pushes the status line off
-# screen, so every sign counts. A narrow pane wraps them across lines, so the
-# lines are joined first.
+# works, so a settled state is checked against the pane's visible screen,
+# never scrollback, where an old frame could linger. Devin shows two more
+# signs of a running turn: its input placeholder "Guide Devin while it works",
+# and, while a message is queued, "send queued messages now" or "↵ send now".
+# In an 11-row pane the queued block pushes the interrupt hint off screen, so
+# each sign counts on its own. A narrow pane wraps them, so lines are joined.
 pane_busy() {
-	herdr agent read "$1" --source recent --lines 40 2>/dev/null | tr -s '\n\t ' ' ' \
-		| grep -qiE 'esc (twice )?to interrupt|guide devin while it works|send now|send queued messages|(thinking|typing|running tools|editing|reading|searching|writing) [^·]{0,160}· [0-9]+[ms]'
+	herdr agent read "$1" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ' \
+		| grep -qiE 'esc (twice )?to interrupt|guide devin while it works|send queued messages now|↵ send now|ctrl\+enter to send now'
 }
 
 agent_status() {
@@ -333,10 +332,12 @@ checkin() {
 	mapfile -t may < <(awk '/^may write:/{f=1;next} /^must not write:|^## /{f=0}
 		f && /^- / {
 			sub(/^- /, ""); gsub(/`/, "")
+			# The note after " — " or " (" is prose, not paths.
+			sub(/ +(—|–|--) .*$/, ""); sub(/ +\(.*$/, "")
 			n = split($0, w, /[ ,]+/)
 			for (i = 1; i <= n; i++) {
-				t = w[i]; gsub(/^[(*]+|[):;.*]+$/, "", t)
-				if (t ~ /\// || t ~ /^[A-Za-z0-9_.-]+\.[A-Za-z0-9]+$/) { if (w[i] ~ /\*\*?$/ || t ~ /\/$/) t = t "*"; print t }
+				t = w[i]; gsub(/[):;.]+$/, "", t)
+				if (t ~ /\// || t ~ /\*/ || t ~ /^[A-Za-z0-9_.-]+\.[A-Za-z0-9]+$/) { if (t ~ /\/$/) t = t "*"; print t }
 			}
 		}' "$brief")
 	local f p ok
@@ -410,21 +411,24 @@ pause_notice() {
 	printf 'PAUSE: %s. This is your safe point: commit what is verified, write the report as partial with where you stopped and the next step under Deviations, run pair.sh finish, and end the turn.\n' "$reason"
 }
 
-# Steers on the running brief the sidekick has not acknowledged: no progress
-# line "steer s<k> applied|withdrawn|late" and no objection report for it.
+# Steers left for the sidekick in the store (pair.sh steer to a working
+# Devin) on the running brief, not yet acknowledged: no progress line "steer
+# s<k> applied|withdrawn|late" and no objection report. A draft new-steer
+# wrote, or a steer delivered as a message, is never listed.
 open_steers() {
 	local brief unit prog f k
 	brief="$(field "$1" '.dispatch.brief // empty')"
 	[ -n "$brief" ] || return 0
 	unit="$(basename "$brief" .md)"
 	prog="$1/progress/$unit.md"
-	for f in "$1"/steers/"$unit"-s[0-9]*.md; do
-		[ -e "$f" ] || continue
+	while IFS= read -r f; do
+		[ -f "$f" ] || continue
+		case "$(basename "$f")" in "$unit"-s[0-9]*.md) ;; *) continue ;; esac
 		k="$(basename "$f" .md | sed -E 's/.*-s([0-9]+)$/\1/')"
 		[ -f "$prog" ] && grep -qE "steer s$k (applied|withdrawn|late)" "$prog" && continue
 		[ -f "$1/reports/$unit-s$k.md" ] && continue
 		printf '%s\n' "$f"
-	done
+	done < <(jq -r '.notice_steers // [] | .[]' "$1/pair.json")
 }
 
 # Printed by the sidekick's step, notes, progress, and finish commands. This is
@@ -1295,7 +1299,12 @@ $open
 Resolve each as a fixup commit, record it with pair.sh step $store <sha> <summary> --resolves <n-ids>, then finish again" 7
 	fi
 	cmd_notify "$store" "$report"
-	steer_notice "$store"
+	local late
+	while IFS= read -r late; do
+		[ -n "$late" ] || continue
+		printf 'late steer: %s arrived after this report; record pair.sh progress %s "steer s%s late: reported" and the master folds it into the next brief\n' \
+			"$late" "$store" "$(basename "$late" .md | sed -E 's/.*-s([0-9]+)$/\1/')"
+	done < <(open_steers "$store")
 	if [ "$status" = done ] && ! paused_reason "$store" >/dev/null && brief="$(take_queued "$store")"; then
 		printf 'next: the master queued %s BRIEF %s\n' "$PAIR_SKILL" "$brief"
 		printf 'Start that brief now, in this turn, as if the message had just arrived.\n'
@@ -1342,9 +1351,15 @@ cmd_notify() {
 stop_written() {
 	local dir f
 	case "$2" in consultant) dir=advice ;; *) dir=reports ;; esac
-	# The role docs name it NNN-stop.md; Devin also writes NNN-<slug>-stop.md.
+	# The role docs name it NNN-stop.md. Devin also writes NNN-<slug>-stop.md;
+	# that name counts only with "stop" in its heading, since an ordinary
+	# report's slug can end in -stop.
 	for f in "$1/$dir"/[0-9][0-9][0-9]-stop.md "$1/$dir"/[0-9][0-9][0-9]-*-stop.md; do
-		[ -f "$f" ] && [ "$(file_mtime "$f")" -ge "$3" ] && return 0
+		[ -f "$f" ] && [ "$(file_mtime "$f")" -ge "$3" ] || continue
+		case "$(basename "$f")" in
+		[0-9][0-9][0-9]-stop.md) return 0 ;;
+		esac
+		head -1 "$f" | grep -qi stop && return 0
 	done
 	return 1
 }
@@ -1496,6 +1511,7 @@ cmd_steer() {
 			# Devin parks a mid-turn message as queued, and the Enter that would
 			# deliver it cancels the running command. The steer stays in the
 			# store; the sidekick's next step, notes, or progress prints it.
+			json_update "$store" --arg s "$steer" '.notice_steers = ((.notice_steers // []) + [$s] | unique)'
 			printf 'steer %s left for %s: it lands at the sidekick'"'"'s next pair.sh step, notes, or progress, between tool calls; the ack lands in the progress log. Use --interrupt only to cancel the running command.\n' "$steer" "$name"
 		else
 			herdr agent prompt "$name" "$PAIR_SKILL STEER $steer" >/dev/null || die "herdr prompt failed for $name" 2
@@ -1511,7 +1527,7 @@ cmd_steer() {
 		[ "$(header_field "$steer" supersedes)" != none ] || die "$steer answers $objection but its supersedes: line says none"
 		event "$store" master send-steer "$steer" objection
 		# The reply to this steer is any report on the unit written from now.
-		json_update "$store" --argjson epoch "$(date +%s)" '.sent.epoch = $epoch'
+		json_update "$store" --argjson epoch "$(date +%s)" '.sent.epoch = $epoch | del(.sent.seen)'
 		prompt_sidekick "$name" "$PAIR_SKILL STEER $steer"
 		local ready
 		wait_for_reply "$store" "$name" "$timeout"

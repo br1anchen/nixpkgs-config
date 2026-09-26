@@ -230,6 +230,12 @@ n1="$store/notes/$(basename "$qs" .md)-n1.md.draft"
 run note "$store" "$n1"
 fill "$n1"; set_hdr "$n1" status blocking
 run note "$store" "$n1"
+# with the shown range noted, new-note covers the step that landed since,
+# without another wake; with nothing new it refuses
+run new-note "$store" "$qn"
+n2="$store/notes/$(basename "$qs" .md)-n2.md.draft"
+fill "$n2"; set_hdr "$n2" status clear
+run note "$store" "$n2"
 run new-note "$store" "$qn"
 run notes "$store"
 printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$qs")"
@@ -250,6 +256,10 @@ run new-note "$store" "$qn"
 n4="$store/notes/$(basename "$qs" .md)-n4.md.draft"
 fill "$n4"; set_hdr "$n4" status clear
 run note "$store" "$n4"
+# a steer still unacknowledged when the report is done is reported late, not
+# as work to apply now
+sl="$("$P" new-steer "$store" "$qn")"; fill "$sl"; set_hdr "$sl" kind narrow; set_hdr "$sl" "scope effect" none; set_hdr "$sl" supersedes none
+run steer "$store" "$sl"
 printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$qs")"
 run finish "$store" "$store/reports/$(basename "$qs")"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
@@ -258,9 +268,15 @@ run wait "$store" --timeout 1500
 run wait "$store" --timeout 1500
 # annotated may-write lines: paths with notes, comma lists, and a directory
 qa="$("$P" new-brief "$store" qscope)"; fill "$qa"; set_hdr "$qa" playbook investigation; set_hdr "$qa" plan none
-printf -- '\n## Scope\n\nmay write:\n- `b.txt` — the fixture (new file)\n- docs/, notes.md (only a link)\n\nmust not write:\n- x\n' >>"$qa"
+printf -- '\n## Scope\n\nmay write:\n- `b.txt` — the fixture, next to a.txt and docs/a.txt (new file)\n- docs/, notes.md (only a link)\n\nmust not write:\n- x\n' >>"$qa"
 status "demo-sidekick" idle devin; : >"$FAKE/brief-working"
 run dispatch "$store" "$qa" --timeout 1000
+rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
+# a glob keeps its stars: *.txt covers both files
+qg="$("$P" new-brief "$store" qglob)"; fill "$qg"; set_hdr "$qg" playbook investigation; set_hdr "$qg" plan none
+printf -- '\n## Scope\n\nmay write:\n- `*.txt` — every fixture\n- **/*.nix\n\nmust not write:\n- x\n' >>"$qg"
+: >"$FAKE/brief-working"
+run dispatch "$store" "$qg" --timeout 1000
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 # pause at a safe point: the master starts nothing new, the sidekick hears it
 # at its next step or progress boundary, reports partial, and ends the turn
@@ -287,6 +303,10 @@ cp "$FAKE/hook" "$FAKE/hook.orig"
 sed -i 's#-stop.md"#-slugged-stop.md"#' "$FAKE/hook"
 status "demo-sidekick" working devin
 run stop "$store"
+# an ordinary report whose slug ends in -stop does not end the wait
+sed -i 's#body stop partial#body report partial#; s#-slugged-stop.md"#-bus-stop.md"#' "$FAKE/hook"
+status "demo-sidekick" working devin
+run stop "$store" --timeout 3000
 mv "$FAKE/hook.orig" "$FAKE/hook"
 # a working Claude Code or Codex sidekick takes STOP between tool calls: no Enter
 jq '.sidekick.kind = "claude"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
