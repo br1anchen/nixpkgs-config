@@ -1347,21 +1347,50 @@ cmd_notify() {
 	esac
 }
 
-# A stop report or advice from $2, written at or after epoch $3.
+# A stop report or advice from $2, written after epoch $3. The role
+# docs name it NNN-stop.md, but Devin also writes NNN-<slug>-stop.md or
+# NNN-<slug>-partial1.md, so any report written since the STOP counts when its
+# heading says STOP in capitals ("partial (STOP)") or its status mentions a
+# stop ("stopped-partial"). A report whose slug merely contains "stop"
+# ("bus-stop") does not.
 stop_written() {
 	local dir f
 	case "$2" in consultant) dir=advice ;; *) dir=reports ;; esac
-	# The role docs name it NNN-stop.md. Devin also writes NNN-<slug>-stop.md;
-	# that name counts only with "stop" in its heading, since an ordinary
-	# report's slug can end in -stop.
-	for f in "$1/$dir"/[0-9][0-9][0-9]-stop.md "$1/$dir"/[0-9][0-9][0-9]-*-stop.md; do
-		[ -f "$f" ] && [ "$(file_mtime "$f")" -ge "$3" ] || continue
+	# Strictly after the send: an agent cannot answer STOP within the second it
+	# was sent, and an earlier report can share that second.
+	for f in "$1/$dir"/[0-9][0-9][0-9]-*.md; do
+		[ -f "$f" ] && [ "$(file_mtime "$f")" -gt "$3" ] || continue
 		case "$(basename "$f")" in
 		[0-9][0-9][0-9]-stop.md) return 0 ;;
 		esac
-		head -1 "$f" | grep -qi stop && return 0
+		head -1 "$f" | grep -q 'STOP' && return 0
+		header_field "$f" status | grep -qi stop && return 0
 	done
 	return 1
+}
+
+# Delivers a prompt already typed into a working Devin's input. Devin needs
+# two Enters: one submits the text to its queue, the next sends the queue now,
+# cancelling the running command. A fixed sleep before one Enter could land
+# before Devin took the text, leaving STOP unsubmitted for over an hour, so
+# the pane is watched for up to 20 seconds instead, until the queue is sent
+# or the stop report shows Devin took the message on its own. $1 store, $2
+# role, $3 agent name, $4 prompt text, $5 epoch of the send. Returns 1 only
+# when the text is still sitting in the input box at the end.
+devin_send_now() {
+	local store="$1" role="$2" name="$3" text="$4" epoch="$5" i screen
+	for i in $(seq 20); do
+		stop_written "$store" "$role" "$epoch" && return 0
+		screen="$(herdr agent read "$name" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ')"
+		if printf '%s' "$screen" | grep -qiE 'send queued messages now|↵ send now'; then
+			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+			return 0
+		fi
+		printf '%s' "$screen" | grep -qF "❭ $text" && herdr agent send-keys "$name" enter >/dev/null 2>&1
+		sleep 1
+	done
+	herdr agent read "$name" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ' | grep -qF "❭ $text" && return 1
+	return 0
 }
 
 # STOP for one role; sets code, out, and err in the caller, which declares
@@ -1383,7 +1412,10 @@ stop_role() {
 			rm -f "$errfile"
 			return 0
 		fi
-		[ "$(field "$store" ".$role.kind")" = devin ] && { sleep 1; herdr agent send-keys "$name" enter >/dev/null 2>&1 || true; }
+		if [ "$(field "$store" ".$role.kind")" = devin ]; then
+			devin_send_now "$store" "$role" "$name" "$PAIR_SKILL STOP" "$epoch" \
+				|| printf '%s: STOP is still typed in the input box; read it: herdr agent read %s --source visible\n' "$role" "$name" >&2
+		fi
 		deadline=$(( epoch + timeout / 1000 ))
 		until stop_written "$store" "$role" "$epoch"; do
 			if [ "$(date +%s)" -ge "$deadline" ]; then

@@ -766,17 +766,28 @@ report_status: partial
 [exit 0]
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-pair STOP <T>/state/pstack/pair/demo
+  herdr agent get demo-sidekick
+
+$ pair.sh stop <T>/state/pstack/pair/demo
+state: working
+report: <T>/state/pstack/pair/demo/reports/015-stop.md
+report_status: partial
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair STOP <T>/state/pstack/pair/demo
+  herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent send-keys demo-sidekick enter
+  herdr agent read demo-sidekick --source visible --lines 40
   herdr agent send-keys demo-sidekick enter
   herdr agent get demo-sidekick
 
 $ pair.sh stop <T>/state/pstack/pair/demo
 state: working
-report: <T>/state/pstack/pair/demo/reports/015-slugged-stop.md
+report: <T>/state/pstack/pair/demo/reports/015-land-partial1.md
 report_status: partial
 [exit 0]
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-pair STOP <T>/state/pstack/pair/demo
-  herdr agent send-keys demo-sidekick enter
   herdr agent get demo-sidekick
 
 $ pair.sh stop <T>/state/pstack/pair/demo --timeout 3000
@@ -787,7 +798,7 @@ report_status: partial
 [exit 0]
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-pair STOP <T>/state/pstack/pair/demo
-  herdr agent send-keys demo-sidekick enter
+  herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
 
 $ pair.sh stop <T>/state/pstack/pair/demo
@@ -1896,7 +1907,9 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	wake	015-stop	report:partial
 <TS>	<EPOCH>	master	send-stop	-	sidekick
-<TS>	<EPOCH>	master	wake	015-slugged-stop	report:partial
+<TS>	<EPOCH>	master	wake	015-stop	report:partial
+<TS>	<EPOCH>	master	send-stop	-	sidekick
+<TS>	<EPOCH>	master	wake	015-land-partial1	report:partial
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	wake	015-bus-stop	report:partial
 <TS>	<EPOCH>	master	send-stop	-	sidekick
@@ -2170,15 +2183,15 @@ status: done
 
 status: partial
 head: abc
+--- ./reports/015-land-partial1.md
+# STOP
+
+status: partial
+head: abc
 --- ./reports/015-qnine.md
 # Report
 
 status: partial
---- ./reports/015-slugged-stop.md
-# stop
-
-status: partial
-head: abc
 --- ./reports/015-stop.md
 # stop
 

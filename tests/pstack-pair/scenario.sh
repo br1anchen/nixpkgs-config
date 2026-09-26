@@ -37,7 +37,7 @@ Load*) [ \$role = sidekick ] && body ready done >"\$store/reports/000-ready.md";
 "$prefix STEER "*) st="\${text#* STEER }"; b="\$(basename "\$st" .md | sed -E 's/-s[0-9]+\$//')"
 	# A paused sidekick answers a superseding steer by finishing the brief.
 	[ "\$(cut -d' ' -f1 "\$FAKE/agents/\$name")" = idle ] && body report done >"\$store/reports/\$b.md" ;;
-"$prefix STOP "*) body stop partial >"\$store/reports/\$(ls \$store/briefs | tail -1 | cut -c1-3)-stop.md" ;;
+"$prefix STOP "*) sleep 1.1; body stop partial >"\$store/reports/\$(ls \$store/briefs | tail -1 | cut -c1-3)-stop.md" ;;
 esac
 exit 0
 HOOK
@@ -298,13 +298,19 @@ run resume "$store"
 # ends on the stop report, not on the running turn's settle
 status "demo-sidekick" working devin
 run stop "$store"
-# a stop report named NNN-<slug>-stop.md, as Devin writes it, also ends the wait
+# a working Devin takes STOP in two Enters, one to queue the typed text and one
+# to send it now; the pane says which is due (uxa's STOP sat typed for 87 min)
+: >"$FAKE/devin-input"; status "demo-sidekick" working devin
+run stop "$store"
+rm -f "$FAKE/devin-input"
+# a stop report under another name, with STOP in its heading, as Devin writes
+# it ("060-862-land-partial1.md": "partial (STOP)"), also ends the wait
 cp "$FAKE/hook" "$FAKE/hook.orig"
-sed -i 's#-stop.md"#-slugged-stop.md"#' "$FAKE/hook"
+sed -i 's#body stop partial#body STOP partial#; s#-stop.md"#-land-partial1.md"#' "$FAKE/hook"
 status "demo-sidekick" working devin
 run stop "$store"
 # an ordinary report whose slug ends in -stop does not end the wait
-sed -i 's#body stop partial#body report partial#; s#-slugged-stop.md"#-bus-stop.md"#' "$FAKE/hook"
+sed -i 's#body STOP partial#body report partial#; s#-land-partial1.md"#-bus-stop.md"#' "$FAKE/hook"
 status "demo-sidekick" working devin
 run stop "$store" --timeout 3000
 mv "$FAKE/hook.orig" "$FAKE/hook"

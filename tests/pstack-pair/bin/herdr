@@ -22,8 +22,13 @@ case "$1 $2" in
 "agent prompt")
 	name="$3"; text="$4"; wait=0; until=""; shift 4
 	while [ $# -gt 0 ]; do case "$1" in --wait) wait=1; shift ;; --until) until="$until $2"; shift 2 ;; *) shift ;; esac; done
-	[ -x "$FAKE/hook" ] && "$FAKE/hook" "$name" "$text"
 	s="$(status_of "$name")"
+	# $FAKE/devin-input: a working Devin leaves a prompt typed in its input
+	# box; one Enter queues it, the next sends it (see agent send-keys).
+	if [ -e "$FAKE/devin-input" ] && [ "$s" = working ]; then
+		mkdir -p "$FAKE/typing"; printf '%s' "$text" >"$FAKE/typing/$name"; ok "$s"; exit 0
+	fi
+	[ -x "$FAKE/hook" ] && "$FAKE/hook" "$name" "$text"
 	if [ "$wait" = 1 ] && [ -n "$until" ]; then
 		# --until working after a quick turn: the state was never observed.
 		case " $until " in *" $s "*) ok "$s" ;; *) printf '{"error":{"code":"timeout"}}\n' >&2; exit 1 ;; esac
@@ -47,11 +52,20 @@ case "$1 $2" in
 	fi
 	if [ "$s" = working ]; then sleep 0.2; printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
 	ok "$s" ;;
-"agent send-keys") ok "$(status_of "$3")" ;;
+"agent send-keys")
+	if [ "${4:-}" = enter ] && [ -s "$FAKE/typing/$3" ]; then
+		mkdir -p "$FAKE/queued"; mv "$FAKE/typing/$3" "$FAKE/queued/$3"
+	elif [ "${4:-}" = enter ] && [ -s "$FAKE/queued/$3" ]; then
+		text="$(cat "$FAKE/queued/$3")"; rm -f "$FAKE/queued/$3"
+		[ -x "$FAKE/hook" ] && "$FAKE/hook" "$3" "$text"
+	fi
+	ok "$(status_of "$3")" ;;
 "agent read")
 	# $FAKE/busy/<name>: the pane shows a working agent whatever herdr's state says.
 	# The hint wraps, as it does in a 28-column Devin pane.
-	if [ -e "$FAKE/busy/$3" ]; then printf 'Thinking · 7m 52s (esc\n  twice to interrupt)\n'
+	if [ -s "$FAKE/typing/$3" ]; then printf 'Running tools · 3m (esc\n  twice to interrupt)\n❭ %s\n' "$(cat "$FAKE/typing/$3")"
+	elif [ -s "$FAKE/queued/$3" ]; then printf '── 1 ↑ edit · ↵ send now ──\n○ %s\n❭ Press Enter to send\n  queued messages now\n' "$(cat "$FAKE/queued/$3")"
+	elif [ -e "$FAKE/busy/$3" ]; then printf 'Thinking · 7m 52s (esc\n  twice to interrupt)\n'
 	elif [ -e "$FAKE/busy-guide/$3" ]; then printf '❭ Guide Devin while it\n  works\n'
 	elif [ -e "$FAKE/busy-queue/$3" ]; then printf '── 1 ↑ edit · ↵ send now ──\n○ pstack-trio STOP\n❭ Press Enter to send\n  queued messages now\n'
 	else printf 'pane text\n'; fi ;;
