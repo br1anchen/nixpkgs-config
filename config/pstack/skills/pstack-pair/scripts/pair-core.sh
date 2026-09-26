@@ -69,10 +69,13 @@ has_role() {
 # herdr's state detection can miss a Devin agent in a narrow pane for a whole
 # run, reporting done while it works. Every agent kind shows "esc to
 # interrupt" (Devin: "esc twice to interrupt") in its status line while it
-# works, so a settled state is checked against the bottom of the pane. A
-# narrow pane wraps that hint across lines, so the lines are joined first.
+# works, so a settled state is checked against the bottom of the pane. Devin
+# also swaps its input placeholder to "Guide Devin while it works", which
+# stays on screen while it thinks. A narrow pane wraps both across lines, so
+# the lines are joined first.
 pane_busy() {
-	herdr agent read "$1" --source visible --lines 20 2>/dev/null | tr -s '\n\t ' ' ' | grep -qiE 'esc (twice )?to interrupt'
+	herdr agent read "$1" --source visible --lines 20 2>/dev/null | tr -s '\n\t ' ' ' \
+		| grep -qiE 'esc (twice )?to interrupt|guide devin while it works'
 }
 
 agent_status() {
@@ -1221,6 +1224,26 @@ cmd_notify() {
 	esac
 }
 
+# STOP for one role; sets code and out. An idle agent gets it with a wait. A
+# working Devin parks a mid-turn message as queued until Enter is pressed, so
+# Enter follows the prompt; Claude Code and Codex take it between tool calls.
+stop_role() {
+	local store="$1" role="$2" timeout="$3" name errfile
+	name="$(field "$store" ".$role.name")"
+	code=0
+	errfile="$(mktemp)"
+	event "$store" master send-stop - "$role"
+	if [ "$(agent_status "$name")" = working ]; then
+		herdr agent prompt "$name" "$PAIR_SKILL STOP $store" >/dev/null 2>&1 || code=$?
+		[ "$(field "$store" ".$role.kind")" = devin ] && { sleep 1; herdr agent send-keys "$name" enter >/dev/null 2>&1 || true; }
+		out="$(herdr agent wait "$name" --timeout "$timeout" 2>"$errfile")" || code=$?
+	else
+		out="$(herdr agent prompt "$name" "$PAIR_SKILL STOP $store" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
+	fi
+	err="$(cat "$errfile")"
+	rm -f "$errfile"
+}
+
 cmd_stop() {
 	in_herdr
 	[ $# -ge 1 ] || die "usage: pair.sh stop <store> [--timeout MS]"
@@ -1228,7 +1251,7 @@ cmd_stop() {
 	shift
 	wait_opts "$@"
 	no_extra_opts
-	local name status out err code=0 errfile
+	local name status out err code=0
 	name="$(field "$store" .sidekick.name)"
 	status="$(agent_status "$name")"
 	case "$status" in
@@ -1237,11 +1260,7 @@ cmd_stop() {
 	esac
 	rm -f "$store/queue"
 	json_update "$store" '.pending = []'
-	event "$store" master send-stop - sidekick
-	errfile="$(mktemp)"
-	out="$(herdr agent prompt "$name" "$PAIR_SKILL STOP $store" --wait --timeout "$timeout" 2>"$errfile")" || code=$?
-	err="$(cat "$errfile")"
-	rm -f "$errfile"
+	stop_role "$store" sidekick "$timeout"
 	finish_wait "$store" "$code" "$out" "$err" any
 }
 

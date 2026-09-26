@@ -247,6 +247,11 @@ rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 run wait "$store" --timeout 1500
 run status "$store"
 run resume "$store"
+# stop reaches a working Devin: Enter follows the prompt, since Devin parks a
+# mid-turn message as queued (uxa's STOP sat unread that way)
+status "demo-sidekick" working devin
+run stop "$store"
+status "demo-sidekick" idle devin
 run stop "$store"
 run bogus
 # metrics over a known timeline: brief 002 runs 10m, the sidekick idles 4m,

@@ -250,9 +250,7 @@ cmd_stop() {
 		absent) printf '%s %s is not live\n' "$role" "$name"; continue ;;
 		blocked) printf '%s %s is blocked; inspect it before stopping\n' "$role" "$name" >&2; rc=3; continue ;;
 		esac
-		code=0
-		event "$store" master send-stop - "$role"
-		out="$(herdr agent prompt "$name" "$PAIR_SKILL STOP $store" --wait --timeout "$timeout" 2>/dev/null)" || code=$?
+		stop_role "$store" "$role" "$timeout"
 		status="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
 		[ "$code" -eq 0 ] || status="$(agent_status "$name")"
 		printf '%s_state: %s\n' "$role" "$status"

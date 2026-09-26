@@ -691,10 +691,23 @@ resumed <T>/state/pstack/pair-guided/demo
 [exit 0]
 
 $ pair.sh stop <T>/state/pstack/pair-guided/demo
+state: timeout
+{"error":{"code":"timeout"}}
+report: <T>/state/pstack/pair-guided/demo/reports/014-stop.md
+report_status: partial
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-pair-guided STOP <T>/state/pstack/pair-guided/demo
+  herdr agent send-keys demo-sidekick enter
+  herdr agent wait demo-sidekick --timeout <MS>
+
+$ pair.sh stop <T>/state/pstack/pair-guided/demo
 state: idle
 report: <T>/state/pstack/pair-guided/demo/reports/014-stop.md
 report_status: partial
 [exit 0]
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 20
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 20
   herdr agent prompt demo-sidekick pstack-pair-guided STOP <T>/state/pstack/pair-guided/demo --wait --timeout 300000
@@ -1651,6 +1664,8 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	sidekick	report	014-qnine	partial
 <TS>	<EPOCH>	master	wake	014-qnine	report:partial
 <TS>	<EPOCH>	master	resume	-	
+<TS>	<EPOCH>	master	send-stop	-	sidekick
+<TS>	<EPOCH>	master	wake	014-stop	report:partial
 <TS>	<EPOCH>	master	send-stop	-	sidekick
 <TS>	<EPOCH>	master	wake	014-stop	report:partial
 --- ./followups.md
