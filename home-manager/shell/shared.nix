@@ -71,5 +71,9 @@
 
     # Local bin
     export PATH="$HOME/.local/bin:$PATH"
+
+    # pstack pair/trio/kitchen: spawn each agent role into its own Herdr tab
+    # instead of a split pane. `spawn --split` overrides it for one store.
+    export PSTACK_PLACEMENT=tab
   '';
 }
