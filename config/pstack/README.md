@@ -39,7 +39,9 @@ consultant of a different agent kind that joins every plan round, answers
 design and finding consults, and prototypes in a throwaway worktree. See
 their SKILL.md files. The three share one script core,
 `pstack-pair/scripts/pair-core.sh`; each skill's `scripts/pair.sh` sets its
-variant, adds its own commands, and sources it. `tests/test_pstack_pair.py`
+variant, adds its own commands, and sources it. The consultant's commands
+(spawn, plan rounds, consults, multi-role stop) live in
+`pstack-trio/scripts/consultant-core.sh`, sourced after the core. `tests/test_pstack_pair.py`
 drives all three against a fake `herdr` and compares golden transcripts. Other workflows use the current
 upstream revision plus the runtime adaptation. The old installation is backed
 up on sync, including any local edits outside SKILL.md.
