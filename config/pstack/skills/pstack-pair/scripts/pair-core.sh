@@ -893,10 +893,12 @@ spawn_role() {
 	fi
 	has_trust_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(trust_args "$kind")
 	set -- "${agent_args[@]}" "$@"
-	if [ "$kind" = devin ]; then
+	if fresh_per_brief "$kind"; then
 		local arg
 		for arg in "$@"; do
-			case "$arg" in -c | --continue | -r | --resume | --resume=*) die "Devin task sessions start fresh; recover partial work from the store instead of passing $arg" 5 ;; esac
+			case "$arg" in -c | --continue | -r | --resume | --resume=* | --session | --session=* | --session-id | --fork)
+				die "$kind task sessions start fresh; recover partial work from the store instead of passing $arg" 5 ;;
+			esac
 		done
 	fi
 	local name cwd status ready
@@ -992,9 +994,19 @@ spawn_role() {
 	fi
 }
 
+# Kinds whose sidekick starts a fresh conversation for each completed brief:
+# Devin, and pi, whose one compacted conversation would otherwise carry every
+# earlier brief into the next. The master rotates them; the queue waits.
+fresh_per_brief() {
+	case "$1" in devin | pi) return 0 ;; esac
+	return 1
+}
+
 require_fresh_session() {
-	if [ "$(field "$1" '.sidekick.kind')" = devin ] && [ "$(field "$1" '(.sidekick.rotation_required // false) or (.sidekick.bootstrap_pending // false)')" = true ]; then
-		die "Devin needs rotation or a successful bootstrap before another task; inspect READY and run pair.sh rotate $1 after a completed task. The queue is preserved." 5
+	local kind
+	kind="$(field "$1" '.sidekick.kind')"
+	if fresh_per_brief "$kind" && [ "$(field "$1" '(.sidekick.rotation_required // false) or (.sidekick.bootstrap_pending // false)')" = true ]; then
+		die "the $kind sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate $1 after a completed task. The queue is preserved." 5
 	fi
 }
 
@@ -1132,20 +1144,22 @@ cmd_rotate() {
 	local store="$1" name status err code=0 deadline
 	pair_file "$store" >/dev/null
 	require_not_paused "$store"
-	[ "$(field "$store" '.sidekick.kind')" = devin ] || die "rotate is for a Devin sidekick" 5
+	local kind
+	kind="$(field "$store" '.sidekick.kind')"
+	fresh_per_brief "$kind" || die "rotate is for a sidekick that starts fresh per brief (devin, pi), not $kind" 5
 	[ "$(field "$store" '.sidekick.rotation_required // false')" = true ] || die "rotation requires a completed task; partial or blocked work keeps its session" 5
 	jq -e '.sidekick.start_args | type == "array"' "$store/pair.json" >/dev/null || die "no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags" 5
 	name="$(field "$store" .sidekick.name)"
 	status="$(agent_status "$name")"
 	case "$status" in
 	idle | "done")
-		err="$(herdr agent prompt "$name" /exit 2>&1)" || code=$?
+		err="$(herdr agent prompt "$name" "$(exit_command "$kind")" 2>&1)" || code=$?
 		if [ "$code" -ne 0 ] && ! grep -qE 'agent_prompt_stalled|agent_not_found|not_found' <<<"$err"; then
-			die "Devin exit failed: $err" 2
+			die "$kind exit failed: $err" 2
 		fi
 		deadline=$(($(date +%s) + 15))
 		while [ "$(agent_status "$name")" != absent ]; do
-			[ "$(date +%s)" -lt "$deadline" ] || die "Devin has not exited; inspect $name before retrying rotate" 5
+			[ "$(date +%s)" -lt "$deadline" ] || die "$kind has not exited; inspect $name before retrying rotate" 5
 			sleep 1
 		done
 		;;
@@ -1155,7 +1169,7 @@ cmd_rotate() {
 	local -a args
 	mapfile -t args < <(jq -r '.sidekick.start_args[]' "$store/pair.json")
 	event "$store" master rotate - "generation:$(field "$store" .sidekick.generation)"
-	spawn_role "$store" sidekick devin none "$(field "$store" .master.pane_id)" 60000 "" "$(field "$store" .sidekick.pane_id)" "${args[@]}"
+	spawn_role "$store" sidekick "$kind" none "$(field "$store" .master.pane_id)" 60000 "" "$(field "$store" .sidekick.pane_id)" "${args[@]}"
 }
 
 cmd_spawn() {
@@ -1554,7 +1568,7 @@ cmd_next() {
 	[ $# -eq 1 ] || die "usage: pair.sh next <store>"
 	local brief
 	pair_file "$1" >/dev/null
-	[ "$(field "$1" .sidekick.kind)" != devin ] || die "Devin leaves the queue for the master to dispatch after a fresh bootstrap" 5
+	! fresh_per_brief "$(field "$1" .sidekick.kind)" || die "a $(field "$1" .sidekick.kind) sidekick leaves the queue for the master to dispatch after a fresh session" 5
 	require_fresh_session "$1"
 	if paused_reason "$1" >/dev/null; then
 		printf 'queue: paused\n'
@@ -1583,7 +1597,7 @@ Resolve each as a fixup commit, record it with pair.sh step $store <sha> <summar
 	fi
 	local current
 	current="$(field "$store" '.dispatch.brief // empty')"
-	if [ "$status" = "done" ] && [ "$(field "$store" .sidekick.kind)" = devin ] && [ -n "$current" ] && [ "$report" = "$(expected_report "$store" "$current")" ] && \
+	if [ "$status" = "done" ] && fresh_per_brief "$(field "$store" .sidekick.kind)" && [ -n "$current" ] && [ "$report" = "$(expected_report "$store" "$current")" ] && \
 		[ "$(field "$store" '.dispatch.generation // 0')" = "$(field "$store" '.sidekick.generation // 0')" ]; then
 		if [ "$(field "$store" '.sidekick.rotation_required // false')" != true ]; then
 			json_update "$store" '.sidekick.rotation_required = true'
@@ -1597,7 +1611,7 @@ Resolve each as a fixup commit, record it with pair.sh step $store <sha> <summar
 		printf 'late steer: %s arrived after this report; record pair.sh progress %s "steer s%s late: reported" and the master folds it into the next brief\n' \
 			"$late" "$store" "$(basename "$late" .md | sed -E 's/.*-s([0-9]+)$/\1/')"
 	done < <(open_steers "$store")
-	if [ "$status" = "done" ] && [ "$(field "$store" .sidekick.kind)" = devin ]; then
+	if [ "$status" = "done" ] && fresh_per_brief "$(field "$store" .sidekick.kind)"; then
 		if [ "$(field "$store" '.sidekick.rotation_required // false')" = true ]; then
 			printf 'rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate %s\n' "$store"
 		fi

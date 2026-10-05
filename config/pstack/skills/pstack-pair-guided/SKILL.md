@@ -198,9 +198,9 @@ not continuously, and corrects direction, not keystrokes.
 - Two fresh steers per brief. A third means the brief was wrong: stop the
   unit and re-brief.
 
-## Devin task sessions
+## Devin and pi task sessions
 
-For a Devin sidekick, the shared helper requires rotation after a completed
+For a Devin or pi sidekick, the shared helper requires rotation after a completed
 brief. Follow [the Devin session lifecycle](../pstack-pair/references/devin-sessions.md)
 in place of same-turn queue pickup. Partial work keeps its session.
 

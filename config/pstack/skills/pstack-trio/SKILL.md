@@ -99,7 +99,7 @@ review, so the files for one unit sort together.
 | bootstrap (names the skill, the role, and the store) | master to sidekick and consultant | `pair.sh spawn` | bootstrap steps, `reports/000-ready.md` or `advice/000-ready.md`, reply `READY` |
 | `pstack-trio PLAN <plan-path>` | master to sidekick and consultant at once | `pair.sh discuss` | sidekick grounds the plan in the code; consultant critiques the design; each writes agree or object, ends the turn |
 | `pstack-trio BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, run `pair.sh finish`, then start the queued brief it names or end the turn |
-| `pstack-trio BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | Devin: master dispatches after rotation; other kinds: same-turn pickup with `pair.sh next` |
+| `pstack-trio BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | Devin and pi: master dispatches after rotation; other kinds: same-turn pickup with `pair.sh next` |
 | `pstack-trio STEER <steer-path>` | master to a working sidekick, or one paused on an objection | `pair.sh steer` | read it between tool calls; agree and continue, or object with evidence and end the turn |
 | `pstack-trio CONSULT <consult-path>` | master to consultant | `pair.sh consult` | read the named files, prototype in scratch if needed, write the advice, end the turn |
 | `pstack-trio REPORT <report-path>` | sidekick to master | `pair.sh finish` (or `notify`) | read the report, review |
@@ -180,9 +180,9 @@ rounds each. The consultant adds one step: when a digest or objection shows a
 finding that changes the design, the master consults before it steers, and
 the steer's Direction cites the advice path.
 
-## Devin task sessions
+## Devin and pi task sessions
 
-A Devin sidekick uses a fresh conversation for each completed brief. Before
+A Devin or pi sidekick uses a fresh conversation for each completed brief. Before
 spawning, queueing, rotating, or cleaning its storage, read
 [the Devin session lifecycle](../pstack-pair/references/devin-sessions.md). Partial and blocked work stays in
 its session; a completed brief leaves the queue for the master to dispatch
@@ -203,7 +203,7 @@ minutes, while a unit takes tens of minutes to hours. Three habits keep the
 sidekick from waiting on the master.
 
 - **Queue the next brief.** While a unit runs, the master drafts the next one
-  and holds it with `pair.sh queue`. After a Devin `done` report, rotate and
+  and holds it with `pair.sh queue`. After a Devin or pi `done` report, rotate and
   bootstrap the sidekick, then dispatch that brief. Other kinds take it with
   `pair.sh next` in the same turn. The queue has one slot and
   holds only a unit that does not hinge on the running unit's review, so a

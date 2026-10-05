@@ -209,9 +209,9 @@ and waits for it to settle. Two rounds per steer; when the second still draws
 an objection, withdraw it or `pair.sh stop` and take the disagreement to a
 plan round. Log a row per round.
 
-## Devin session lifecycle
+## Devin and pi session lifecycle
 
-When the sidekick is Devin, follow [the session lifecycle](../../pstack-pair/references/devin-sessions.md).
+When the sidekick is Devin or pi, follow [the session lifecycle](../../pstack-pair/references/devin-sessions.md).
 After its `done` report and settled turn, write the handoff, run `pair.sh rotate`,
 verify the new READY report, and dispatch the next task. Keep partial work in
 its session. Storage cleanup requires a coordinated pause and recovery handoff.
@@ -220,7 +220,7 @@ its session. Storage cleanup requires a coordinated pause and recovery handoff.
 
 The queue is how the sidekick never waits for you. At a check-in, draft the
 next unit's brief and `pair.sh queue <store> <brief>`: dispatch's checks
-apply. A Devin `done` report leaves it queued until you rotate the sidekick
+apply. A Devin or pi `done` report leaves it queued until you rotate the sidekick
 and dispatch it. Other kinds take it with `pair.sh next` in the same turn. Queue a unit only when it does not hinge on the
 running unit's review; when it does, wait for the report. One slot:
 `--replace` swaps it, `pair.sh queue <store> --clear` empties it, and `stop`

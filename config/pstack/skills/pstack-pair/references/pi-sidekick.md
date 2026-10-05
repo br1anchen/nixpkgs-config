@@ -3,8 +3,14 @@
 A pi sidekick suits the role: it can run a cheaper or subscription model, such
 as SWE-2 through the `pi-devin-local` package, and Herdr reads its state from
 pi's own lifecycle events instead of the screen. That leaves out the screen
-checks a Devin sidekick needs. The shared helper treats pi like any non-Devin
-kind: a queued brief is taken in the same turn, and no rotation is needed.
+checks a Devin sidekick needs. Like Devin, pi starts a fresh session for each
+completed brief, so one long compacted conversation never carries earlier
+briefs into the next: after a `done` report the queue waits, and the master
+runs `pair.sh rotate`, which quits pi and restarts it in the same pane with its
+recorded arguments, checks the new READY, and dispatches. Partial and blocked
+work keeps its session, and spawn refuses resume flags (`--continue`,
+`--session`, `--fork`). [The Devin session lifecycle](devin-sessions.md)
+applies to pi as written.
 
 ## What differs from Devin
 

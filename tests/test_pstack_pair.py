@@ -292,6 +292,33 @@ esac
         self.assertIn('send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text())
         self.assertFalse(self.state()['sidekick']['bootstrap_pending'])
 
+    def test_done_brief_gets_a_fresh_pi_session_and_keeps_the_queue(self):
+        self.spawn_pi()
+        args = self.state()['sidekick']['start_args']
+        brief, _ = self.dispatch()
+        report = self.store / 'reports' / brief.name
+        report.write_text('status: done\n')
+        queued = self.store / 'briefs/002-next.md'
+        queued.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        self.run_command('queue', str(self.store), str(queued))
+        (self.fake / 'agents/demo-sidekick').write_text('idle pi\n')
+        out = self.run_command('finish', str(self.store), str(report))
+        self.assertIn('rotation: required before the next task', out)
+        self.run_command('next', str(self.store), code=5)
+        self.run_command('dispatch', str(self.store), str(queued), code=5)
+        self.run_command('rotate', str(self.store))
+        self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
+        sidekick = self.state()['sidekick']
+        self.assertEqual((sidekick['kind'], sidekick['generation'], sidekick['start_args']), ('pi', 2, args))
+        self.assertFalse(sidekick['rotation_required'])
+        self.assertTrue((self.store / 'queue').exists())
+        self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=4)
+
+    def test_pi_refuses_session_resume_args(self):
+        out = self.run_command('spawn', str(self.store), '--kind', 'pi', '--', '--continue', code=5)
+        self.assertIn('pi task sessions start fresh', out)
+
     def test_live_pi_skips_the_preflight(self):
         self.spawn_pi()
         (self.fake / 'pi.log').unlink()

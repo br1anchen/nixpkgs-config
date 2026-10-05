@@ -29,7 +29,7 @@ usage: pair.sh <command> [args]
                                             Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
                                             three kinds are all the same. --only respawns one role. A pi sidekick first proves
                                             its model answers; on failure the --fallback kind starts instead.
-  rotate <store>                            exit an idle Devin after a done brief, respawn with recorded
+  rotate <store>                            exit an idle Devin or pi sidekick after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
   failover <store> [--reason TEXT] [--force]
                                             replace a failing sidekick with its recorded fallback in the same pane;
@@ -54,7 +54,7 @@ usage: pair.sh <command> [args]
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written (Devin waits for rotation and dispatch). One slot. queue <store> --clear empties it
+                                            current report is written (Devin and pi wait for rotation and dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -62,7 +62,7 @@ usage: pair.sh <command> [args]
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start for other kinds, or the REPORT line; Devin done requires rotation
+                                            the queued brief to start for other kinds, or the REPORT line; a done Devin or pi brief requires rotation
   next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]

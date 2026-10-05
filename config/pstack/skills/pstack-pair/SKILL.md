@@ -83,7 +83,7 @@ the files for one unit sort together.
 | bootstrap (names the skill and the store) | master to sidekick | `pair.sh spawn` | bootstrap steps, `reports/000-ready.md`, reply `READY` |
 | `pstack-pair PLAN <plan-path>` | master to sidekick | `pair.sh discuss` | ground the plan in the code, write an agree or object response, end the turn |
 | `pstack-pair BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, run `pair.sh finish`, then start the queued brief it names or end the turn |
-| `pstack-pair BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | Devin: master dispatches after rotation; other kinds: same-turn pickup with `pair.sh next` |
+| `pstack-pair BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | Devin and pi: master dispatches after rotation; other kinds: same-turn pickup with `pair.sh next` |
 | `pstack-pair STEER <steer-path>` | master to a working sidekick, or to one paused on an objection | `pair.sh steer` | read it on arrival, between tool calls; agree and continue, or object with evidence and end the turn |
 | `pstack-pair REPORT <report-path>` | sidekick to master | `pair.sh finish` (or `notify`) | read the report, review |
 | `pstack-pair STOP <store>` | master to sidekick | `pair.sh stop` | pause safely, write a stop report |
@@ -153,9 +153,9 @@ not continuously, and corrects direction, not keystrokes.
 - Two fresh steers per brief. A third means the brief was wrong: stop the
   unit and re-brief.
 
-## Devin task sessions
+## Devin and pi task sessions
 
-A Devin sidekick uses a fresh conversation for each completed brief. Before
+A Devin or pi sidekick uses a fresh conversation for each completed brief. Before
 spawning, queueing, rotating, or cleaning its storage, read
 [the Devin session lifecycle](references/devin-sessions.md). Partial and blocked work stays in
 its session; a completed brief leaves the queue for the master to dispatch
@@ -176,7 +176,7 @@ minutes, while a unit takes tens of minutes to hours. Three habits keep the
 sidekick from waiting on the master.
 
 - **Queue the next brief.** While a unit runs, the master drafts the next one
-  and holds it with `pair.sh queue`. After a Devin `done` report, rotate and
+  and holds it with `pair.sh queue`. After a Devin or pi `done` report, rotate and
   bootstrap the sidekick, then dispatch that brief. Other kinds take it with
   `pair.sh next` in the same turn. The queue has one slot and
   holds only a unit that does not hinge on the running unit's review, so a

@@ -710,11 +710,11 @@ idle: the reply to 013-qsteps.md was already shown (<T>/state/pstack/pair-guided
   herdr agent read demo-sidekick --source visible --lines 40
 
 $ pair.sh next <T>/state/pstack/pair-guided/demo
-pair.sh: Devin leaves the queue for the master to dispatch after a fresh bootstrap 5
+pair.sh: a devin sidekick leaves the queue for the master to dispatch after a fresh session 5
 [exit 5]
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/007-qthree.md
-pair.sh: Devin needs rotation or a successful bootstrap before another task; inspect READY and run pair.sh rotate <T>/state/pstack/pair-guided/demo after a completed task. The queue is preserved. 5
+pair.sh: the devin sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate <T>/state/pstack/pair-guided/demo after a completed task. The queue is preserved. 5
 [exit 5]
 
 $ pair.sh rotate <T>/state/pstack/pair-guided/demo
