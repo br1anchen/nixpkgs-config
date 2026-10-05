@@ -572,8 +572,31 @@ esac
         self.assertRegex(calls, r'pane close p\d')
         self.assertEqual(list((self.store / 'scratch').iterdir()), [])
         packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        self.assertIn(f'scratch: {self.repo.resolve()}/.git/pstack-scratch/', packet)
         self.assertIn('gate app behavioral', packet)
         self.assertIn('## Acceptance', packet)
+
+    def test_scratch_lives_inside_the_repo_git_dir_and_leaves_no_trace(self):
+        path = Path(self.run_sh('scratch', str(self.store), '001-x-review').splitlines()[0])
+        git_dir = self.repo / '.git' / 'pstack-scratch'
+        self.assertEqual(path.parent.parent, git_dir)
+        self.assertEqual((self.store / 'scratch/001-x-review').resolve(), path.resolve())
+        self.assertTrue((path / 'calc.py').exists() or (path / 'src/app.py').exists())
+        self.assertEqual(self.git('status', '--porcelain'), '')
+        self.run_sh('scratch', str(self.store), '001-x-review', '--remove')
+        self.assertFalse(path.exists())
+        self.assertFalse((self.store / 'scratch/001-x-review').is_symlink())
+        self.assertEqual(list(git_dir.iterdir()), [])
+
+    def test_a_trust_dialog_is_declined_not_answered(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        (self.fake / 'trust-dialog').touch()
+        out = self.run_sh('consultant', str(self.store), '--reason', 'contract', '--kind', 'claude', code=5)
+        self.assertIn('claude asks whether to trust', out)
+        self.assertIn('decision is yours', out)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertRegex(calls, r'pane send-keys p\d+ esc')
+        self.assertNotRegex(calls, r'send-keys \S+ enter')
 
     def test_verify_prompt_left_typed_is_submitted(self):
         (self.fake / 'stall').touch()

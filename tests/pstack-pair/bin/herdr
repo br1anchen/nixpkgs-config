@@ -18,6 +18,10 @@ case "$1 $2" in
 "agent start")
 	name="$3"; kind=""; shift 3
 	while [ $# -gt 0 ]; do case "$1" in --kind) kind="$2"; shift 2 ;; --pane) printf '%s' "$name" >"$FAKE/panes/$2"; shift 2 ;; --) break ;; *) shift ;; esac; done
+	# $FAKE/trust-dialog: the agent opens on a folder-trust dialog.
+	if [ -e "$FAKE/trust-dialog" ]; then
+		printf '{"error":{"code":"agent_not_ready","message":"blocked during startup"}}\n' >&2; exit 1
+	fi
 	printf 'idle %s\n' "$kind" >"$FAKE/agents/$name"; ok idle "$kind" ;;
 "agent prompt")
 	name="$3"; text="$4"; wait=0; until=""; shift 4
@@ -88,6 +92,10 @@ case "$1 $2" in
 "pane split") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/p$n"; printf '{"result":{"pane":{"pane_id":"p%s"}}}\n' "$n" ;;
 "pane get") [ -f "$FAKE/panes/$3" ] || exit 1; printf '{"result":{}}\n' ;;
 "pane close") rm -f "$FAKE/panes/$3"; printf '{"result":{"type":"ok"}}\n' ;;
+"pane read")
+	if [ -e "$FAKE/trust-dialog" ]; then printf ' Quick safety check: Is this a project you created or one you\n trust?\n ❯ No, exit\n'
+	else printf 'pane text\n'; fi ;;
+"pane send-keys") printf '{"result":{"type":"ok"}}\n' ;;
 "pane layout") pane="$4"; printf '{"result":{"layout":{"panes":[{"pane_id":"%s","rect":{"width":200,"height":50}}]}}}\n' "$pane" ;;
 "notification show") printf '{}\n' ;;
 *) printf 'fake herdr: unhandled %s\n' "$*" >&2; exit 2 ;;

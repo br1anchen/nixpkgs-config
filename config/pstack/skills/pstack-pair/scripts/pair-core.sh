@@ -852,6 +852,18 @@ pick_direction() {
 	if [ "${w:-0}" -ge $((2 * ${h:-0})) ]; then printf 'right\n'; else printf 'down\n'; fi
 }
 
+# A dialog asking to trust the working folder (Claude, Codex) blocks an
+# agent at startup. Trusting a repo is the human's decision, never the
+# script's: decline it, which returns the pane to its shell, and stop with
+# what to do. Claude's dialog defaults to "No, exit", so an Enter would quit.
+trust_re='trust this folder|project you created or one you trust|do you trust the (files|contents)'
+refuse_untrusted() {
+	local pane="$1" kind="$2" dir="$3"
+	grep -qiE "$trust_re" <<<"$(herdr pane read "$pane" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ')" || return 0
+	herdr pane send-keys "$pane" esc >/dev/null 2>&1 || true
+	die "$kind asks whether to trust $dir, and that decision is yours: open $kind there once and trust the folder (or pick another kind), then rerun the spawn" 5
+}
+
 # Start one role, record it in pair.json, and bootstrap it. It reuses $pane,
 # or the role's previous pane when that is back at a shell prompt, and
 # otherwise splits $anchor in $direction (picked from the anchor's shape when
@@ -917,6 +929,7 @@ spawn_role() {
 		if started="$(herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" 2>&1)"; then
 			printf 'reused pane %s\n' "$pane"
 		else
+			refuse_untrusted "$pane" "$kind" "$cwd"
 			printf 'pane %s unavailable for agent start: %s\n' "$pane" "$started" >&2
 			pane=""
 		fi
@@ -926,7 +939,8 @@ spawn_role() {
 		pane="$(herdr pane split --pane "$anchor" --direction "$direction" --cwd "$cwd" --no-focus | jq -r '.result.pane.pane_id')"
 		[ -n "$pane" ] && [ "$pane" != null ] || die "pane split returned no pane id" 2
 		printf 'split %s %s -> %s\n' "$anchor" "$direction" "$pane"
-		herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" >/dev/null || die "agent start failed in $pane; inspect: herdr pane read $pane --source visible" 2
+		herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" >/dev/null ||
+			{ refuse_untrusted "$pane" "$kind" "$cwd"; die "agent start failed in $pane; inspect: herdr pane read $pane --source visible" 2; }
 	fi
 	local now
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -2003,7 +2017,14 @@ cmd_scratch() {
 	[[ "$id" =~ ^[0-9]{3}-[a-z0-9_-]+$ ]] || die "scratch id must look like NNN-<slug>, e.g. NNN-<slug>-c<k> or NNN-<slug>-review"
 	cwd="$(field "$store" .git_root)"
 	[ -n "$cwd" ] && [ "$cwd" != null ] || die "the store's cwd is not inside a git repository"
-	path="$store/scratch/$id"
+	# The worktree lives inside the repo's git directory: an agent started
+	# there inherits the folder trust the human gave the repo (Claude and Codex
+	# check the directory's ancestors), and the main tree's status never sees
+	# it. The store keeps a link at scratch/<id>; an older store's real
+	# directory there is still removed.
+	local link="$store/scratch/$id"
+	path="$(git -C "$cwd" rev-parse --path-format=absolute --git-common-dir)/pstack-scratch/$(basename "$(dirname "$store")")-$(basename "$store")/$id"
+	[ -L "$link" ] || [ ! -d "$link" ] || path="$link"
 	if [ "$remove" -eq 1 ]; then
 		if [ -d "$cwd/.jj" ]; then
 			jj -R "$cwd" workspace forget "scratch-$id" >/dev/null 2>&1 || true
@@ -2012,6 +2033,8 @@ cmd_scratch() {
 			git -C "$cwd" worktree remove --force "$path" >/dev/null 2>&1 || rm -rf "$path"
 			git -C "$cwd" worktree prune >/dev/null 2>&1 || true
 		fi
+		[ ! -L "$link" ] || rm -f "$link"
+		rmdir "$(dirname "$path")" 2>/dev/null || true
 		json_update "$store" --arg id "$id" '.scratch = ((.scratch // []) - [$id])'
 		printf 'removed %s\n' "$path"
 		return 0
@@ -2020,7 +2043,8 @@ cmd_scratch() {
 		printf '%s\n' "$path"
 		return 0
 	fi
-	mkdir -p "$store/scratch"
+	mkdir -p "$store/scratch" "$(dirname "$path")"
+	ln -sfn "$path" "$link"
 	if [ -n "$at" ]; then
 		git -C "$cwd" rev-parse --verify --quiet "$at^{commit}" >/dev/null || die "not a commit: $at"
 		if [ -d "$cwd/.jj" ]; then

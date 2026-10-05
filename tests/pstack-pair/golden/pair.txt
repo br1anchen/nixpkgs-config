@@ -503,7 +503,7 @@ report: missing
 
 $ pair.sh scratch <T>/state/pstack/pair/demo 004-qone-review --at <SHA>
 Preparing worktree (detached HEAD <SHA>)
-<T>/state/pstack/pair/demo/scratch/004-qone-review
+<T>/repo/.git/pstack-scratch/pair-demo/004-qone-review
 [exit 0]
 
 $ pair.sh scratch <T>/state/pstack/pair/demo 099-bad-review --at <SHA>
@@ -511,7 +511,7 @@ pair.sh: not a commit: <SHA>
 [exit 1]
 
 $ pair.sh scratch <T>/state/pstack/pair/demo 004-qone-review --remove
-removed <T>/state/pstack/pair/demo/scratch/004-qone-review
+removed <T>/repo/.git/pstack-scratch/pair-demo/004-qone-review
 [exit 0]
 
 $ pair.sh step <T>/state/pstack/pair/demo <SHA> parser reads v2

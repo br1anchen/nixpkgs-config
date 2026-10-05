@@ -35,7 +35,10 @@ never the record, because agents on the alternate screen leave no scrollback.
    take native flags after `--`. `spawn` also skips each kind's folder-trust
    prompt, which would hang an unattended agent in a folder it has not seen:
    pi gets `--approve`, Devin `--respect-workspace-trust false`. A trust flag
-   after `--` overrides it.
+   after `--` overrides it. Claude and Codex instead ask to trust a folder
+   they have not seen; that decision is the human's, so `spawn` declines the
+   dialog and stops with what to do: open that agent in the repo once and
+   trust it.
 
 ## Roles
 
@@ -68,7 +71,7 @@ Sidekick: [references/sidekick.md](references/sidekick.md).
 | `reports/NNN-<slug>-s<k>.md` | sidekick | objection to steer k, from [the steer response template](references/steer-response-template.md) |
 | `reports/NNN-<slug>.md` | sidekick | evidence for brief NNN, from [the report template](references/report-template.md), or the agree/object response to plan NNN, from [the plan response template](references/plan-response-template.md) |
 | `reviews/NNN-<slug>.md` | master | verdict on report NNN, from [the review template](references/review-template.md); `agreed` plus an `approval` matching the plan's scale unlocks its briefs |
-| `scratch/<id>/` | master via `pair.sh scratch` | throwaway worktree at a unit's commit for rerunning its checks; removed after the review |
+| `scratch/<id>` | master via `pair.sh scratch` | link to a throwaway worktree at a unit's commit for rerunning its checks, kept inside the repo's git directory (`.git/pstack-scratch/`) so an agent there inherits the repo's folder trust; removed after the review |
 | `gates.md` | master | open questions for the human |
 | `decisions.tsv` | master via `pair.sh log` | the show-me-your-work trail |
 | `status.md` | `pair.sh status` | derived table; never hand-edited |

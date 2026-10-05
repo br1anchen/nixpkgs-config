@@ -434,7 +434,16 @@ cmd_verify() {
 	[ -n "$anchor" ] && herdr pane get "$anchor" >/dev/null 2>&1 || anchor="$(field "$store" .master.pane_id)"
 	pane="$(herdr pane split --pane "$anchor" --direction "$(pick_direction "$anchor")" --cwd "$scratch" --no-focus | jq -r '.result.pane.pane_id')"
 	[ -n "$pane" ] && [ "$pane" != null ] || die "pane split returned no pane id" 2
-	herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 -- "${args[@]}" >/dev/null || die "verifier start failed in $pane" 2
+	if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 -- "${args[@]}" >/dev/null; then
+		local why="verifier start failed in $pane"
+		if grep -qiE "$trust_re" <<<"$(herdr pane read "$pane" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ')"; then
+			why="$kind asks whether to trust $scratch, and that decision is yours: open $kind in the repo once and trust it, or verify with another kind"
+			herdr pane send-keys "$pane" esc >/dev/null 2>&1 || true
+		fi
+		herdr pane close "$pane" >/dev/null 2>&1 || true
+		cmd_scratch "$store" "$scratch_id" --remove >/dev/null
+		die "$why" 5
+	fi
 	json_update "$store" --arg pane "$pane" --arg kind "$kind" '.verifier.pane_id = $pane | .verifier.kind = $kind'
 	event "$store" master send-verify "$brief" "$kind:${units[*]}"
 	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$kind" "$pane" "${base:0:9}" "${head:0:9}"
