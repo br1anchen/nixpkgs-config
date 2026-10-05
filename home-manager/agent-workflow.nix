@@ -97,6 +97,11 @@ lib.mkIf agentWorkflow {
     "nvim/after/plugin/herdr_nav.lua".source = "${navigationRoot}/editor/nvim.lua";
     "opencode/plugins/herdr-agent-state.js".source =
       "${inputs.herdr}/src/integration/assets/opencode/herdr-agent-state.js";
+    # Herdr's v10 OpenCode integration has a second half: this TUI session
+    # plugin, registered by config/opencode/tui.jsonc (a dotfile, since it is
+    # user-editable config).
+    "opencode/herdr-tui-session.js".source =
+      "${inputs.herdr}/src/integration/assets/opencode/herdr-tui-session.js";
   };
 
   home.activation = {
