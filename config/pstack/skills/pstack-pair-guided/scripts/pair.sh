@@ -21,11 +21,12 @@ usage() {
 usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the pair store; prints its path
-  spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
+  spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
                                             split from the master pane, start and bootstrap the sidekick;
                                             Devin defaults to bypass, other kinds inherit the master's mode;
                                             a pi sidekick first proves its model answers; on failure the
-                                            --fallback kind starts instead
+                                            --fallback kind starts instead; --tab gives the sidekick its own tab
+                                            instead of a split (PSTACK_PLACEMENT=tab sets the default)
   failover <store> [--reason TEXT] [--force]
                                             replace a failing sidekick with its recorded fallback in the same pane;
                                             the fallback picks up from the store, and the run stays on it

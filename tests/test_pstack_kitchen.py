@@ -604,6 +604,15 @@ esac
         self.assertIn('status: clean', out)
         self.assertIn('send-keys demo-verifier enter', (self.fake / 'calls.log').read_text())
 
+    def test_tab_placement_gives_the_verifier_a_tab(self):
+        state = json.loads((self.store / 'pair.json').read_text())
+        state['placement'] = 'tab'
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        _, out = self.verify_app_unit('clean', 0)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertIn('--label demo-verifier --no-focus', calls)
+        self.assertRegex(calls, r'pane close t\d')
+
     def test_rejected_verdict_drafts_the_fix_brief(self):
         _, out = self.verify_app_unit('reject', 2)
         self.assertIn('Acceptance broke', out)

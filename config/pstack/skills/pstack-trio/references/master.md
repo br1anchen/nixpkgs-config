@@ -27,7 +27,8 @@ trio store is yours alone.
    `--consultant-permission` if they are not what the human intended. Pass
    other native agent arguments after `--` only when the human asked for them;
    they reach every role spawned by that call. The command splits a pane beside
-   yours for the sidekick and one below it for the consultant, bootstraps each,
+   yours for the sidekick and one below it for the consultant (with `--tab`, or
+   `PSTACK_PLACEMENT=tab`, each gets a tab of its own instead), bootstraps each,
    and prints both ready paths. Read `reports/000-ready.md` and
    `advice/000-ready.md` and confirm branch and head match your framing before
    the first plan.

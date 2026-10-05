@@ -65,7 +65,7 @@ Consultant: [references/consultant.md](references/consultant.md).
 
 | Path | Writer | Content |
 | --- | --- | --- |
-| `pair.json` | master via `pair.sh` | agent names, pane ids, kinds, cwd, git root, open scratch list, the sidekick's fallback and failovers |
+| `pair.json` | master via `pair.sh` | agent names, pane ids, kinds, cwd, git root, open scratch list, the sidekick's fallback and failovers, pane placement (split or tab) |
 | `standing-orders.md` | master | numbered constraints pasted by path into every brief |
 | `plans/NNN-<slug>.md` | master | one plan round, from [the plan template](references/plan-template.md) |
 | `briefs/NNN-<slug>.md` | master | one unit, from [the brief template](references/brief-template.md) |

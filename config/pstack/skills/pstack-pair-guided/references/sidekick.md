@@ -8,9 +8,12 @@ in a report file; the terminal is not the record.
 
 ## Bootstrap
 
-1. `test "${HERDR_ENV:-}" = 1`, then read `<store>/pair.json`. If
-   `$HERDR_PANE_ID` differs from `.sidekick.pane_id`, you are not this pair's
-   sidekick: say so and stop.
+1. `test "${HERDR_ENV:-}" = 1`, then read `<store>/pair.json`. Your
+   bootstrap message names your generation and pane. If they differ from
+   `.sidekick.generation` and `.sidekick.pane_id`, a newer sidekick replaced you:
+   say so and stop. Do not compare `$HERDR_PANE_ID`; a harness that runs
+   commands through a shared daemon (Codex's app-server) reports a stale pane
+   there.
 2. Read `standing-orders.md` and `session-handoff.md` when present. Inspect
    the dispatched brief named in `pair.json`, its report, and its step log.
    Run session pickup read-only for partial work. A completed or merely queued

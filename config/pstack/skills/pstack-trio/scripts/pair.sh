@@ -24,11 +24,12 @@ usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the trio store; prints its path
   spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
-        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--timeout MS] [-- agent-args...]
+        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--timeout MS] [-- agent-args...]
                                             split panes beside the master, start and bootstrap both agents;
                                             Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
                                             three kinds are all the same. --only respawns one role. A pi sidekick first proves
-                                            its model answers; on failure the --fallback kind starts instead.
+                                            its model answers; on failure the --fallback kind starts instead. --tab gives each role
+                                            its own tab instead of a split (PSTACK_PLACEMENT=tab sets the default).
   rotate <store>                            exit an idle Devin or pi sidekick after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
   failover <store> [--reason TEXT] [--force]
@@ -107,8 +108,8 @@ require_diverse_kinds() {
 
 cmd_spawn() {
 	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh spawn <store> --sidekick KIND --consultant KIND [--fallback KIND [--fallback-arg ARG]...] [--only sidekick|consultant] [--permission MODE|none] [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]"
-	local store="$1" sidekick_kind="" consultant_kind="" only="" permission="" cpermission="" timeout=60000 fallback=""
+	[ $# -ge 1 ] || die "usage: pair.sh spawn <store> --sidekick KIND --consultant KIND [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--only sidekick|consultant] [--permission MODE|none] [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]"
+	local store="$1" sidekick_kind="" consultant_kind="" only="" permission="" cpermission="" timeout=60000 fallback="" placement=""
 	local -a fallback_args=()
 	shift
 	while [ $# -gt 0 ]; do
@@ -117,6 +118,8 @@ cmd_spawn() {
 		--consultant) consultant_kind="$2"; shift 2 ;;
 		--kind) sidekick_kind="$2"; consultant_kind="${consultant_kind:-$2}"; shift 2 ;;
 		--fallback) fallback="$2"; shift 2 ;;
+		--tab) placement="tab"; shift ;;
+		--split) placement="split"; shift ;;
 		--fallback-arg) fallback_args+=("$2"); shift 2 ;;
 		--only) only="$2"; shift 2 ;;
 		--permission) permission="$2"; shift 2 ;;
@@ -127,6 +130,7 @@ cmd_spawn() {
 		esac
 	done
 	pair_file "$store" >/dev/null
+	set_placement "$store" "$placement"
 	case "$only" in
 	"" | sidekick | consultant) ;;
 	*) die "--only takes sidekick or consultant" ;;

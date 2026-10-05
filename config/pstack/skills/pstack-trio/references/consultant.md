@@ -24,9 +24,12 @@ are two: advice files, and a scratch worktree from `pair.sh scratch`.
 
 ## Bootstrap
 
-1. `test "${HERDR_ENV:-}" = 1`, then read `<store>/pair.json`. If
-   `$HERDR_PANE_ID` differs from `.consultant.pane_id`, you are not this
-   trio's consultant: say so and stop.
+1. `test "${HERDR_ENV:-}" = 1`, then read `<store>/pair.json`. Your
+   bootstrap message names your generation and pane. If they differ from
+   `.consultant.generation` and `.consultant.pane_id`, a newer consultant replaced you:
+   say so and stop. Do not compare `$HERDR_PANE_ID`; a harness that runs
+   commands through a shared daemon (Codex's app-server) reports a stale pane
+   there.
 2. Read `standing-orders.md`. If plans exist, read the newest plan, its
    sidekick response, and your previous advice, so a restart resumes the
    discussion instead of restarting it.

@@ -674,39 +674,43 @@ provider_hint() {
 
 cmd_init() {
 	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh init <slug> [--store DIR]"
-	local slug="$1" store="" longest="${roles[${#roles[@]}-1]}"
+	[ $# -ge 1 ] || die "usage: pair.sh init <slug> [--store DIR] [--pane ID]"
+	local slug="$1" store="" longest="${roles[${#roles[@]}-1]}" pane_id="${HERDR_PANE_ID:-}"
 	shift
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--store) store="$2"; shift 2 ;;
+		--pane) pane_id="$2"; shift 2 ;;
 		*) die "unknown option $1" ;;
 		esac
 	done
 	[[ "$slug" =~ ^[a-z][a-z0-9_-]{0,$slug_max}$ ]] || die "slug must match [a-z][a-z0-9_-]{0,$slug_max} (so <slug>-$longest fits Herdr's 32-char name limit)"
 	[ -n "$store" ] || store="$state_root/$slug"
-	[ -n "${HERDR_PANE_ID:-}" ] || die "HERDR_PANE_ID is unset; run from a Herdr-managed pane"
+	[ -n "$pane_id" ] || die "HERDR_PANE_ID is unset; run from a Herdr-managed pane, or pass --pane ID"
 	local d
 	for d in "${store_dirs[@]}"; do mkdir -p "$store/$d"; done
 	local master="$slug-master" now cwd git_root
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 	cwd="$PWD"
 	git_root="$(git rev-parse --show-toplevel 2>/dev/null || printf '')"
-	herdr agent rename "$HERDR_PANE_ID" "$master" >/dev/null
+	# HERDR_PANE_ID can be stale: Codex runs every session's commands through
+	# one shared app-server daemon, which keeps the pane it was started in.
+	herdr agent rename "$pane_id" "$master" >/dev/null 2>&1 ||
+		die "pane $pane_id is not a live Herdr pane; HERDR_PANE_ID is stale when a harness runs commands through a shared daemon (Codex's app-server). Pass your pane with --pane ID (herdr agent list shows each agent's pane)" 2
 	if [ -f "$store/pair.json" ]; then
-		json_update "$store" --arg pane "$HERDR_PANE_ID" --arg ws "${HERDR_WORKSPACE_ID:-}" --arg tab "${HERDR_TAB_ID:-}" --arg now "$now" \
+		json_update "$store" --arg pane "$pane_id" --arg ws "${HERDR_WORKSPACE_ID:-}" --arg tab "${HERDR_TAB_ID:-}" --arg now "$now" \
 			'.master.pane_id = $pane | .master.workspace_id = $ws | .master.tab_id = $tab | .master.registered_at = $now'
-		printf 'store: %s (re-registered master %s in %s)\n' "$store" "$master" "$HERDR_PANE_ID"
+		printf 'store: %s (re-registered master %s in %s)\n' "$store" "$master" "$pane_id"
 	else
 		jq -n --arg slug "$slug" --arg store "$store" --arg now "$now" --arg cwd "$cwd" --arg git_root "$git_root" \
-			--arg master "$master" --arg pane "$HERDR_PANE_ID" \
+			--arg master "$master" --arg pane "$pane_id" \
 			--arg ws "${HERDR_WORKSPACE_ID:-}" --arg tab "${HERDR_TAB_ID:-}" --args \
 			'{slug: $slug, store: $store, created_at: $now, cwd: $cwd, git_root: $git_root,
 			  master: {name: $master, pane_id: $pane, workspace_id: $ws, tab_id: $tab, registered_at: $now}}
 			 | reduce $ARGS.positional[] as $r (.; .[$r] = {name: "\($slug)-\($r)", pane_id: null, kind: null, started_at: null})
 			 | if has("consultant") then .scratch = [] else . end' \
 			"${roles[@]}" >"$store/pair.json"
-		printf 'store: %s (master %s in %s)\n' "$store" "$master" "$HERDR_PANE_ID"
+		printf 'store: %s (master %s in %s)\n' "$store" "$master" "$pane_id"
 	fi
 	event "$store" master init - "$PAIR_SKILL"
 	# The template comes from a read-only install, so give the copy its own mode.
@@ -864,6 +868,36 @@ refuse_untrusted() {
 	die "$kind asks whether to trust $dir, and that decision is yours: open $kind there once and trust the folder (or pick another kind), then rerun the spawn" 5
 }
 
+# A new pane for a role: a split beside the anchor, or, with placement tab
+# (spawn --tab, or PSTACK_PLACEMENT=tab), a tab of its own in the master's
+# workspace, labelled with the role. Sets new_pane_id. $1 store, $2 role,
+# $3 anchor, $4 direction (empty picks one), $5 cwd.
+new_pane() {
+	local store="$1" role="$2" anchor="$3" direction="$4" cwd="$5" master
+	if [ "$(field "$store" '.placement // empty')" = tab ]; then
+		master="$(field "$store" .master.pane_id)"
+		new_pane_id="$(herdr tab create --workspace "${master%%:*}" --cwd "$cwd" --label "$(field "$store" .slug)-$role" --no-focus |
+			jq -r '.result.root_pane.pane_id')"
+		[ -n "$new_pane_id" ] && [ "$new_pane_id" != null ] || die "tab create returned no pane id" 2
+		printf 'tab %s-%s -> %s\n' "$(field "$store" .slug)" "$role" "$new_pane_id"
+	else
+		[ -n "$direction" ] || direction="$(pick_direction "$anchor")"
+		new_pane_id="$(herdr pane split --pane "$anchor" --direction "$direction" --cwd "$cwd" --no-focus | jq -r '.result.pane.pane_id')"
+		[ -n "$new_pane_id" ] && [ "$new_pane_id" != null ] || die "pane split returned no pane id" 2
+		printf 'split %s %s -> %s\n' "$anchor" "$direction" "$new_pane_id"
+	fi
+}
+
+# Records how roles get their panes: --tab or --split from spawn, else what
+# the store already has, else PSTACK_PLACEMENT, else split.
+set_placement() {
+	local store="$1" want="${2:-}"
+	[ -n "$want" ] || [ -n "$(field "$store" '.placement // empty')" ] || want="${PSTACK_PLACEMENT:-split}"
+	[ -n "$want" ] || return 0
+	case "$want" in split | tab) ;; *) die "placement must be split or tab, not $want" ;; esac
+	json_update "$store" --arg p "$want" '.placement = $p'
+}
+
 # Start one role, record it in pair.json, and bootstrap it. It reuses $pane,
 # or the role's previous pane when that is back at a shell prompt, and
 # otherwise splits $anchor in $direction (picked from the anchor's shape when
@@ -937,10 +971,8 @@ spawn_role() {
 		fi
 	fi
 	if [ -z "$pane" ]; then
-		[ -n "$direction" ] || direction="$(pick_direction "$anchor")"
-		pane="$(herdr pane split --pane "$anchor" --direction "$direction" --cwd "$cwd" --no-focus | jq -r '.result.pane.pane_id')"
-		[ -n "$pane" ] && [ "$pane" != null ] || die "pane split returned no pane id" 2
-		printf 'split %s %s -> %s\n' "$anchor" "$direction" "$pane"
+		new_pane "$store" "$role" "$anchor" "$direction" "$cwd"
+		pane="$new_pane_id"
 		herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" >/dev/null ||
 			{ refuse_untrusted "$pane" "$kind" "$cwd"; die "agent start failed in $pane; inspect: herdr pane read $pane --source visible" 2; }
 	fi
@@ -960,7 +992,7 @@ spawn_role() {
 		mkdir -p "$store/sessions"
 		mv "$store/$ready" "$store/sessions/$role-$(field "$store" ".$role.generation")-previous-ready.md"
 	fi
-	bootstrap="Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the $role role. $store_label store: $store. Follow its bootstrap steps, write $ready, and reply READY."
+	bootstrap="Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the $role role (generation $(field "$store" ".$role.generation"), pane $pane). $store_label store: $store. Follow its bootstrap steps, write $ready, and reply READY."
 	local out err code=0 errfile
 	errfile="$(mktemp)"
 	out="$(herdr agent prompt "$name" "$bootstrap" --wait --timeout 240000 2>"$errfile")" || code=$?
@@ -1175,7 +1207,7 @@ cmd_rotate() {
 cmd_spawn() {
 	in_herdr
 	[ $# -ge 1 ] || die "usage: pair.sh spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]"
-	local store="$1" kind="" direction="" pane="" timeout=60000 permission="" fallback=""
+	local store="$1" kind="" direction="" pane="" timeout=60000 permission="" fallback="" placement=""
 	local -a fallback_args=()
 	shift
 	while [ $# -gt 0 ]; do
@@ -1183,6 +1215,8 @@ cmd_spawn() {
 		--kind) kind="$2"; shift 2 ;;
 		--fallback) fallback="$2"; shift 2 ;;
 		--fallback-arg) fallback_args+=("$2"); shift 2 ;;
+		--tab) placement="tab"; shift ;;
+		--split) placement="split"; shift ;;
 		--permission) permission="$2"; shift 2 ;;
 		--direction) direction="$2"; shift 2 ;;
 		--pane) pane="$2"; shift 2 ;;
@@ -1193,6 +1227,7 @@ cmd_spawn() {
 	done
 	[ -n "$kind" ] || die "--kind is required (run: herdr agent, for the kind list)"
 	pair_file "$store" >/dev/null
+	set_placement "$store" "$placement"
 	record_fallback "$store" "$fallback" "${fallback_args[@]}"
 	local rc=0
 	spawn_sidekick "$store" "$kind" "$permission" "$(field "$store" .master.pane_id)" "$timeout" "$direction" "$pane" "$@" || rc=$?

@@ -4,11 +4,12 @@ usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the trio store; prints its path
   spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
-        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--timeout MS] [-- agent-args...]
+        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--timeout MS] [-- agent-args...]
                                             split panes beside the master, start and bootstrap both agents;
                                             Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
                                             three kinds are all the same. --only respawns one role. A pi sidekick first proves
-                                            its model answers; on failure the --fallback kind starts instead.
+                                            its model answers; on failure the --fallback kind starts instead. --tab gives each role
+                                            its own tab instead of a split (PSTACK_PLACEMENT=tab sets the default).
   rotate <store>                            exit an idle Devin or pi sidekick after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
   failover <store> [--reason TEXT] [--force]
@@ -108,13 +109,13 @@ kinds: master claude, sidekick devin, consultant codex
   herdr pane layout --pane p0
   herdr pane split --pane p0 --direction right --cwd <T>/repo --no-focus
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role. Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 1, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
   herdr pane get p1
   herdr agent get demo-consultant
   herdr pane layout --pane p1
   herdr pane split --pane p1 --direction right --cwd <T>/repo --no-focus
   herdr agent start demo-consultant --kind codex --pane p2 --timeout 60000 -- -a on-request -s workspace-write
-  herdr agent prompt demo-consultant Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the consultant role. Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write advice/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-consultant Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the consultant role (generation 1, pane p2). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write advice/000-ready.md, and reply READY. --wait --timeout 240000
 
 $ pair.sh spawn <T>/state/pstack/trio/demo --sidekick claude --consultant claude
 pair.sh: all three agents would be claude; pstack-trio needs at least two distinct kinds (master claude, sidekick claude, consultant claude). Restart with a different --sidekick or --consultant kind, or use pstack-pair 8
@@ -806,7 +807,7 @@ ready: <T>/state/pstack/trio/demo/reports/000-ready.md
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
-  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role. Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
+  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 2, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/013-qscope.md --timeout 1000
 state: timeout
@@ -1148,11 +1149,12 @@ usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the trio store; prints its path
   spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
-        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--timeout MS] [-- agent-args...]
+        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--timeout MS] [-- agent-args...]
                                             split panes beside the master, start and bootstrap both agents;
                                             Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
                                             three kinds are all the same. --only respawns one role. A pi sidekick first proves
-                                            its model answers; on failure the --fallback kind starts instead.
+                                            its model answers; on failure the --fallback kind starts instead. --tab gives each role
+                                            its own tab instead of a split (PSTACK_PLACEMENT=tab sets the default).
   rotate <store>                            exit an idle Devin or pi sidekick after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
   failover <store> [--reason TEXT] [--force]
@@ -2514,6 +2516,7 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "rotation_required": false
   },
   "scratch": [],
+  "placement": "split",
   "pending": [],
   "dispatch": {
     "brief": "<T>/state/pstack/trio/demo/briefs/015-qnine.md",

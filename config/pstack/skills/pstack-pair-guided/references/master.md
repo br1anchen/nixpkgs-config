@@ -22,7 +22,8 @@ is yours alone.
    the `permission` line the command prints and correct it with `--permission
    <mode>` if it is not what the human intended. Pass other native agent
    arguments after `--` only when the human asked for them. The command splits
-   a pane beside yours, starts the agent, sends the bootstrap prompt, and
+   a pane beside yours (with `--tab`, or `PSTACK_PLACEMENT=tab`, it opens a tab
+   of its own instead), starts the agent, sends the bootstrap prompt, and
    prints the ready report path. Read `reports/000-ready.md` and confirm branch
    and head match your framing before the first brief.
 4. **Design and plan together.** You drive the implementation design, the

@@ -20,7 +20,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `kitchen.py validate`; a missing or failing kitchen goes to
    pstack-kitchen-setup first.
 3. **Spawn the sidekick.** `kitchen.sh spawn <store>` takes the kind, args,
-   and fallback from the host roster; `--kind` overrides. Read
+   and fallback from the host roster; `--kind` overrides. `--tab` (or
+   `PSTACK_PLACEMENT=tab`) gives the sidekick, the consultant, and each
+   verifier a tab of their own instead of a split. Read
    `reports/000-ready.md`.
 4. **Classify before you plan.** Draft the brief's Scope first and run
    `kitchen.sh classify <store> <brief>`.

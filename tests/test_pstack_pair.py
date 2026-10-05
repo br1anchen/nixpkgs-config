@@ -319,6 +319,32 @@ esac
         out = self.run_command('spawn', str(self.store), '--kind', 'pi', '--', '--continue', code=5)
         self.assertIn('pi task sessions start fresh', out)
 
+    def test_tab_placement_gives_the_sidekick_its_own_tab(self):
+        self.run_command('spawn', str(self.store), '--kind', 'pi', '--tab', '--', '--model', 'devin/swe-2')
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertRegex(calls, r'tab create --workspace p0 --cwd \S+ --label demo-sidekick --no-focus')
+        self.assertNotIn('pane split', calls)
+        state = self.state()
+        self.assertEqual((state['placement'], state['sidekick']['pane_id'][:1]), ('tab', 't'))
+        self.assertIn(f"take the sidekick role (generation 1, pane {state['sidekick']['pane_id']})", calls)
+
+    def test_placement_defaults_from_the_environment_and_split_overrides(self):
+        self.env['PSTACK_PLACEMENT'] = 'tab'
+        self.spawn_pi()
+        self.assertEqual(self.state()['placement'], 'tab')
+        (self.fake / 'agents/demo-sidekick').unlink()
+        self.run_command('spawn', str(self.store), '--kind', 'pi', '--split', '--', '--model', 'devin/swe-2')
+        self.assertEqual(self.state()['placement'], 'split')
+
+    def test_init_names_a_stale_pane_and_takes_pane(self):
+        self.env['HERDR_PANE_ID'] = 'gone7'
+        out = self.run_command('init', 'other', code=2)
+        self.assertIn("pane gone7 is not a live Herdr pane", out)
+        self.assertIn('--pane ID', out)
+        self.run_command('init', 'other', '--pane', 'p0')
+        master = json.loads((self.path / 'state/pstack/pair/other/pair.json').read_text())['master']
+        self.assertEqual(master['pane_id'], 'p0')
+
     def test_live_pi_skips_the_preflight(self):
         self.spawn_pi()
         (self.fake / 'pi.log').unlink()

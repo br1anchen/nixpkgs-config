@@ -29,9 +29,10 @@ new-plan, new-brief, wait, queue, notes, new-note, note, finish, next, progress,
 report, notify, stop, scratch, pause, resume, status, log, metrics, and the consultant's new-consult,
 consult, advice. These differ or are new:
 
-  spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [--permission MODE|none] [-- args...]
+  spawn <store> [--kind KIND] [--fallback KIND [--fallback-arg ARG]...] [--tab | --split] [--permission MODE|none] [-- args...]
                                             start the sidekick; kind, args, and fallback default to the
-                                            host roster (~/.config/pstack/kitchen.toml)
+                                            host roster (~/.config/pstack/kitchen.toml); --tab gives every role
+                                            (sidekick, consultant, verifier) its own tab instead of a split
   consultant <store> --reason TEXT [--kind KIND] [-- args...]
                                             start the consultant for an escalated unit (roster kind by default)
   classify <store> <brief-path>             map the brief's may-write Scope to profiles and a risk class and
@@ -401,7 +402,7 @@ cmd_verify() {
 		printf 'verdict: %s\nstatus: clean (gates only; mode gates)\n' "$verdict"
 		exit 0
 	fi
-	local kind name pane anchor scratch_id scratch
+	local kind name pane anchor scratch_id scratch new_pane_id
 	local -a args=()
 	if [ "$role" = sidekick ]; then
 		kind="$(field "$store" .sidekick.kind)"
@@ -432,8 +433,8 @@ cmd_verify() {
 	name="$(field "$store" .verifier.name)"
 	anchor="$(field "$store" '.sidekick.pane_id // empty')"
 	[ -n "$anchor" ] && herdr pane get "$anchor" >/dev/null 2>&1 || anchor="$(field "$store" .master.pane_id)"
-	pane="$(herdr pane split --pane "$anchor" --direction "$(pick_direction "$anchor")" --cwd "$scratch" --no-focus | jq -r '.result.pane.pane_id')"
-	[ -n "$pane" ] && [ "$pane" != null ] || die "pane split returned no pane id" 2
+	new_pane "$store" verifier "$anchor" "" "$scratch" >/dev/null
+	pane="$new_pane_id"
 	if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 -- "${args[@]}" >/dev/null; then
 		local why="verifier start failed in $pane"
 		if grep -qiE "$trust_re" <<<"$(herdr pane read "$pane" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ')"; then

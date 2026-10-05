@@ -11,7 +11,10 @@ resolve() { if [ -s "$FAKE/panes/$1" ]; then cat "$FAKE/panes/$1"; else printf '
 status_of() { [ -f "$FAKE/agents/$1" ] && cut -d' ' -f1 "$FAKE/agents/$1"; }
 kind_of() { [ -f "$FAKE/agents/$1" ] && cut -d' ' -f2 "$FAKE/agents/$1"; }
 case "$1 $2" in
-"agent rename") printf 'idle claude\n' >"$FAKE/agents/$4"; printf '%s' "$4" >"$FAKE/panes/$3"; ok idle claude ;;
+"agent rename")
+	# A pane id starting with "gone" no longer exists, as a stale HERDR_PANE_ID.
+	case "$3" in gone*) printf '{"error":{"code":"pane_not_found"}}\n' >&2; exit 1 ;; esac
+	printf 'idle claude\n' >"$FAKE/agents/$4"; printf '%s' "$4" >"$FAKE/panes/$3"; ok idle claude ;;
 "agent get")
 	n="$(resolve "$3")"; s="$(status_of "$n")" || { printf '{"error":{"code":"not_found"}}\n' >&2; exit 1; }
 	ok "$s" "$(kind_of "$n")" ;;
@@ -92,6 +95,7 @@ case "$1 $2" in
 "pane split") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/p$n"; printf '{"result":{"pane":{"pane_id":"p%s"}}}\n' "$n" ;;
 "pane get") [ -f "$FAKE/panes/$3" ] || exit 1; printf '{"result":{}}\n' ;;
 "pane close") rm -f "$FAKE/panes/$3"; printf '{"result":{"type":"ok"}}\n' ;;
+"tab create") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/t$n"; printf '{"result":{"type":"tab_created","tab":{"tab_id":"tab%s"},"root_pane":{"pane_id":"t%s"}}}\n' "$n" "$n" ;;
 "pane read")
 	if [ -e "$FAKE/trust-dialog" ]; then printf ' Quick safety check: Is this a project you created or one you\n trust?\n ❯ No, exit\n'
 	else printf 'pane text\n'; fi ;;
