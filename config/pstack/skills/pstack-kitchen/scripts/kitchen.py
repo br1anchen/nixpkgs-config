@@ -307,7 +307,9 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
         out, seen = [], set()
         for pattern in args.paths:
             rx = glob_regex(pattern)
-            hits = [f for f in files if rx.match(f)] or ([pattern] if not any(c in pattern for c in '*?') else [])
+            # A glob for files that do not exist yet stands for one file it
+            # would match, so a new directory still maps to its profile.
+            hits = [f for f in files if rx.match(f)] or [re.sub(r'\*\*/?|[*?]', 'x', pattern)]
             for f in hits:
                 if f not in seen:
                     seen.add(f)
@@ -368,6 +370,8 @@ def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]]) -> dict:
         'diff_lines': diff_lines, 'verify': verify, 'sample': sample,
         'review': {'engine': kitchen.review['engine'], **kitchen.review[risk]},
         'features': sorted({f for p in profiles for f in p.features}),
+        'behavioral': [p.name for p in profiles if p.commands['behavioral']],
+        'max_batch_diff': kitchen.review['max_batch_diff'],
         'files': files,
     }
 
@@ -636,6 +640,22 @@ def history(root: Path, kitchen: Kitchen, last: int) -> list[dict]:
     return rows
 
 
+# Which agents fill the roles is the host's choice, not the repo's, so it
+# lives beside the other host preferences, outside every repo.
+def roster(as_json: bool) -> int:
+    path = Path(os.environ.get('PSTACK_KITCHEN_ROSTER') or Path.home() / '.config/pstack/kitchen.toml')
+    data = tomllib.loads(path.read_text()) if path.exists() else {}
+    out = {}
+    for role in ('sidekick', 'consultant'):
+        t = data.get(role, {})
+        out[role] = {'kind': t.get('kind', ''), 'args': [str(a) for a in t.get('args', [])]}
+        if role == 'sidekick':
+            fb = t.get('fallback', {})
+            out[role]['fallback'] = {'kind': fb.get('kind', ''), 'args': [str(a) for a in fb.get('args', [])]}
+    emit(out, as_json, f'{path}: ' + ', '.join(f'{r} {v["kind"] or "unset"}' for r, v in out.items()))
+    return 0
+
+
 def emit(obj, as_json: bool, text: str) -> None:
     print(json.dumps(obj, indent=2) if as_json else text)
 
@@ -666,13 +686,26 @@ def main(argv: list[str] | None = None) -> int:
     h.add_argument('--last', type=int, default=20)
     d = sub.add_parser('doctor', help='check the kitchen against the repo')
     d.add_argument('--run', action='store_true', help='also run every fast gate on HEAD and record a baseline')
+    rs = sub.add_parser('review-settings', help='style budget second_reviewer walkthrough for a review class')
+    rs.add_argument('cls', choices=('routine', 'escalated', 'landing'))
+    sub.add_parser('roster', help='the host roster: which agents fill the roles (no repo needed)')
+    sub.add_parser('statedir', help="this repo's kitchen state directory")
     args = ap.parse_args(argv)
 
+    if args.cmd == 'roster':
+        return roster(args.json)
     try:
+        if args.cmd == 'statedir':
+            print(state_dir(repo_root(args.repo)))
+            return 0
         root = repo_root(args.repo)
         kitchen = load(root, args.at, args.config)
         INVOCATION[:] = ['--repo', str(root)] + (['--config', args.config] if args.config else []) \
             + (['--at', args.at] if args.at else [])
+        if args.cmd == 'review-settings':
+            r = kitchen.review[args.cls]
+            print(r['style'], r['budget'], str(r['second_reviewer']).lower(), str(r['walkthrough']).lower())
+            return 0
         if args.cmd == 'validate':
             emit({'ok': True, 'profiles': list(kitchen.profiles)}, args.json,
                  f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})')

@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Fake Judge of Owls for kitchen.sh tests: `engine review` prints the review
+# artifact in $FAKE/joo-artifact.json; every call is logged.
+set -u
+: "${FAKE:?}"
+printf '%s\n' "$*" >>"$FAKE/joo.log"
+case "$1 $2" in
+"engine review") jq -n --slurpfile a "$FAKE/joo-artifact.json" '{ok: true, result: $a[0]}' ;;
+*) printf 'fake joo-dev: unhandled %s\n' "$*" >&2; exit 2 ;;
+esac

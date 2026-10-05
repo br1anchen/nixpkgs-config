@@ -78,6 +78,7 @@ case "$1 $2" in
 	else printf 'pane text\n'; fi ;;
 "pane split") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/p$n"; printf '{"result":{"pane":{"pane_id":"p%s"}}}\n' "$n" ;;
 "pane get") [ -f "$FAKE/panes/$3" ] || exit 1; printf '{"result":{}}\n' ;;
+"pane close") rm -f "$FAKE/panes/$3"; printf '{"result":{"type":"ok"}}\n' ;;
 "pane layout") pane="$4"; printf '{"result":{"layout":{"panes":[{"pane_id":"%s","rect":{"width":200,"height":50}}]}}}\n' "$pane" ;;
 "notification show") printf '{}\n' ;;
 *) printf 'fake herdr: unhandled %s\n' "$*" >&2; exit 2 ;;

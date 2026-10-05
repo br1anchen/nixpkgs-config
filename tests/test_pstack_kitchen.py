@@ -2,6 +2,7 @@
 gate, policy, and doctor, end to end through the command line."""
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -193,6 +194,23 @@ class ClassifyTests(KitchenTests):
         self.assertEqual([f['path'] for f in r['files']], ['src/app.py', 'src/util.py', 'src/new.py'])
         self.assertEqual(r['profiles'], ['app'])
 
+    def test_scope_glob_for_a_new_directory_maps_to_its_profile(self):
+        r = self.data('classify', '--paths', 'src/newpkg/**', 'contracts/v2/*.json')
+        self.assertEqual([f['path'] for f in r['files']], ['src/newpkg/x', 'contracts/v2/x.json'])
+        self.assertEqual((r['profiles'], r['risk']), (['app', 'contracts'], 'escalated'))
+        self.assertEqual((r['behavioral'], r['max_batch_diff']), (['app'], 800))
+
+    def test_roster_and_statedir(self):
+        roster = Path(self.tmp.name) / 'roster.toml'
+        roster.write_text('[sidekick]\nkind = "pi"\nargs = ["--model", "devin/swe-2"]\n'
+                          '[sidekick.fallback]\nkind = "devin"\n[consultant]\nkind = "codex"\n')
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        r = self.data('roster')
+        self.assertEqual(r['sidekick'], {'kind': 'pi', 'args': ['--model', 'devin/swe-2'],
+                                         'fallback': {'kind': 'devin', 'args': []}})
+        self.assertEqual(r['consultant']['kind'], 'codex')
+        self.assertIn('pstack/kitchen/repos/repo-', self.run_kitchen('statedir'))
+
     def test_working_tree_counts_untracked_files(self):
         self.write('docs/new.md', 'a\nb\n')
         self.write('docs/guide.md', '# Guide\nmore\n')
@@ -368,3 +386,244 @@ class DoctorTests(KitchenTests):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class KitchenScriptTests(unittest.TestCase):
+    """kitchen.sh against a fake herdr, a fake joo-dev, and a real repo and kitchen.py."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        t = Path(self.tmp.name)
+        self.fake, self.repo = t / 'fake', t / 'repo'
+        self.fake.mkdir()
+        self.repo.mkdir()
+        roster = t / 'roster.toml'
+        roster.write_text('[sidekick]\nkind = "pi"\nargs = ["--model", "devin/swe-2"]\n'
+                          '[sidekick.fallback]\nkind = "devin"\n[consultant]\nkind = "codex"\n')
+        self.env = {**os.environ, 'FAKE': str(self.fake), 'PSTACK_KITCHEN_ROSTER': str(roster),
+                    'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
+                    'HOME': str(t / 'home'), 'XDG_STATE_HOME': str(t / 'state'),
+                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0',
+                    'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
+                    'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+        self.env.pop('CLAUDE_CODE_SESSION_ID', None)
+        self.git('init', '-q')
+        kitchen_toml = KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["test ! -e FAIL"]') \
+            + '\n[review]\nengine = "joo"\n'
+        for path, text in {**FILES, '.agents/kitchen.toml': kitchen_toml}.items():
+            self.write(path, text)
+        self.commit('init')
+        self.script = skill / 'scripts/kitchen.sh'
+        self.store = t / 'state/pstack/kitchen/runs/demo'
+        self.run_sh('init', 'demo')
+        hook = self.fake / 'hook'
+        hook.write_text(f'''#!/usr/bin/env bash
+case "$2" in
+Load*VERIFY*)
+  packet="${{2##* VERIFY }}"
+  verdict="$(sed -n 's/^verdict: //p' "$packet")"
+  units="$(sed -n 's/^units: //p' "$packet")"
+  mode="$(cat "$FAKE/verdict-mode" 2>/dev/null || echo clean)"
+  status=clean; [ "$mode" = clean ] || status=reject
+  {{ printf '# Verdict\\n\\nstatus: %s\\nunits: %s\\n\\n## Findings\\n\\n' "$status" "$units"
+     [ "$status" = reject ] && printf '1. Acceptance broke: add returns 0\\n'
+     printf '\\n## Evidence\\n\\n'
+     [ "$mode" = noevidence ] || printf '```\\n$ python3 -c "print(1)"\\n1\\n```\\n'
+  }} >"$verdict"
+  ;;
+Load*) printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;
+esac
+''')
+        hook.chmod(0o755)
+        self.run_sh('spawn', str(self.store))
+
+    def git(self, *args):
+        return subprocess.run(['git', *args], cwd=self.repo, env=self.env, check=True,
+                              capture_output=True, text=True).stdout.strip()
+
+    def write(self, path, text):
+        f = self.repo / path
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(text)
+
+    def commit(self, message):
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', message)
+        return self.git('rev-parse', 'HEAD')
+
+    def run_sh(self, *args, code=0):
+        result = subprocess.run([str(self.script), *args], cwd=self.repo, env=self.env,
+                                capture_output=True, text=True, check=False)
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        return result.stdout + result.stderr
+
+    def state(self):
+        return json.loads((self.store / 'pair.json').read_text())
+
+    def brief(self, seq, slug, scope, playbook='feature', plan='none'):
+        path = self.store / 'briefs' / f'{seq}-{slug}.md'
+        text = (skill / 'references/brief-template.md').read_text()
+        text = text.replace('{{SEQ}}', seq).replace('{{SLUG}}', slug).replace('{{STORE}}', str(self.store))
+        lines = []
+        for line in text.splitlines():
+            if line.startswith('playbook:'):
+                line = f'playbook: {playbook}'
+            elif line.startswith('plan:'):
+                line = f'plan: {plan}'
+            elif line.startswith('commit:'):
+                line = 'commit: yes'
+            elif line.startswith('timebox:'):
+                line = 'timebox: 30'
+            lines.append(line)
+        text = '\n'.join(lines) + '\n'
+        text = text.replace('- {{path or glob, one per line; a note may follow after " — ". The kitchen classifies the unit from these lines.}}',
+                            '\n'.join(f'- {g} — scope' for g in scope))
+        text = re.sub(r'\{\{[^}]*\}\}', 'x', text, flags=re.DOTALL)
+        path.write_text(text)
+        return path
+
+    def dispatch(self, brief, code=4):
+        return self.run_sh('dispatch', str(self.store), str(brief), '--timeout', '1', code=code)
+
+    def done(self, brief, head):
+        (self.store / 'reports' / brief.name).write_text(f'# Report\n\nstatus: done\nhead: {head}\n')
+
+    def test_spawn_takes_the_roster_and_classify_stamps_the_brief(self):
+        sidekick = self.state()['sidekick']
+        self.assertEqual((sidekick['kind'], sidekick['fallback']['kind']), ('pi', 'devin'))
+        self.assertEqual(sidekick['start_args'][-2:], ['--model', 'devin/swe-2'])
+        b = self.brief('001', 'util', ['src/util.py'])
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('risk: routine', out)
+        text = b.read_text()
+        self.assertIn('risk: routine\nprofiles: app\nverify: batch by sidekick\n', text)
+        e = self.brief('002', 'api', ['contracts/**'])
+        out = self.run_sh('classify', str(self.store), str(e))
+        self.assertIn('escalate: escalate path: contracts/api.json', out)
+        self.assertIn('next: kitchen.sh consultant', out)
+
+    def test_escalated_units_need_an_agreed_plan_and_routine_ones_do_not(self):
+        self.dispatch(self.brief('001', 'util', ['src/util.py']))
+        self.dispatch(self.brief('002', 'api', ['contracts/**']), code=6)
+
+    def test_step_records_only_after_gates_and_policy_pass(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        sha = self.commit('step 1')
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'util two'))
+        steps = (self.store / 'steps/001-util.tsv').read_text().splitlines()
+        self.assertEqual(len(steps), 1)
+        self.write('notes.txt', 'x\n')
+        out = self.run_sh('step', str(self.store), self.commit('unmapped'), 'notes')
+        self.assertIn('gates: none ran; no profile covers notes.txt', out)
+        # A routine unit's steps never wake the master; its gates proved them.
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertIn('check-in: 001-util.md', out)
+        self.assertNotIn('to review on', out)
+        self.write('FAIL', 'x\n')
+        self.write('src/util.py', 'print(3)\n')
+        sha = self.commit('step 2')
+        out = self.run_sh('step', str(self.store), sha, 'util three', code=2)
+        self.assertIn('[no-print]', out)
+        self.assertIn('next: fix it in a new commit', out)
+        out = self.run_sh('step', str(self.store), sha, 'util three', code=2)
+        self.assertIn('2 failed checks in a row; write the report as blocked', out)
+        self.assertEqual(len((self.store / 'steps/001-util.tsv').read_text().splitlines()), 2)
+
+    def test_gates_mode_verifies_without_a_verifier(self):
+        b = self.brief('001', 'docs', ['docs/**'])
+        self.dispatch(b)
+        self.write('docs/guide.md', '# Guide\nmore\n')
+        head = self.commit('docs')
+        self.done(b, head)
+        out = self.run_sh('verify', str(self.store), '001')
+        self.assertIn('status: clean (gates only', out)
+        self.assertNotIn('agent start demo-verifier', (self.fake / 'calls.log').read_text())
+
+    def verify_app_unit(self, mode, code):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        head = self.commit('util')
+        self.done(b, head)
+        (self.fake / 'verdict-mode').write_text(mode)
+        return b, self.run_sh('verify', str(self.store), '001', code=code)
+
+    def test_verifier_pane_writes_a_clean_verdict_then_goes(self):
+        _, out = self.verify_app_unit('clean', 0)
+        self.assertIn('verifier demo-verifier (pi)', out)
+        self.assertIn('status: clean\n', out)
+        self.assertRegex(out, r'audit: (yes|no)')
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertIn('agent start demo-verifier --kind pi', calls)
+        self.assertIn('agent prompt demo-verifier /quit', calls)
+        self.assertRegex(calls, r'pane close p\d')
+        self.assertEqual(list((self.store / 'scratch').iterdir()), [])
+        packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        self.assertIn('gate app behavioral', packet)
+        self.assertIn('## Acceptance', packet)
+
+    def test_rejected_verdict_drafts_the_fix_brief(self):
+        _, out = self.verify_app_unit('reject', 2)
+        self.assertIn('Acceptance broke', out)
+        verdict = self.store / 'verdicts/001-util-v1.md'
+        self.assertIn(f'next: kitchen.sh revise {self.store} {verdict}', out)
+        fix = Path(self.run_sh('revise', str(self.store), str(verdict)).strip())
+        text = fix.read_text()
+        self.assertEqual(fix.name, '002-util-fix.md')
+        self.assertIn(f'- verdict: {verdict}', text)
+        self.assertIn('- src/** — scope', text)
+        self.assertIn('playbook: bug-fix', text)
+
+    def test_a_verdict_without_evidence_is_invalid(self):
+        _, out = self.verify_app_unit('noevidence', 2)
+        self.assertIn('status: invalid (no command output under Evidence)', out)
+
+    def test_review_resolve_and_land_check(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 4\n')
+        self.write('tests/test_app.py', 'x = 4\n')
+        head = self.commit('util')
+        self.done(b, head)
+        (self.fake / 'joo-artifact.json').write_text(json.dumps({'kind': 'review-artifact', 'findings': [
+            {'id': 'finding-a', 'severity': 'high', 'status': 'actionable', 'filePath': 'src/util.py',
+             'line': 1, 'summary': 'X changed meaning', 'category': 'correctness'},
+            {'id': 'finding-b', 'severity': 'low', 'status': 'actionable', 'filePath': 'src/util.py',
+             'line': 1, 'summary': 'name it better', 'category': 'naming'}]}))
+        out = self.run_sh('review', str(self.store), '001', code=2)
+        self.assertIn('finding-a high src/util.py:1 X changed meaning', out)
+        self.assertNotIn('finding-b', out.split('blocking without a resolution:')[1])
+        self.assertIn('--review-style standard --review-execution-budget 4 --no-second-reviewer --no-walkthrough',
+                      (self.fake / 'joo.log').read_text())
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        out = self.run_sh('land-check', str(self.store), code=2)
+        self.assertIn('unverified: unit 001', out)
+        self.assertIn('unresolved: finding-a', out)
+        landing = self.brief('002', 'land', ['src/**'], playbook='opening-a-pr')
+        self.assertIn('landing refused', self.dispatch(landing, code=2))
+        self.run_sh('verify', str(self.store), '001')
+        self.run_sh('resolve', str(self.store), 'finding-a', 'fixed', 'reverted in abc123')
+        self.run_sh('resolve', str(self.store), 'finding-zzz', 'fixed', 'x', code=1)
+        self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
+        self.assertIn('blocking: none open', self.run_sh('review', str(self.store), '001'))
+
+    def test_retro_counts_the_run_and_repeats_across_runs(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('FAIL', 'x\n')
+        self.write('src/util.py', 'X = 7\n')
+        sha = self.commit('broken')
+        self.run_sh('step', str(self.store), sha, 'one', code=2)
+        self.run_sh('step', str(self.store), sha, 'one', code=2)
+        self.run_sh('catch', str(self.store), 'review', 'missed a caller in api.py')
+        out = self.run_sh('retro', str(self.store))
+        self.assertIn('run demo: 0 unit reports', out)
+        self.assertRegex(out, r'2 gate-fail\s+app\s+in 1 runs')
+        out = self.run_sh('retro', str(self.store))
+        self.assertRegex(out, r'2 gate-fail\s+app\s+in 1 runs')
