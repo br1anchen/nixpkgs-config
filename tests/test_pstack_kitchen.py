@@ -410,7 +410,7 @@ class KitchenScriptTests(unittest.TestCase):
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
         self.git('init', '-q')
         kitchen_toml = KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["test ! -e FAIL"]') \
-            + '\n[review]\nengine = "joo"\n'
+            + '\n[review]\nengine = "joo"\nself = ["no-comments"]\n'
         for path, text in {**FILES, '.agents/kitchen.toml': kitchen_toml}.items():
             self.write(path, text)
         self.commit('init')
@@ -488,6 +488,13 @@ esac
 
     def done(self, brief, head):
         (self.store / 'reports' / brief.name).write_text(f'# Report\n\nstatus: done\nhead: {head}\n')
+
+    def test_init_puts_the_kitchen_in_the_standing_orders(self):
+        orders = (self.store / 'standing-orders.md').read_text()
+        self.assertIn('runs these skills on its diff and fixes what they find: no-comments', orders)
+        self.assertIn('Landing goes as far as `commit`', orders)
+        self.run_sh('init', 'demo')
+        self.assertEqual((self.store / 'standing-orders.md').read_text(), orders)
 
     def test_spawn_takes_the_roster_and_classify_stamps_the_brief(self):
         sidekick = self.state()['sidekick']

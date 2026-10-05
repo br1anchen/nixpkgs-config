@@ -1,0 +1,111 @@
+---
+name: pstack-kitchen
+description: "Run coding work as a kitchen in one Herdr session: a master that plans, briefs, triages code review, and decides; a sidekick on the cheapest capable model that implements under the repo's own deterministic gates; a consultant started only when a unit escalates; and a fresh verifier pane that proves each unit on the real surface. The master is woken by exceptions, not by every step. Needs the repo's .agents/kitchen.toml (pstack-kitchen-setup writes it). Use for /pstack-kitchen, 'kitchen mode', 'run the kitchen', a `pstack-kitchen PLAN|BRIEF|STEER|CONSULT|VERIFY|REPORT|ADVICE|STOP` message, 'be the sidekick/consultant/verifier' in a kitchen, or sustained delegated work that should not need the master on every step. Requires HERDR_ENV=1."
+---
+
+Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. Its runtime mappings apply to all referenced playbooks and scripts.
+
+# Pstack kitchen
+
+pstack-pair with the master's attention moved from dishes to the kitchen.
+The repo states, in `.agents/kitchen.toml`, which of its own commands prove
+which part of it and what makes a change risky; `kitchen.py` reads that as
+data. Every committed step passes those gates before it counts, a fresh
+verifier proves each finished unit, and Judge of Owls sweeps its diff. The
+master plans, writes precise briefs, triages the review, and decides; it is
+woken by exceptions, not by routine steps. What keeps going wrong becomes a
+rule in the kitchen, not another correction.
+
+Everything [pstack-pair](../pstack-pair/SKILL.md) says about the store, the
+messages, plans, check-ins, steers, the queue, notes, pausing, Devin and Pi
+sidekicks, and shared rules holds here, with `kitchen.sh` in place of
+`pair.sh` and `pstack-kitchen` in every message. This file covers what
+differs.
+
+## Preconditions
+
+1. `test "${HERDR_ENV:-}" = 1`, the Herdr skill loaded, `jq`, `herdr`, and
+   Python 3.11 or later on PATH. `scripts/kitchen.sh help` lists the commands.
+2. The repo has `.agents/kitchen.toml` and `kitchen.py validate` passes
+   (`scripts/kitchen.py`). Without it, run pstack-kitchen-setup first; a
+   kitchen without rules is a pair with extra steps.
+3. The host roster, `~/.config/pstack/kitchen.toml`, names the agents (all
+   optional; `--kind` overrides):
+
+   ```toml
+   [sidekick]
+   kind = "pi"
+   args = ["--model", "devin/swe-2", "--thinking", "high"]
+   [sidekick.fallback]
+   kind = "devin"
+   [consultant]
+   kind = "codex"
+   ```
+
+## Roles and quota
+
+Each role draws on a different quota; the kitchen spends each where it is
+worth most.
+
+| | Master | Sidekick | Consultant | Verifier |
+| --- | --- | --- | --- | --- |
+| Agent | the strongest model | the largest, cheapest pool | a different strong model, the scarcest | the sidekick's kind (routine) or the master's (escalated) |
+| Lives | the whole run | the whole run, rotated or failed over | from the first escalation | one verification, then its pane closes |
+| Owns | plans, briefs, review triage, decisions, the human | the working tree, steps, fixes | design critique | the verdict |
+| Writes | the store | the brief's Scope | advice, scratch | its verdict, in a scratch worktree |
+
+Enter your role. Master: [references/master.md](references/master.md).
+Sidekick: [references/sidekick.md](references/sidekick.md).
+Consultant: [references/consultant.md](references/consultant.md).
+Verifier: [references/verifier.md](references/verifier.md).
+
+## A unit's path
+
+1. **Classify.** The brief's may-write Scope maps to profiles and a risk
+   class (`kitchen.sh classify`; dispatch does it too). `routine` runs on the
+   brief alone. `escalated` (a contract, a migration, a dependency, a
+   cross-profile change, files no gate covers) starts the consultant and needs
+   a plan round with it.
+2. **Steps.** The sidekick commits each step and records it with
+   `kitchen.sh step`, which runs the touched profiles' fast gates and the
+   policy check and records only a passing step. The master does not read a
+   routine unit's steps.
+3. **Verify.** `kitchen.sh verify` per the unit's verify mode: `gates` (the
+   step gates were the proof), `batch` (one verifier for several routine
+   units), or `unit`. The verifier proves the brief's Acceptance at the
+   unit's head and writes a verdict with evidence.
+4. **Review.** `kitchen.sh review` runs Judge of Owls on the unit's range at
+   the risk class's style and budget. The master triages every critical or
+   high finding: fixed, follow-up, or dismissed, each recorded with
+   `kitchen.sh resolve`.
+5. **Accept.** The master's review is short when the verdict is clean and
+   the findings are resolved; a sampled unit (`audit: yes`) gets a full read.
+6. **Land.** `kitchen.sh land-check` passes only when every accepted unit is
+   verified and every blocking finding resolved; the landing brief goes as far
+   as `[landing].mode` allows and never merges.
+7. **Learn.** `kitchen.sh retro` shows where the master was needed and what
+   repeated; each repeated class becomes a rule, a lint, a profile command, or
+   a standing order.
+
+## When the master wakes
+
+A report (done, partial, blocked), a check-in digest at the interval, a
+steer objection, an escalated unit's steps, a rejected or inconclusive
+verdict, review findings, a sampled audit, an approval dialog, and a
+provider error. Two failed gates in a row reach the master as a blocked
+report. Everything else the kitchen handles.
+
+## Store additions
+
+The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/runs/<slug>/`, plus:
+
+| Path | Writer | Content |
+| --- | --- | --- |
+| `gates.tsv` | `kitchen.sh step` | one row per step check: time, unit, commit, pass or fail, profiles |
+| `verdicts/NNN-<slug>-v<k>.md` | verifier, or `verify` for gates mode | the verdict, from [the verdict template](references/verdict-template.md) |
+| `verdicts/NNN-<slug>-v<k>-packet.md` | `kitchen.sh verify` | what the verifier was given |
+| `joo/<unit or landing>-r<k>.json` | `kitchen.sh review` | the Judge of Owls review artifact |
+| `resolutions.tsv` | master via `kitchen.sh resolve` | one decision per finding |
+| `pair.json` `.escalations` | `kitchen.sh consultant` | why the consultant was started |
+
+The repo's ledger, across runs, is `ledger.tsv` in `kitchen.py statedir`.

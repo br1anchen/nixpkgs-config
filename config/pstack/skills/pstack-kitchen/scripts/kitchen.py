@@ -707,7 +707,8 @@ def main(argv: list[str] | None = None) -> int:
             print(r['style'], r['budget'], str(r['second_reviewer']).lower(), str(r['walkthrough']).lower())
             return 0
         if args.cmd == 'validate':
-            emit({'ok': True, 'profiles': list(kitchen.profiles)}, args.json,
+            emit({'ok': True, 'profiles': list(kitchen.profiles), 'self': kitchen.review['self'],
+                  'landing': kitchen.landing}, args.json,
                  f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})')
             return 0
         if args.cmd == 'classify':

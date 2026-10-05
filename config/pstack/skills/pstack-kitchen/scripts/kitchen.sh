@@ -65,6 +65,7 @@ copy_fn() {
 	# replaces $1.
 	eval "$2() $(declare -f "$1" | tail -n +2)"
 }
+copy_fn cmd_init core_init
 copy_fn cmd_spawn core_spawn
 copy_fn cmd_dispatch core_dispatch
 copy_fn cmd_queue core_queue
@@ -132,6 +133,22 @@ next_index() {
 		[ "$n" -gt "$k" ] && k="$n"
 	done
 	printf '%s\n' "$((k + 1))"
+}
+
+# The repo's kitchen speaks through the standing orders too: the review
+# skills the sidekick runs before done, and how far landing goes.
+cmd_init() {
+	local out store json orders
+	out="$(core_init "$@")"
+	printf '%s\n' "$out"
+	orders="$(sed -n 's/^standing orders: //p' <<<"$out")"
+	store="$(dirname "$orders")"
+	json="$(kpy "$store" --json validate 2>/dev/null)" || { printf 'kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching\n' >&2; return 0; }
+	grep -q 'kitchen.toml review.self' "$orders" || [ "$(jq '.self | length' <<<"$json")" -eq 0 ] ||
+		printf '16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: %s (kitchen.toml review.self).\n' \
+			"$(jq -r '.self | join(", ")' <<<"$json")" >>"$orders"
+	grep -q 'kitchen.toml landing.mode' "$orders" ||
+		printf '17. Landing goes as far as `%s` (kitchen.toml landing.mode) and never merges.\n' "$(jq -r .landing <<<"$json")" >>"$orders"
 }
 
 cmd_spawn() {

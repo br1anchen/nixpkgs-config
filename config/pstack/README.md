@@ -1,6 +1,6 @@
 # Pstack across coding agents
 
-This repo owns 58 pstack skills in `skills/`, their reference files, helper
+This repo owns 60 pstack skills in `skills/`, their reference files, helper
 scripts, and MIT license. Start with the
 [scenario tutorial](skills/ask-poteto/references/scenarios.md), or ask
 [ask-poteto](skills/ask-poteto/SKILL.md) which route fits your task.
@@ -30,16 +30,22 @@ Pi and Grok had individual links for other skills, but none for pstack.
 [sources.json](sources.json) records each imported skill, upstream revisions,
 and hashes of the previously installed SKILL.md files. The base is Cursor pstack
 0.15.9 at `e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a`. The local `pstack-tdd`,
-`pstack-teach`, `pstack-pair`, `pstack-pair-guided`, and `pstack-trio`
-customizations are retained, including Devin bypass defaults, task-boundary
+`pstack-teach`, `pstack-pair`, `pstack-pair-guided`, `pstack-trio`,
+`pstack-kitchen`, and `pstack-kitchen-setup` customizations are retained, including Devin bypass defaults, task-boundary
 session rotation, and durable handoffs. `pstack-pair` runs a master and sidekick agent
 pair over Herdr; `pstack-pair-guided` is its experimental variant with
 scope-scaled human approval and a sidekick ask channel; `pstack-trio` adds a
 consultant of a different agent kind that joins every plan round, answers
-design and finding consults, and prototypes in a throwaway worktree. See
-their SKILL.md files. The three share one script core,
+design and finding consults, and prototypes in a throwaway worktree.
+`pstack-kitchen` moves the master's attention to exceptions: the repo's
+`.agents/kitchen.toml` (written and proved by `pstack-kitchen-setup`) names the
+gate commands that prove each part of it and what makes a change risky, every
+step passes those gates, a fresh verifier pane proves each unit, Judge of Owls
+reviews it, and a consultant joins only escalated units. Its
+`scripts/kitchen.py` reads the kitchen as data (`tests/test_pstack_kitchen.py`).
+See their SKILL.md files. The four share one script core,
 `pstack-pair/scripts/pair-core.sh`; each skill's `scripts/pair.sh` sets its
-variant, adds its own commands, and sources it. The consultant's commands
+variant, adds its own commands, and sources it (the kitchen's is `scripts/kitchen.sh`). The consultant's commands
 (spawn, plan rounds, consults, multi-role stop) live in
 `pstack-trio/scripts/consultant-core.sh`, sourced after the core. `tests/test_pstack_pair.py`
 drives all three against a fake `herdr` and compares golden transcripts. Other workflows use the current
