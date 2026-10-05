@@ -1,6 +1,0 @@
-{
-  // Herdr's TUI session plugin, installed beside this file by
-  // home-manager/agent-workflow.nix. Herdr reports its OpenCode integration
-  // as needing repair until this entry exists.
-  "plugin": ["./herdr-tui-session.js"]
-}

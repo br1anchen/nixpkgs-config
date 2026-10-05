@@ -81,12 +81,13 @@ lib.mkIf agentWorkflow {
     };
   };
 
-  # Deliberate exceptions to "home-manager writes nothing under ~/.config on
-  # Omarchy": both paths are plugin drop-ins that Omarchy provably never touches,
-  # and their content is derived from flake inputs rather than hand-edited, so
-  # routing them through dotfiles-sync would be meaningless. The nvim drop-in
-  # survives `dotfiles-sync push` because directory pushes overlay rather than
-  # replace.
+  # Deliberate exception to "home-manager writes nothing under ~/.config on
+  # Omarchy": a plugin drop-in that Omarchy provably never touches, whose
+  # content is derived from a flake input rather than hand-edited, so routing
+  # it through dotfiles-sync would be meaningless. It survives
+  # `dotfiles-sync push` because directory pushes overlay rather than replace.
+  # Herdr's OpenCode integration is not installed: OpenCode is not a supported
+  # agent here for now.
   #
   # herdr/config.toml is NOT here: it is a shared repo file now.
   # ghostty's `command = herdr` is NOT here either: on Omarchy, herdr is launched
@@ -95,13 +96,6 @@ lib.mkIf agentWorkflow {
   # macOS keeps that behaviour via config/ghostty/platform.darwin.
   xdg.configFile = {
     "nvim/after/plugin/herdr_nav.lua".source = "${navigationRoot}/editor/nvim.lua";
-    "opencode/plugins/herdr-agent-state.js".source =
-      "${inputs.herdr}/src/integration/assets/opencode/herdr-agent-state.js";
-    # Herdr's v10 OpenCode integration has a second half: this TUI session
-    # plugin, registered by config/opencode/tui.jsonc (a dotfile, since it is
-    # user-editable config).
-    "opencode/herdr-tui-session.js".source =
-      "${inputs.herdr}/src/integration/assets/opencode/herdr-tui-session.js";
   };
 
   home.activation = {

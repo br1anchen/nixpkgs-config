@@ -17,9 +17,7 @@
 #
 #   programs.broot   -> broot/{conf,verbs}.hjson, broot/skins/*, broot/launcher/
 #   programs.bat     -> bat/config   (Omarchy's BAT_THEME=ansi overrides it anyway)
-#   agent-workflow   -> opencode/plugins/herdr-agent-state.js
-#                       opencode/herdr-tui-session.js
-#                       nvim/after/plugin/herdr_nav.lua
+#   agent-workflow   -> nvim/after/plugin/herdr_nav.lua
 #   home-manager     -> environment.d/10-home-manager.conf, systemd/user/tray.target
 #
 # The rule that matters is narrower than "nothing under ~/.config": no file that

@@ -21,7 +21,6 @@ config/git/ignore	.config/git/ignore	file	both
 config/lazygit/config.yml	.config/lazygit/config.yml	file	both
 config/opencode/opencode.json	.config/opencode/opencode.json	file	both
 config/opencode/AGENTS.md	.config/opencode/AGENTS.md	file	both
-config/opencode/tui.jsonc	.config/opencode/tui.jsonc	file	both
 config/jj/config.toml	.config/jj/config.toml	file	both
 config/mise/config.toml	.config/mise/config.toml	file	both
 config/herdr/config.toml	.config/herdr/config.toml	file	both
