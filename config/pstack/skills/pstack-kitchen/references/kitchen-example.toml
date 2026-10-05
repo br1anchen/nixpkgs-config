@@ -1,0 +1,73 @@
+# .agents/kitchen.toml for a TypeScript web app with a Rust engine. Every
+# command is the repo's own; the kitchen only names which ones prove what.
+version = 1
+
+[profile.ui]
+paths = ["apps/web/**", "packages/ui/**"]
+fast = ["pnpm --filter web typecheck", "pnpm --filter web lint", "pnpm --filter web test --run"]
+behavioral = ["pnpm --filter web e2e"]
+landing = ["pnpm -r build"]
+features = [".agents/skills/verify-web/features/README.md"]
+tests = ["apps/web/**/*.test.ts", "apps/web/e2e/**", "packages/ui/**/*.test.tsx"]
+require_tests = true
+verify = "batch"
+sample = 0.1
+
+[profile.engine]
+paths = ["crates/**", "Cargo.toml", "Cargo.lock"]
+fast = ["cargo fmt --check", "cargo clippy --workspace -- -D warnings", "cargo test --workspace"]
+landing = ["cargo test --workspace --release"]
+tests = ["crates/**/tests/**", "crates/**/*_test.rs"]
+require_tests = true
+verify = "gates"
+heavy = true
+
+[profile.docs]
+paths = ["docs/**", "**/*.md"]
+fast = ["pnpm markdownlint docs"]
+verify = "gates"
+sample = 0.0
+
+[escalate]
+paths = ["packages/contracts/**", "**/migrations/**", "apps/web/src/auth/**"]
+manifests = ["**/package.json", "Cargo.toml", "crates/*/Cargo.toml"]
+max_profiles = 1
+max_diff_lines = 600
+
+[[policy.forbid]]
+id = "bare-cargo"
+pattern = '(^|[;&|]\s*)cargo (build|test)\b'
+paths = ["scripts/**", "**/*.sh"]
+message = "use scripts/cargo-cached so builds share the cache"
+source = "AGENTS.md#rust"
+
+[[policy.forbid]]
+id = "untyped-json"
+pattern = 'JSON\.parse\([^)]*\)\s+as\s+any'
+paths = ["apps/**/*.ts", "packages/**/*.ts"]
+message = "parse with the zod schema from packages/contracts instead of casting"
+source = "AGENTS.md#typed-evidence"
+
+[review]
+engine = "joo"
+self = ["no-comments"]
+standards = ["AGENTS.md#coding-style"]
+max_batch_diff = 800
+
+[review.escalated]
+style = "thorough"
+budget = 8
+second_reviewer = true
+
+[verify]
+routine_kind = "sidekick"
+escalated_kind = "master"
+
+[landing]
+mode = "stack"
+
+[coverage]
+ignore = [".github/**", ".agents/**", "LICENSE", ".gitignore", "pnpm-lock.yaml"]
+
+[resources]
+max_parallel_heavy = 1
