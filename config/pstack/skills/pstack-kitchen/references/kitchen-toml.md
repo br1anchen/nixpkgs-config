@@ -28,6 +28,7 @@ silently doing nothing.
 | `.verify` | `"batch"` | routine verification: `gates` (deterministic gates only, no verifier), `batch` (one verifier per landing stack), `unit` (one per unit) |
 | `.sample` | `0.1` | share of clean routine units the master audits in full |
 | `.heavy` | `false` | its gates take one of `resources.max_parallel_heavy` machine-wide slots, so a verifier's build never races the sidekick's |
+| `.wrap` | `[run].wrap` | this profile's wrap; `""` runs it unwrapped |
 | `[escalate]` | | what turns a routine change into an escalated one: per-unit verification by the master's kind, full sampling, the escalated review settings, and the consultant |
 | `.paths` | `[]` | globs whose change is architectural: contracts, schemas, migrations, auth |
 | `.manifests` | `[]` | dependency manifests; changing one adds or moves a dependency |
@@ -52,6 +53,7 @@ silently doing nothing.
 | `[landing].mode` | `"commit"` | how far the kitchen goes: `commit`, `branch` (push), `stack` (a linear stack of PRs), `pr`. It never merges |
 | `[coverage].ignore` | `[]` | globs `doctor` and `classify` treat as covered without a gate |
 | `[resources].max_parallel_heavy` | `1` | heavy gates running at once on this machine |
+| `[run].wrap` | `""` | a prefix the gates run inside, such as `nix develop --impure --command`, entered once per gate |
 
 ## Globs
 
@@ -63,7 +65,10 @@ one. A pattern never matches a basename alone: `*.md` is top-level only,
 
 Each command runs with `bash -c` from the repo root; its output goes to a log
 under `${XDG_STATE_HOME:-~/.local/state}/pstack/kitchen/repos/<repo>/logs/`,
-and a failure prints the log's last 20 lines. Use the repo's own entry points
+and a failure prints the log's last 20 lines. A gate stops at its first
+failure. With a wrap, `kitchen.py` re-runs itself inside it once per gate,
+so a shell that takes seconds to enter costs that once, not per command, and
+`doctor` checks each program inside the wrap it runs in. Use the repo's own entry points
 (package scripts, `just`, `make`, wrappers the AGENTS file requires) so the
 kitchen never drifts from how humans run the same checks.
 
@@ -74,8 +79,9 @@ kitchen.py validate                                   # parse and check
 kitchen.py classify --base <sha> [--head <sha>]       # a unit's commits
 kitchen.py classify --working-tree                    # uncommitted work
 kitchen.py classify --paths 'apps/web/**' src/x.ts    # a brief's Scope, before work starts
-kitchen.py gate <profile> fast|behavioral|landing     # exit 2 on failure
+kitchen.py gate <profile> fast|behavioral|landing     # exit 2 on failure; --keep-going, --only N
 kitchen.py policy --base <sha> [--head <sha>]         # forbid rules and test-touch; exit 2 on findings
+kitchen.py history [--last 20]                        # how each recent commit classifies, and its policy findings
 kitchen.py doctor [--run]                             # coverage, commands, features; --run records a baseline
 ```
 

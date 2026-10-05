@@ -99,10 +99,12 @@ class KitchenTests(unittest.TestCase):
         result = subprocess.run([sys.executable, str(script), *args], cwd=self.repo, env=self.env,
                                 capture_output=True, text=True, check=False)
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        self.stdout = result.stdout
         return result.stdout + result.stderr
 
     def data(self, *args, code=0):
-        return json.loads(self.run_kitchen('--json', *args, code=code))
+        self.run_kitchen('--json', *args, code=code)
+        return json.loads(self.stdout)
 
     def change(self, files):
         for path, text in files.items():
@@ -207,6 +209,16 @@ class ClassifyTests(KitchenTests):
         self.assertEqual((now['risk'], then['risk']), ('escalated', 'routine'))
 
 
+class HistoryTests(KitchenTests):
+    def test_history_classifies_each_commit_with_its_findings(self):
+        self.change({'src/util.py': 'print(1)\n', 'tests/test_app.py': 'x = 2\n'})
+        self.change({'contracts/api.json': '{"b": 2}\n'})
+        rows = self.data('history', '--last', '5')['commits']
+        self.assertEqual([(r['risk'], r['profiles'], r['findings']) for r in rows], [
+            ('escalated', ['contracts'], []), ('routine', ['app'], ['no-print'])])
+        self.assertIn('1 of 2 escalated; 1 with policy findings', self.run_kitchen('history'))
+
+
 class GateTests(KitchenTests):
     def test_passing_gate_and_logs(self):
         r = self.data('gate', 'app', 'fast')
@@ -215,15 +227,18 @@ class GateTests(KitchenTests):
         self.assertEqual(self.data('gate', 'app', 'landing'), {'profile': 'app', 'stage': 'landing',
                                                                 'passed': True, 'commands': []})
 
-    def test_failing_gate_prints_the_log_tail_and_exits_2(self):
+    def test_failing_gate_stops_prints_the_log_tail_and_exits_2(self):
         self.write('.agents/kitchen.toml', KITCHEN.replace(
             'fast = ["test -f src/app.py"]', 'fast = ["echo boom; exit 3", "echo second"]'))
         out = self.run_kitchen('gate', 'app', 'fast', code=2)
         self.assertIn('app fast: FAIL', out)
         self.assertIn('exit 3', out)
         self.assertIn('| boom', out)
-        self.assertIn('exit 0', out)
-        self.assertEqual(len(self.data('gate', 'app', 'fast', '--fail-fast', code=2)['commands']), 1)
+        self.assertNotIn('echo second', out)
+        self.assertEqual([c['exit'] for c in self.data('gate', 'app', 'fast', '--keep-going', code=2)['commands']], [3, 0])
+        only = self.data('gate', 'app', 'fast', '--only', '1')['commands']
+        self.assertEqual([(c['command'], c['log'].endswith('app-fast-1.log')) for c in only], [('echo second', True)])
+        self.assertIn('--only 2: app.fast has 2 commands', self.run_kitchen('gate', 'app', 'fast', '--only', '2', code=1))
 
     def test_heavy_gate_releases_its_slot(self):
         self.write('.agents/kitchen.toml', KITCHEN.replace('sample = 0.2', 'sample = 0.2\nheavy = true'))
@@ -234,6 +249,51 @@ class GateTests(KitchenTests):
 
     def test_unknown_profile(self):
         self.assertIn('no profile web', self.run_kitchen('gate', 'web', 'fast', code=1))
+
+
+class WrapTests(KitchenTests):
+    def setUp(self):
+        super().setUp()
+        # A wrap like `nix develop --command`: noise on stdout, a tool only it
+        # puts on PATH, and a count of how often it is entered.
+        self.write('wrap/bin/inner-tool', '#!/bin/sh\nexit 0\n')
+        (self.repo / 'wrap/bin/inner-tool').chmod(0o755)
+        self.write('wrap/enter.sh', '#!/usr/bin/env bash\necho "shell hook says hi"\n'
+                   'echo x >> "$(dirname "$0")/entered"\nPATH="$(dirname "$0")/bin:$PATH" exec "$@"\n')
+        (self.repo / 'wrap/enter.sh').chmod(0o755)
+        self.entered = self.repo / 'wrap/entered'
+
+    def kitchen(self, extra='', fast='["inner-tool", "test \\"$KITCHEN_WRAPPED\\" = 1"]'):
+        self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]', f'fast = {fast}')
+                   .replace('[coverage]', '[run]\nwrap = "wrap/enter.sh"\n\n[coverage]') + extra)
+
+    def test_gate_enters_the_wrap_once_and_keeps_per_command_logs(self):
+        self.kitchen()
+        r = self.data('gate', 'app', 'fast')
+        self.assertTrue(r['passed'], r)
+        self.assertEqual([c['exit'] for c in r['commands']], [0, 0])
+        self.assertEqual(self.entered.read_text(), 'x\n')
+
+    def test_a_failing_wrap_is_a_failed_gate_with_its_log(self):
+        self.kitchen()
+        self.write('wrap/enter.sh', '#!/usr/bin/env bash\necho "no devshell"; exit 7\n')
+        r = self.data('gate', 'app', 'fast', code=2)
+        self.assertEqual((r['commands'][0]['exit'], r['commands'][0]['tail']), (7, ['no devshell']))
+
+    def test_profile_wrap_can_opt_out(self):
+        self.kitchen(fast='["test -z \\"$KITCHEN_WRAPPED\\""]')
+        self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
+                   .replace('require_tests = true', 'require_tests = true\nwrap = ""'))
+        self.assertTrue(self.data('gate', 'app', 'fast')['passed'])
+        self.assertFalse(self.entered.exists())
+
+    def test_doctor_resolves_commands_inside_the_wrap(self):
+        self.kitchen()
+        self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
+                   .replace('fast = ["true"]', 'fast = ["nosuchtool"]'))
+        c = {x['check']: x for x in self.data('doctor', code=3)['checks']}
+        self.assertEqual(c['commands']['items'], ['contracts.fast: nosuchtool (inside wrap)'])
+        self.assertEqual(self.entered.read_text(), 'x\n')
 
 
 class PolicyTests(KitchenTests):
@@ -250,7 +310,9 @@ class PolicyTests(KitchenTests):
     def test_test_touch(self):
         head = self.change({'src/util.py': 'X = 5\n'})
         r = self.data('policy', '--base', self.base, '--head', head, code=2)
-        self.assertEqual([f['rule'] for f in r['findings']], ['test-touch'])
+        self.assertEqual([(f['rule'], f['profile']) for f in r['findings']], [('test-touch', 'app')])
+        self.assertIn('src/util.py: [test-touch] profile app', self.run_kitchen('policy', '--base', self.base, '--head', head, code=2))
+        self.assertEqual(self.data('history', '--last', '1')['commits'][0]['findings'], ['test-touch(app)'])
         head2 = self.change({'tests/test_app.py': 'def test_main():\n    assert 3\n'})
         self.assertEqual(self.data('policy', '--base', self.base, '--head', head2), {'findings': []})
 
@@ -293,6 +355,7 @@ class DoctorTests(KitchenTests):
     def test_run_records_a_baseline_and_fails_on_red(self):
         c = self.checks('--run')
         self.assertEqual(c['fast gates on HEAD']['status'], 'ok')
+        self.assertIn('doctor: app pass in ', self.run_kitchen('doctor', '--run'))
         baseline = json.loads(next((Path(self.tmp.name) / 'state').rglob('baseline.json')).read_text())
         self.assertEqual(baseline['head'], self.base)
         self.assertEqual(sorted(baseline['profiles']), ['app', 'contracts', 'docs'])

@@ -72,6 +72,7 @@ class Profile:
     verify: str
     sample: float
     heavy: bool
+    wrap: str | None
     path_res: list[re.Pattern] = field(default_factory=list)
     test_res: list[re.Pattern] = field(default_factory=list)
 
@@ -95,6 +96,7 @@ class Kitchen:
     landing: str
     coverage_ignore: list[re.Pattern]
     max_parallel_heavy: int
+    wrap: str
 
 
 def _check_keys(table: dict, where: str, allowed: set[str]) -> None:
@@ -129,7 +131,7 @@ def _bool(value, where: str) -> bool:
 
 def parse(data: dict) -> Kitchen:
     _check_keys(data, 'kitchen.toml', {'version', 'profile', 'escalate', 'policy', 'review',
-                                       'verify', 'landing', 'coverage', 'resources'})
+                                       'verify', 'landing', 'coverage', 'resources', 'run'})
     if data.get('version') != 1:
         raise ConfigError('version: expected 1')
     raw_profiles = data.get('profile')
@@ -141,7 +143,10 @@ def parse(data: dict) -> Kitchen:
         if not NAME.match(name):
             raise ConfigError(f'{where}: name must match {NAME.pattern}')
         _check_keys(p, where, {'paths', *STAGES, 'features', 'tests', 'require_tests',
-                               'verify', 'sample', 'heavy'})
+                               'verify', 'sample', 'heavy', 'wrap'})
+        wrap = p.get('wrap')
+        if wrap is not None and not isinstance(wrap, str):
+            raise ConfigError(f'{where}.wrap: expected a string ("" runs this profile unwrapped)')
         paths = _strings(p.get('paths'), f'{where}.paths')
         if not paths:
             raise ConfigError(f'{where}.paths: list at least one glob')
@@ -158,7 +163,7 @@ def parse(data: dict) -> Kitchen:
             features=_strings(p.get('features', []), f'{where}.features'),
             tests=tests, require_tests=require_tests,
             verify=_choice(p.get('verify', 'batch'), f'{where}.verify', VERIFY_MODES),
-            sample=float(sample), heavy=_bool(p.get('heavy', False), f'{where}.heavy'),
+            sample=float(sample), heavy=_bool(p.get('heavy', False), f'{where}.heavy'), wrap=wrap,
             path_res=[glob_regex(g) for g in paths], test_res=[glob_regex(g) for g in tests])
 
     escalate = data.get('escalate', {})
@@ -229,11 +234,16 @@ def parse(data: dict) -> Kitchen:
     _check_keys(coverage, 'coverage', {'ignore'})
     resources = data.get('resources', {})
     _check_keys(resources, 'resources', {'max_parallel_heavy'})
+    run = data.get('run', {})
+    _check_keys(run, 'run', {'wrap'})
+    if not isinstance(run.get('wrap', ''), str):
+        raise ConfigError('run.wrap: expected a string, such as "nix develop --command"')
     return Kitchen(
         profiles=profiles, escalate=esc, rules=rules, review=rev, verify=ver,
         landing=_choice(landing.get('mode', 'commit'), 'landing.mode', LANDING_MODES),
         coverage_ignore=[glob_regex(g) for g in _strings(coverage.get('ignore', []), 'coverage.ignore')],
-        max_parallel_heavy=_int(resources.get('max_parallel_heavy', 1), 'resources.max_parallel_heavy', 1))
+        max_parallel_heavy=_int(resources.get('max_parallel_heavy', 1), 'resources.max_parallel_heavy', 1),
+        wrap=run.get('wrap', ''))
 
 
 # Fixed diff output whatever the user's git config says (mnemonicPrefix,
@@ -377,18 +387,65 @@ def heavy_slot(root: Path, kitchen: Kitchen):
         time.sleep(2)
 
 
+# Global options that re-run this script inside a profile's wrap; set by main.
+INVOCATION: list[str] = []
+WRAPPED = 'KITCHEN_WRAPPED'
+
+
+def wrap_of(kitchen: Kitchen, p: Profile) -> str:
+    return kitchen.wrap if p.wrap is None else p.wrap
+
+
+# A wrapped profile (a toolchain that exists only inside `nix develop` and the
+# like) enters its wrap once per gate: this script re-runs itself inside it
+# and writes its result to a file, since a wrap's shell hook may print to
+# stdout. The outer run keeps the heavy slot.
+def run_wrapped(root: Path, wrap: str, profile: str, stage: str, log_dir: Path,
+                keep_going: bool, only: int | None) -> dict:
+    result = log_dir / f'{profile}-{stage}-result.json'
+    result.unlink(missing_ok=True)
+    inner = [sys.executable, str(Path(__file__).resolve()), *INVOCATION, 'gate', profile, stage,
+             '--log-dir', str(log_dir), '--result', str(result)]
+    inner += ['--keep-going'] if keep_going else []
+    inner += ['--only', str(only)] if only is not None else []
+    log = log_dir / f'{profile}-{stage}-wrap.log'
+    start = time.monotonic()
+    with open(log, 'w') as out:
+        code = subprocess.run(['bash', '-c', f'{wrap} {shlex.join(inner)}'], cwd=root, stdout=out,
+                              stderr=subprocess.STDOUT, env={**os.environ, WRAPPED: '1'}, check=False).returncode
+    if result.exists():
+        return json.loads(result.read_text())
+    tail = log.read_text(errors='replace').splitlines()[-20:]
+    return {'profile': profile, 'stage': stage, 'passed': False, 'commands': [
+        {'command': f'{wrap} (wrap)', 'exit': code or 1, 'seconds': round(time.monotonic() - start, 1),
+         'log': str(log), 'tail': tail}]}
+
+
 def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Path | None,
-             fail_fast: bool) -> dict:
+             keep_going: bool = False, only: int | None = None, result: Path | None = None) -> dict:
     if profile not in kitchen.profiles:
         raise ConfigError(f'no profile {profile}; profiles: {", ".join(kitchen.profiles)}')
     p = kitchen.profiles[profile]
-    commands = p.commands[stage]
+    commands = list(enumerate(p.commands[stage]))
+    if only is not None:
+        if not 0 <= only < len(commands):
+            raise ConfigError(f'--only {only}: {profile}.{stage} has {len(commands)} commands, numbered from 0')
+        commands = [commands[only]]
     log_dir = log_dir or state_dir(root) / 'logs' / time.strftime('%Y%m%dT%H%M%S')
     log_dir.mkdir(parents=True, exist_ok=True)
-    slot = heavy_slot(root, kitchen) if p.heavy and commands else None
+    inside = os.environ.get(WRAPPED) == '1'
+    wrap = wrap_of(kitchen, p)
+    if wrap and commands and not inside:
+        slot = heavy_slot(root, kitchen) if p.heavy else None
+        try:
+            return run_wrapped(root, wrap, profile, stage, log_dir, keep_going, only)
+        finally:
+            if slot:
+                slot.close()
+    slot = heavy_slot(root, kitchen) if p.heavy and commands and not inside else None
     results = []
     try:
-        for i, cmd in enumerate(commands):
+        for i, cmd in commands:
             log = log_dir / f'{profile}-{stage}-{i}.log'
             start = time.monotonic()
             with open(log, 'w') as out:
@@ -397,13 +454,15 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
             if code != 0:
                 r['tail'] = log.read_text(errors='replace').splitlines()[-20:]
             results.append(r)
-            if code != 0 and fail_fast:
+            if code != 0 and not keep_going:
                 break
     finally:
         if slot:
             slot.close()
-    return {'profile': profile, 'stage': stage, 'passed': all(r['exit'] == 0 for r in results),
-            'commands': results}
+    out = {'profile': profile, 'stage': stage, 'passed': all(r['exit'] == 0 for r in results), 'commands': results}
+    if result:
+        result.write_text(json.dumps(out))
+    return out
 
 
 ALLOW = re.compile(r'kitchen-allow:\s*([a-z0-9,\s-]+)')
@@ -445,7 +504,7 @@ def check_policy(root: Path, kitchen: Kitchen, args) -> list[dict]:
             continue
         source = [f for f in paths if matches(f, p.path_res)]
         if source:
-            findings.append({'rule': 'test-touch', 'path': source[0], 'line': 0, 'text': '',
+            findings.append({'rule': 'test-touch', 'profile': p.name, 'path': source[0], 'line': 0, 'text': '',
                              'message': f'profile {p.name} requires tests: {len(source)} source files changed '
                                         f'and no file matching {", ".join(p.tests)}', 'source': CONFIG})
     return findings
@@ -480,8 +539,11 @@ def doctor(root: Path, kitchen: Kitchen, run: bool) -> list[dict]:
     empty = [p.name for p in kitchen.profiles.values() if not any(matches(f, p.path_res) for f in files)]
     add('profiles', 'warn' if empty else 'ok',
         'profiles that match no file' if empty else f'{len(kitchen.profiles)} profiles match files', empty)
-    missing = []
+    # Each command's program must exist where it runs: on PATH or in the repo,
+    # or, for a wrapped profile, inside its wrap, asked once per wrap.
+    missing, inside = [], {}
     for p in kitchen.profiles.values():
+        wrap = wrap_of(kitchen, p)
         for stage in STAGES:
             for cmd in p.commands[stage]:
                 try:
@@ -489,10 +551,29 @@ def doctor(root: Path, kitchen: Kitchen, run: bool) -> list[dict]:
                 except ValueError as e:
                     missing.append(f'{p.name}.{stage}: unparsable: {e}')
                     continue
-                if word and word not in builtins and not (shutil.which(word) or (root / word).exists()):
+                if not word or word in builtins or (root / word).exists():
+                    continue
+                if wrap:
+                    inside.setdefault(wrap, {}).setdefault(word, []).append(f'{p.name}.{stage}')
+                elif not shutil.which(word):
                     missing.append(f'{p.name}.{stage}: {word}')
+    for wrap, words in inside.items():
+        try:
+            entry = first_word(wrap)
+        except ValueError:
+            entry = None
+        if not entry or not (shutil.which(entry) or (root / entry).exists()):
+            missing.append(f'wrap: {wrap}')
+            continue
+        probe = 'for w in "$@"; do command -v "$w" >/dev/null 2>&1 || echo "KITCHEN-MISSING:$w"; done'
+        out = subprocess.run(['bash', '-c', f'{wrap} bash -c {shlex.quote(probe)} probe {shlex.join(words)}'],
+                             cwd=root, capture_output=True, text=True, check=False)
+        absent = re.findall(r'^KITCHEN-MISSING:(.+)$', out.stdout, re.MULTILINE)
+        if out.returncode != 0 and not absent:
+            missing.append(f'wrap: {wrap} exited {out.returncode}: {(out.stderr or out.stdout).strip()[-200:]}')
+        missing += [f'{where}: {w} (inside wrap)' for w in absent for where in words[w]]
     add('commands', 'fail' if missing else 'ok',
-        'commands whose program is not on PATH or in the repo' if missing else 'every command resolves', missing)
+        'commands whose program is not where it runs' if missing else 'every command resolves', missing)
     no_fast = [p.name for p in kitchen.profiles.values() if not p.commands['fast']]
     add('fast gates', 'warn' if no_fast else 'ok',
         'profiles with no fast gate: their steps run no check' if no_fast else 'every profile has a fast gate', no_fast)
@@ -519,7 +600,10 @@ def doctor(root: Path, kitchen: Kitchen, run: bool) -> list[dict]:
         for p in kitchen.profiles.values():
             if not p.commands['fast']:
                 continue
-            g = run_gate(root, kitchen, p.name, 'fast', None, fail_fast=False)
+            print(f'doctor: {p.name} fast gate ({len(p.commands["fast"])} commands)...', file=sys.stderr, flush=True)
+            g = run_gate(root, kitchen, p.name, 'fast', None, keep_going=True)
+            print(f'doctor: {p.name} {"pass" if g["passed"] else "FAIL"} in '
+                  f'{round(sum(c["seconds"] for c in g["commands"]), 1)}s', file=sys.stderr, flush=True)
             baseline[p.name] = {'passed': g['passed'], 'seconds': round(sum(c['seconds'] for c in g['commands']), 1)}
             if not g['passed']:
                 red.append(f'{p.name}: ' + '; '.join(f'{c["command"]} exit {c["exit"]} ({c["log"]})'
@@ -530,6 +614,26 @@ def doctor(root: Path, kitchen: Kitchen, run: bool) -> list[dict]:
         add('fast gates on HEAD', 'fail' if red else 'ok',
             'red before any change: fix or record why' if red else f'all green; timings in {path}', red)
     return checks
+
+
+# How the kitchen would have classified each of the last commits, and which
+# policy findings each one adds: a draft kitchen tested against changes the
+# repo already accepted. Merge commits are skipped.
+def history(root: Path, kitchen: Kitchen, last: int) -> list[dict]:
+    revs = git(root, 'rev-list', '--no-merges', f'--max-count={last}', 'HEAD').split()
+    rows = []
+    for rev in revs:
+        parent = git(root, 'rev-parse', '--verify', '--quiet', f'{rev}~1', check=False).strip()
+        if not parent:
+            continue
+        ns = argparse.Namespace(paths=None, working_tree=False, at=None, base=parent, head=rev)
+        r = classify(kitchen, changes(root, ns))
+        findings = check_policy(root, kitchen, ns)
+        rows.append({'rev': rev[:9], 'subject': git(root, 'log', '-1', '--format=%s', rev).strip(),
+                     'risk': r['risk'], 'profiles': r['profiles'], 'escalate': r['escalate'],
+                     'diff_lines': r['diff_lines'],
+                     'findings': [f['rule'] + (f'({f["profile"]})' if 'profile' in f else '') for f in findings]})
+    return rows
 
 
 def emit(obj, as_json: bool, text: str) -> None:
@@ -555,7 +659,11 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument('profile')
     g.add_argument('stage', choices=STAGES)
     g.add_argument('--log-dir', type=Path)
-    g.add_argument('--fail-fast', action='store_true')
+    g.add_argument('--keep-going', action='store_true', help='run every command after a failure')
+    g.add_argument('--only', type=int, metavar='N', help='run only command N, counted from 0')
+    g.add_argument('--result', type=Path, help=argparse.SUPPRESS)
+    h = sub.add_parser('history', help='classify and policy-check each of the last commits')
+    h.add_argument('--last', type=int, default=20)
     d = sub.add_parser('doctor', help='check the kitchen against the repo')
     d.add_argument('--run', action='store_true', help='also run every fast gate on HEAD and record a baseline')
     args = ap.parse_args(argv)
@@ -563,6 +671,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         root = repo_root(args.repo)
         kitchen = load(root, args.at, args.config)
+        INVOCATION[:] = ['--repo', str(root)] + (['--config', args.config] if args.config else []) \
+            + (['--at', args.at] if args.at else [])
         if args.cmd == 'validate':
             emit({'ok': True, 'profiles': list(kitchen.profiles)}, args.json,
                  f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})')
@@ -580,7 +690,7 @@ def main(argv: list[str] | None = None) -> int:
             emit(r, args.json, '\n'.join(text))
             return 0
         if args.cmd == 'gate':
-            r = run_gate(root, kitchen, args.profile, args.stage, args.log_dir, args.fail_fast)
+            r = run_gate(root, kitchen, args.profile, args.stage, args.log_dir, args.keep_going, args.only, args.result)
             lines = [f'{args.profile} {args.stage}: {"pass" if r["passed"] else "FAIL"}'
                      + ('' if r['commands'] else ' (no commands)')]
             for x in r['commands']:
@@ -591,9 +701,18 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == 'policy':
             f = check_policy(root, kitchen, args)
             emit({'findings': f}, args.json, '\n'.join(
-                [f'{x["path"]}:{x["line"]}: [{x["rule"]}] {x["message"]}' + (f'  ({x["source"]})' if x['source'] else '')
+                [f'{x["path"]}' + (f':{x["line"]}' if x['line'] else '') + f': [{x["rule"]}] {x["message"]}' + (f'  ({x["source"]})' if x['source'] else '')
                  + (f'\n    {x["text"]}' if x['text'] else '') for x in f] or ['policy: clean']))
             return 2 if f else 0
+        if args.cmd == 'history':
+            rows = history(root, kitchen, args.last)
+            lines = [f'{r["rev"]} {r["risk"]:9} {",".join(r["profiles"]) or "-":24} {r["diff_lines"]:>6}  {r["subject"][:60]}'
+                     + ''.join(f'\n{"":20}escalate: {x}' for x in r['escalate'])
+                     + (f'\n{"":20}policy: {", ".join(r["findings"])}' if r['findings'] else '') for r in rows]
+            n = sum(r['risk'] == 'escalated' for r in rows)
+            lines.append(f'{n} of {len(rows)} escalated; {sum(bool(r["findings"]) for r in rows)} with policy findings')
+            emit({'commits': rows}, args.json, '\n'.join(lines))
+            return 0
         if args.cmd == 'doctor':
             checks = doctor(root, kitchen, args.run)
             lines = []
