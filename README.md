@@ -38,8 +38,15 @@ ln -s ~/nixpkgs-config/config.nix config.nix
 Mise is installed via Nix/Home Manager. After switching, install configured tool versions:
 
 ```bash
+mise run --skip-tools devin-upgrade
 mise install
 ```
+
+Devin CLI is also mise-managed on both platforms. Run
+`mise run --skip-tools devin-upgrade` to install or update it. The task refreshes a
+local mise lockfile with upstream manifest checksums before installing over HTTPS.
+`--skip-tools` lets the task lock checksums before mise installs missing tools.
+Devin's self-update is disabled.
 
 ## Agent workflow
 
