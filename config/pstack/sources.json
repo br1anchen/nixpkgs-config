@@ -1,8 +1,8 @@
 {
   "upstream": {
     "repository": "https://github.com/cursor/plugins",
-    "revision": "7366ac128bdf95f45e6734f412b49a4031800169",
-    "version": "0.15.1"
+    "revision": "e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a",
+    "version": "0.15.9"
   },
   "inspiration": {
     "repository": "https://github.com/michael-denyer/pstack-claude",
@@ -63,7 +63,10 @@
     "setup-benny": "pstack/automations/benny/skills/setup-benny",
     "triage-issue-reports": "pstack/automations/benny/skills/triage-issue-reports",
     "pstack": "local portable entry point",
-    "ask-poteto": "local scenario advisor"
+    "ask-poteto": "local scenario advisor",
+    "benchmark-checklist": "pstack/skills/benchmark-checklist",
+    "correct": "pstack/skills/correct",
+    "principle-explain-the-number": "pstack/skills/principle-explain-the-number"
   },
   "previous_install": {
     "architect": {

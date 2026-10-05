@@ -18,7 +18,7 @@ X returned 403 during this review on 2026-09-10. The author's article text was
 read through [Part 1's mirror](https://threadnavigator.com/thread/2094457600259842065/)
 and [Part 2's mirror](https://threadnavigator.com/thread/2097732320606507506/).
 The examples below are new prompts grounded in the MIT-licensed
-[pstack source and guide](https://github.com/cursor/plugins/tree/7366ac128bdf95f45e6734f412b49a4031800169/pstack/docs/guide).
+[pstack source and guide](https://github.com/cursor/plugins/tree/e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a/pstack/docs/guide).
 They adapt its workflows to this installation.
 
 ## Start with one feature you can prove
@@ -80,6 +80,8 @@ Suppose an export operation occasionally duplicates records after a retry.
 | Many independent files or cases | `swarm` | Per-unit outputs and an aggregated result |
 | Concrete diff or design needs challenge | `interrogate` | Evidence-backed findings and disposition |
 | Change may affect distant callers | `blast-radius` | Reachable consumers and regression risks |
+| A measurement needs validation | `benchmark-checklist` | Repeatable runs, correct outputs, limiter, and end-to-end relevance |
+| Agents repeat the same mistakes | `correct` | Past mistakes reproduced and prevented by architecture, types, lint, or tests |
 | A metric must improve | `poteto-mode` perf or hillclimb playbook | Baseline, repeated measurements, retained wins |
 | Migration spans several PRs | `poteto-mode` multi-phase-plan playbook | Ordered units, each with its own proof |
 | Large task fits no playbook | `figure-it-out` | A bounded, auditable procedure |

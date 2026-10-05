@@ -1,6 +1,6 @@
 # Pstack across coding agents
 
-This repo owns 55 pstack skills in `skills/`, their reference files, helper
+This repo owns 58 pstack skills in `skills/`, their reference files, helper
 scripts, and MIT license. Start with the
 [scenario tutorial](skills/ask-poteto/references/scenarios.md), or ask
 [ask-poteto](skills/ask-poteto/SKILL.md) which route fits your task.
@@ -29,9 +29,10 @@ Pi and Grok had individual links for other skills, but none for pstack.
 
 [sources.json](sources.json) records each imported skill, upstream revisions,
 and hashes of the previously installed SKILL.md files. The base is Cursor pstack
-0.15.1 at `7366ac128bdf95f45e6734f412b49a4031800169`. The local `pstack-tdd`,
+0.15.9 at `e43c7ee26e0038c6c1fa8380dd34ce86ff94cb2a`. The local `pstack-tdd`,
 `pstack-teach`, `pstack-pair`, `pstack-pair-guided`, and `pstack-trio`
-customizations are retained. `pstack-pair` runs a master and sidekick agent
+customizations are retained, including Devin bypass defaults, task-boundary
+session rotation, and durable handoffs. `pstack-pair` runs a master and sidekick agent
 pair over Herdr; `pstack-pair-guided` is its experimental variant with
 scope-scaled human approval and a sidekick ask channel; `pstack-trio` adds a
 consultant of a different agent kind that joins every plan round, answers
@@ -91,7 +92,13 @@ UI/CLI control, transcripts, persistent state, and automation to the active host
 The actual host tool schema is authoritative. Multi-model review and cloud
 execution are not guaranteed merely because skills are discovered.
 
-`setup-pstack` writes per-runtime model preferences under
+The 0.15.9 update adds `correct`, `benchmark-checklist`, and
+`principle-explain-the-number`, plus agent-resistant design checks, exact-SHA
+measurement briefs, fresh workers by default, hourly autopilot audits, and
+revised PR writing guidance. Cursor-only docs, artwork, and plugin registration
+are excluded from the portable installation.
+
+`setup-pstack` writes per-runtime model and reasoning-budget preferences under
 `~/.config/pstack/models/`. With no preferences, roles inherit the parent model.
 Those account-specific preferences remain host-local. No Cursor model slug is
 assumed available. The adapter explains single-model and sequential fallbacks.

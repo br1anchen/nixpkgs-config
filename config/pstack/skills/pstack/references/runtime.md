@@ -13,7 +13,10 @@ Identify the active agent from its session context, not from which executables
 happen to be installed. Use `claude`, `codex`, `pi`, `grok`, or `generic` as the
 runtime key. Read `~/.config/pstack/models/<runtime>.md` if present. Substitute
 that key for the literal `<runtime>` in workflow paths. Missing roles inherit
-the parent model. Treat every upstream model slug as a role suggestion, never
+the parent model. Read the budget comment and per-role reasoning annotations
+when present. Pass a reasoning override only through a supported host field,
+within its allowed values and permissions; a budget never changes inherited
+parent settings. Treat every upstream model slug as a role suggestion, never
 as evidence that the model is available.
 
 Skills live together under `~/.agents/skills` in this installation. In a portable
@@ -43,8 +46,12 @@ request write access merely to obtain MCP reads.
 Dispatch `poteto-agent` by passing [its prompt](agents/poteto-agent.md) and the
 skill location to a native general worker. Dispatch Comment Sicko with
 [its prompt](agents/comment-sicko.md). These are prompt templates, not registered
-agent type IDs. Pass this adapter to every worker. Resume existing workers when
-supported, and respect the actual concurrency and nesting limits.
+agent type IDs. Pass this adapter to every worker. New work normally gets a
+fresh worker with the original brief, later directives, and the prior report
+and branch. Reuse a worker only when the work needs costly-to-transfer live
+state, such as its uncommitted checkout or a running process. Stop and hold
+messages still reach the running worker. Respect the host concurrency and
+nesting limits.
 
 Use distinct confirmed models for panels when the host permits selection.
 `inherit-parent` and `auto` omit the model override. If only one model is
@@ -69,7 +76,9 @@ the host's delegation restrictions.
 - `/goal` means use a native goal tool only if the user explicitly requested a
   standing goal and the tool exists. Otherwise record the objective and stop
   condition in the run's standing orders. `/loop` means continue the authorized
-  work within the session. For recurrence, use a configured scheduler only when
+  work within the session. Upstream `/loop 1h` means an hourly audit using an
+  available scheduler or wake mechanism, subject to the same authorization.
+  For recurrence, use a configured scheduler only when
   the user requested scheduling; document cadence, stop condition, and ownership.
   Do not promise work will continue after the host ends the session.
 - Sticky `mode`, `icon`, `color`, and `reminder` frontmatter is removed. Keep the
