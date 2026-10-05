@@ -206,6 +206,10 @@ digest means the interval hit, so the sidekick is still on the unit.
 
 ## Recovery
 
+- A wait prints `provider_error:`: the sidekick's model provider failed, not
+  the task. Follow [the Pi sidekick reference](pi-sidekick.md):
+  prompt once to continue, and on a second error or an exited agent run
+  `pair.sh failover <store>`, then re-dispatch the brief it names.
 - You restarted: `pair.sh init <slug>` again re-registers your pane, then
   `pair.sh status <store>` shows both agents and the last report. Resume at the first brief without an accepted review; a
   `queued:` line in the status is yours to dispatch or clear.

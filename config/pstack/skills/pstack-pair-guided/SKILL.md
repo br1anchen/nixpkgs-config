@@ -32,7 +32,10 @@ never the record, because agents on the alternate screen leave no scrollback.
    `pair.sh permission` prints the detected master mode. Use `--permission
    <mode>` or native permission flags after `--` to override the default;
    `--permission auto` selects Devin smart mode. Kinds without a translation
-   take native flags after `--`.
+   take native flags after `--`. `spawn` also skips each kind's folder-trust
+   prompt, which would hang an unattended agent in a folder it has not seen:
+   pi gets `--approve`, Devin `--respect-workspace-trust false`. A trust flag
+   after `--` overrides it.
 
 ## Roles
 
@@ -53,7 +56,7 @@ Sidekick: [references/sidekick.md](references/sidekick.md).
 
 | Path | Writer | Content |
 | --- | --- | --- |
-| `pair.json` | master via `pair.sh` | agent names, pane ids, cwd, git root |
+| `pair.json` | master via `pair.sh` | agent names, pane ids, cwd, git root, the sidekick's fallback and failovers |
 | `standing-orders.md` | master | numbered constraints pasted by path into every brief |
 | `plans/NNN-<slug>.md` | master | one plan round with its `scale`, from [the plan template](references/plan-template.md) |
 | `plans/NNN-<slug>.direction.md` | master | the human's plain-language summary, from [the direction template](references/direction-template.md) |
@@ -197,6 +200,14 @@ not continuously, and corrects direction, not keystrokes.
 For a Devin sidekick, the shared helper requires rotation after a completed
 brief. Follow [the Devin session lifecycle](../pstack-pair/references/devin-sessions.md)
 in place of same-turn queue pickup. Partial work keeps its session.
+
+## Pi sidekick and fallback
+
+A pi sidekick reports its state to Herdr through its own events and queues a
+steer without cancelling the running command. When its model sits behind a
+route that can fail, spawn it with `--fallback devin`: `spawn` checks the
+model first, and `pair.sh failover` swaps in the fallback mid-run. Read
+[the Pi sidekick reference](../pstack-pair/references/pi-sidekick.md) before spawning one.
 
 ## Keeping the sidekick busy
 

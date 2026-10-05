@@ -37,6 +37,9 @@ never messages the sidekick and never writes the shared tree.
    only the consultant. Native permission flags after `--` override the
    default for every role spawned by that call. `--permission auto` selects
    Devin smart mode. Kinds without a translation take native flags after `--`.
+   `spawn` also skips each kind's folder-trust prompt, which would hang an
+   unattended agent in a folder it has not seen: pi gets `--approve`, Devin
+   `--respect-workspace-trust false`. A trust flag after `--` overrides it.
 
 ## Roles
 
@@ -59,7 +62,7 @@ Consultant: [references/consultant.md](references/consultant.md).
 
 | Path | Writer | Content |
 | --- | --- | --- |
-| `pair.json` | master via `pair.sh` | agent names, pane ids, kinds, cwd, git root, open scratch list |
+| `pair.json` | master via `pair.sh` | agent names, pane ids, kinds, cwd, git root, open scratch list, the sidekick's fallback and failovers |
 | `standing-orders.md` | master | numbered constraints pasted by path into every brief |
 | `plans/NNN-<slug>.md` | master | one plan round, from [the plan template](references/plan-template.md) |
 | `briefs/NNN-<slug>.md` | master | one unit, from [the brief template](references/brief-template.md) |
@@ -181,6 +184,14 @@ spawning, queueing, rotating, or cleaning its storage, read
 [the Devin session lifecycle](../pstack-pair/references/devin-sessions.md). Partial and blocked work stays in
 its session; a completed brief leaves the queue for the master to dispatch
 after `pair.sh rotate`. The pstack store persists across sessions.
+
+## Pi sidekick and fallback
+
+A pi sidekick reports its state to Herdr through its own events and queues a
+steer without cancelling the running command. When its model sits behind a
+route that can fail, spawn it with `--fallback devin`: `spawn` checks the
+model first, and `pair.sh failover` swaps in the fallback mid-run. Read
+[the Pi sidekick reference](../pstack-pair/references/pi-sidekick.md) before spawning one.
 
 ## Keeping the sidekick busy
 

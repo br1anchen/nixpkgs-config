@@ -4,12 +4,16 @@ usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the trio store; prints its path
   spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
-        [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]
+        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--timeout MS] [-- agent-args...]
                                             split panes beside the master, start and bootstrap both agents;
                                             Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
-                                            three kinds are all the same. --only respawns one role.
+                                            three kinds are all the same. --only respawns one role. A pi sidekick first proves
+                                            its model answers; on failure the --fallback kind starts instead.
   rotate <store>                            exit an idle Devin after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
+  failover <store> [--reason TEXT] [--force]
+                                            replace a failing sidekick with its recorded fallback in the same pane;
+                                            the fallback picks up from the store, and the run stays on it
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]
@@ -103,7 +107,7 @@ kinds: master claude, sidekick devin, consultant codex
   herdr agent get demo-sidekick
   herdr pane layout --pane p0
   herdr pane split --pane p0 --direction right --cwd <T>/repo --no-focus
-  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous
+  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
   herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role. Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
   herdr pane get p1
   herdr agent get demo-consultant
@@ -616,6 +620,8 @@ report: missing
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 40
 
 $ pair.sh scratch <T>/state/pstack/trio/demo 004-qone-review --at <SHA>
 Preparing worktree (detached HEAD <SHA>)
@@ -799,7 +805,7 @@ ready: <T>/state/pstack/trio/demo/reports/000-ready.md
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
-  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous
+  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
   herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role. Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/013-qscope.md --timeout 1000
@@ -1142,12 +1148,16 @@ usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the trio store; prints its path
   spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
-        [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]
+        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--timeout MS] [-- agent-args...]
                                             split panes beside the master, start and bootstrap both agents;
                                             Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
-                                            three kinds are all the same. --only respawns one role.
+                                            three kinds are all the same. --only respawns one role. A pi sidekick first proves
+                                            its model answers; on failure the --fallback kind starts instead.
   rotate <store>                            exit an idle Devin after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
+  failover <store> [--reason TEXT] [--force]
+                                            replace a failing sidekick with its recorded fallback in the same pane;
+                                            the fallback picks up from the store, and the run stays on it
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]
@@ -2478,7 +2488,9 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "started_at": "<TS>",
     "start_args": [
       "--permission-mode",
-      "dangerous"
+      "dangerous",
+      "--respect-workspace-trust",
+      "false"
     ],
     "generation": 2,
     "bootstrap_pending": false,

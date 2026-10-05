@@ -21,7 +21,7 @@ case "$1 $2" in
 	printf 'idle %s\n' "$kind" >"$FAKE/agents/$name"; ok idle "$kind" ;;
 "agent prompt")
 	name="$3"; text="$4"; wait=0; until=""; shift 4
-	if [ "$text" = /exit ]; then rm -f "$FAKE/agents/$name"; printf '{}\n'; exit 0; fi
+	if [ "$text" = /exit ] || [ "$text" = /quit ]; then rm -f "$FAKE/agents/$name"; printf '{}\n'; exit 0; fi
 	while [ $# -gt 0 ]; do case "$1" in --wait) wait=1; shift ;; --until) until="$until $2"; shift 2 ;; *) shift ;; esac; done
 	s="$(status_of "$name")"
 	# $FAKE/devin-input: a working Devin leaves a prompt typed in its input
@@ -62,6 +62,7 @@ case "$1 $2" in
 	fi
 	ok "$(status_of "$3")" ;;
 "agent read")
+	# $FAKE/screen/<name>: the pane shows exactly that text.
 	# $FAKE/busy/<name>: the pane shows a working agent whatever herdr's state says.
 	# The hint wraps, as it does in a 28-column Devin pane.
 	# Devin's input: a queued block (with the send-now hint) above the input
@@ -70,6 +71,7 @@ case "$1 $2" in
 	if [ -s "$FAKE/typing/$3" ] || [ -s "$FAKE/queued/$3" ]; then
 		[ -s "$FAKE/queued/$3" ] && printf '── 1 ↑ edit · ↵ send now ──\n○ %s\n' "$(cat "$FAKE/queued/$3")"
 		if [ -s "$FAKE/typing/$3" ]; then printf '❭ %s\n' "$(cat "$FAKE/typing/$3")"; else printf '❭ Press Enter to send\n  queued messages now\n'; fi
+	elif [ -s "$FAKE/screen/$3" ]; then cat "$FAKE/screen/$3"
 	elif [ -e "$FAKE/busy/$3" ]; then printf 'Thinking · 7m 52s (esc\n  twice to interrupt)\n'
 	elif [ -e "$FAKE/busy-guide/$3" ]; then printf '❭ Guide Devin while it\n  works\n'
 	elif [ -e "$FAKE/busy-queue/$3" ]; then printf '── 1 ↑ edit · ↵ send now ──\n○ pstack-trio STOP\n❭ Press Enter to send\n  queued messages now\n'

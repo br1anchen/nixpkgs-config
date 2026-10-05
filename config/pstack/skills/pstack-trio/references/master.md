@@ -257,6 +257,10 @@ call `pair.sh advice <store> <NNN>` afterwards to find the file.
 
 ## Recovery
 
+- A wait prints `provider_error:`: the sidekick's model provider failed, not
+  the task. Follow [the Pi sidekick reference](../../pstack-pair/references/pi-sidekick.md):
+  prompt once to continue, and on a second error or an exited agent run
+  `pair.sh failover <store>`, then re-dispatch the brief it names.
 - You restarted: `pair.sh init <slug>` again re-registers your pane, then
   `pair.sh status <store>` shows all three agents and the last report and
   advice. Resume at the first brief without an accepted review; a

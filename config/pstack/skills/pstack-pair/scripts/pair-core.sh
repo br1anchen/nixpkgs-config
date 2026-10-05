@@ -645,8 +645,31 @@ finish_wait() {
 		checkin "$store" "$checkin_interval_m"
 	else
 		event "$store" master wake "$running" missing
+		provider_hint "$store"
 	fi
 	exit 4
+}
+
+provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up'
+
+# A sidekick that settles without a report may have hit its model provider,
+# not the task: a capacity or auth error on screen, or an agent that exited.
+# Prints the evidence and the way out, failover when a fallback is recorded.
+provider_hint() {
+	local store="$1" name kind fallback line
+	name="$(field "$store" .sidekick.name)"
+	kind="$(field "$store" .sidekick.kind)"
+	fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
+	[ -n "$fallback" ] && [ "$fallback" != "$kind" ] || fallback=""
+	if [ "$(agent_status "$name")" = absent ]; then
+		printf 'provider_error: the %s sidekick exited\n' "$kind"
+		[ -z "$fallback" ] || printf 'next: pair.sh failover %s --reason exited\n' "$store"
+		return 0
+	fi
+	line="$(grep -oiE ".{0,60}($provider_error_re).{0,60}" <<<"$(pane_text "$name")" | tail -1 || true)"
+	[ -n "$line" ] || return 0
+	printf 'provider_error: %s\n' "$line"
+	[ -z "$fallback" ] || printf 'next: prompt the sidekick once to continue; on a second provider error, pair.sh failover %s --reason provider-error\n' "$store"
 }
 
 cmd_init() {
@@ -775,6 +798,34 @@ permission_args() {
 	esac
 }
 
+# pi asks before no tool call, so it needs no permission arguments; it cannot
+# run read-only, so plan stays untranslated for it.
+asks_no_approvals() {
+	[ "$1" = pi ] && [ "$2" != plan ]
+}
+
+# Native arguments that skip the kind's prompt to trust the working folder.
+# The prompt appears in any folder the agent has not seen (pi: any repo with
+# .agents/skills), would hang an unattended agent, and eats the bootstrap's
+# Enter. The master already works in that folder.
+trust_args() {
+	case "$1" in
+	pi) printf -- '--approve\n' ;;
+	devin) printf -- '--respect-workspace-trust\nfalse\n' ;;
+	esac
+}
+
+# True when the native arguments already decide folder trust.
+has_trust_arg() {
+	local arg
+	for arg in "$@"; do
+		case "$arg" in
+		--approve | --no-approve | -na | --respect-workspace-trust | --respect-workspace-trust=*) return 0 ;;
+		esac
+	done
+	return 1
+}
+
 # True when the caller's native arguments already set a permission policy.
 has_permission_arg() {
 	local arg
@@ -823,11 +874,12 @@ spawn_role() {
 		permission="native-args"
 	else
 		mapfile -t agent_args < <(permission_args "$kind" "$permission")
-		if [ "${#agent_args[@]}" -eq 0 ]; then
+		if [ "${#agent_args[@]}" -eq 0 ] && ! asks_no_approvals "$kind" "$permission"; then
 			printf 'no permission translation for kind %s; pass native flags after -- to match the master (%s)\n' "$kind" "$master_mode" >&2
 			permission="untranslated"
 		fi
 	fi
+	has_trust_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(trust_args "$kind")
 	set -- "${agent_args[@]}" "$@"
 	if [ "$kind" = devin ]; then
 		local arg
@@ -926,6 +978,132 @@ require_fresh_session() {
 	fi
 }
 
+preflight_timeout_s="${PAIR_PREFLIGHT_TIMEOUT:-90}"
+
+has_preflight() {
+	[ "$1" = pi ]
+}
+
+# Proves a kind's model answers before a pane starts. pi reaches some models
+# through community provider packages that can break or run out of capacity,
+# so it gets one print-mode prompt, without the repo's resources. Other kinds
+# have no check here. $1 kind, rest: the native args the agent starts with.
+# Prints the last lines of a failure on stderr.
+preflight_kind() {
+	local kind="$1" out arg
+	shift
+	has_preflight "$kind" || return 0
+	local -a args=()
+	for arg in "$@"; do
+		case "$arg" in --approve | -a | --no-approve | -na) ;; *) args+=("$arg") ;; esac
+	done
+	if out="$(timeout "$preflight_timeout_s" pi --no-session --no-approve --no-context-files --no-skills -p "${args[@]}" 'Reply with exactly: OK' 2>&1)" &&
+		grep -q OK <<<"$out"; then
+		return 0
+	fi
+	# The master's PATH can hold an older pi than the pane's, so name it.
+	printf 'pi %s at %s: ' "$(pi --version 2>/dev/null || printf '?')" "$(command -v pi)" >&2
+	printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -3 | tr '\n' ' ' >&2
+	return 1
+}
+
+record_failover() {
+	# $1 store, $2 from kind, $3 to kind, $4 reason
+	json_update "$1" --arg from "$2" --arg to "$3" --arg why "$4" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		'.sidekick.failovers = ((.sidekick.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])'
+	event "$1" master failover - "$2:$3"
+	printf 'failover: %s -> %s (%s)\n' "$2" "$3" "$4"
+}
+
+# Starts the sidekick, or its recorded fallback when the kind's preflight
+# fails. The fallback starts with its own recorded arguments and its kind's
+# default permission. A live sidekick skips the preflight. Arguments as
+# spawn_role, without the role.
+spawn_sidekick() {
+	local store="$1" kind="$2" permission="$3" anchor="$4" timeout="$5" direction="$6" pane="$7" reason fallback
+	shift 7
+	if has_preflight "$kind" && [ "$(agent_status "$(field "$store" .sidekick.name)")" = absent ]; then
+		if ! reason="$(preflight_kind "$kind" "$@" 2>&1)"; then
+			reason="preflight: ${reason:-no answer}"
+			printf '%s failed %s\n' "$kind" "$reason" >&2
+			fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
+			[ -n "$fallback" ] && [ "$fallback" != "$kind" ] || die "no fallback recorded for a failed $kind; pass --fallback KIND or fix the agent" 2
+			record_failover "$store" "$kind" "$fallback" "$reason"
+			local -a args=()
+			mapfile -t args < <(jq -r '.sidekick.fallback.args[]?' "$store/pair.json")
+			spawn_role "$store" sidekick "$fallback" "" "$anchor" "$timeout" "$direction" "$pane" "${args[@]}"
+			return
+		fi
+	fi
+	spawn_role "$store" sidekick "$kind" "$permission" "$anchor" "$timeout" "$direction" "$pane" "$@"
+}
+
+# Records the sidekick's fallback from the spawn options: $1 store, $2 kind
+# (empty keeps any recorded one), rest: its native arguments.
+record_fallback() {
+	local store="$1" kind="$2"
+	shift 2
+	[ -n "$kind" ] || return 0
+	json_update "$store" --arg kind "$kind" --argjson args "$(jq -cn --args '$ARGS.positional' -- "$@")" \
+		'.sidekick.fallback = {kind: $kind, args: $args}'
+}
+
+exit_command() {
+	case "$1" in
+	pi | codex) printf '/quit\n' ;;
+	*) printf '/exit\n' ;;
+	esac
+}
+
+# Replaces a failing sidekick with its recorded fallback in the same pane.
+# The new agent picks up from the store: the step log, progress, and the
+# brief it was on; every committed step survives. A run stays on the
+# fallback, since failover never switches back.
+cmd_failover() {
+	in_herdr
+	[ $# -ge 1 ] || die "usage: pair.sh failover <store> [--reason TEXT] [--force]"
+	local store="$1" reason=requested force=0
+	shift
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--reason) reason="$2"; shift 2 ;;
+		--force) force=1; shift ;;
+		*) die "unknown option $1" ;;
+		esac
+	done
+	pair_file "$store" >/dev/null
+	local kind fallback name status deadline rc=0
+	kind="$(field "$store" .sidekick.kind)"
+	fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
+	[ -n "$fallback" ] || die "no fallback recorded; spawn the sidekick with --fallback KIND" 5
+	[ "$kind" != "$fallback" ] || die "the sidekick already runs the fallback ($fallback)" 5
+	name="$(field "$store" .sidekick.name)"
+	status="$(agent_status "$name")"
+	if [ "$status" = working ]; then
+		[ "$force" -eq 1 ] || die "sidekick $name is working; pair.sh stop $store first, or pass --force to interrupt it" 5
+		herdr agent send-keys "$name" esc >/dev/null 2>&1 || true
+		sleep 2
+	fi
+	if [ "$status" != absent ]; then
+		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
+		deadline=$(($(date +%s) + 15))
+		while [ "$(agent_status "$name")" != absent ]; do
+			[ "$(date +%s)" -lt "$deadline" ] || die "$kind sidekick has not exited; close it by hand, then rerun failover" 5
+			sleep 1
+		done
+	fi
+	record_failover "$store" "$kind" "$fallback" "$reason"
+	local -a args=()
+	mapfile -t args < <(jq -r '.sidekick.fallback.args[]?' "$store/pair.json")
+	spawn_role "$store" sidekick "$fallback" "" "$(field "$store" .master.pane_id)" 60000 "" "$(field "$store" .sidekick.pane_id)" "${args[@]}" || rc=$?
+	local running
+	running="$(field "$store" '.dispatch.brief // empty')"
+	if [ "$rc" -eq 0 ] && [ -n "$running" ] && [ ! -f "$(expected_report "$store" "$running")" ]; then
+		printf 'next: re-dispatch %s with "resumed after failover from %s" in its Context\n' "$running" "$kind"
+	fi
+	exit "$rc"
+}
+
 # Rotation exits the idle sidekick and reuses its pane with the same native
 # arguments. It preserves the store and never deletes a Devin session.
 cmd_rotate() {
@@ -962,12 +1140,15 @@ cmd_rotate() {
 
 cmd_spawn() {
 	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh spawn <store> --kind KIND [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]"
-	local store="$1" kind="" direction="" pane="" timeout=60000 permission=""
+	[ $# -ge 1 ] || die "usage: pair.sh spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]"
+	local store="$1" kind="" direction="" pane="" timeout=60000 permission="" fallback=""
+	local -a fallback_args=()
 	shift
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--kind) kind="$2"; shift 2 ;;
+		--fallback) fallback="$2"; shift 2 ;;
+		--fallback-arg) fallback_args+=("$2"); shift 2 ;;
 		--permission) permission="$2"; shift 2 ;;
 		--direction) direction="$2"; shift 2 ;;
 		--pane) pane="$2"; shift 2 ;;
@@ -977,8 +1158,10 @@ cmd_spawn() {
 		esac
 	done
 	[ -n "$kind" ] || die "--kind is required (run: herdr agent, for the kind list)"
+	pair_file "$store" >/dev/null
+	record_fallback "$store" "$fallback" "${fallback_args[@]}"
 	local rc=0
-	spawn_role "$store" sidekick "$kind" "$permission" "$(field "$store" .master.pane_id)" "$timeout" "$direction" "$pane" "$@" || rc=$?
+	spawn_sidekick "$store" "$kind" "$permission" "$(field "$store" .master.pane_id)" "$timeout" "$direction" "$pane" "$@" || rc=$?
 	exit "$rc"
 }
 
@@ -1908,6 +2091,7 @@ cmd_metrics() {
 		else if (ev == "send-consult") co_start(t, "consult")
 		else if (ev == "send-steer" && d == "objection") sk_start(t, u, "brief")
 		else if (ev == "queue" && u != "-") queued[u] = 1
+		else if (ev == "failover") { nfail++; fails = fails ", " d }
 		else if (ev == "step") { nsteps++; split(d, sk, ":"); st[u, sk[1]] = t }
 		else if (ev == "note") {
 			# A note reviews every step of its unit since the last note.
@@ -1945,6 +2129,7 @@ cmd_metrics() {
 		if (co_busy || nc || co_on) printf "consultant: busy %s (%d%% of wall); %d consults (%s), plan advice %s\n", \
 			m(co_busy), wall ? 100 * co_busy / wall : 0, nc, m(consult_t), m(plan_co)
 		printf "master: %d wakes, %d of them check-ins; review latency median %s over %d reviews\n", wakes, checkins, m(median(rl, nr)), nr
+		if (nfail) printf "failovers: %d (%s)\n", nfail, substr(fails, 3)
 		if (nsteps) printf "steps: %d committed, %d notes (%d blocking); step to note median %s\n", nsteps, nnotes, nblock, m(median(sl, nsl))
 		v = ""; n = split("agreed accept revise reject", order, " ")
 		for (i = 1; i <= n; i++) if (order[i] in verdicts) v = v sprintf(" %s %d", order[i], verdicts[order[i]])

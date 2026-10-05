@@ -3,9 +3,14 @@ $ pair.sh help
 usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the pair store; prints its path
-  spawn <store> --kind KIND [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
+  spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
                                             split from the master pane, start and bootstrap the sidekick;
-                                            Devin defaults to bypass, other kinds inherit the master's mode
+                                            Devin defaults to bypass, other kinds inherit the master's mode;
+                                            a pi sidekick first proves its model answers; on failure the
+                                            --fallback kind starts instead
+  failover <store> [--reason TEXT] [--force]
+                                            replace a failing sidekick with its recorded fallback in the same pane;
+                                            the fallback picks up from the store, and the run stays on it
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]
@@ -87,7 +92,7 @@ ready: <T>/state/pstack/pair-guided/demo/reports/000-ready.md
   herdr agent get demo-sidekick
   herdr pane layout --pane p0
   herdr pane split --pane p0 --direction right --cwd <T>/repo --no-focus
-  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous
+  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
   herdr agent prompt demo-sidekick Load the pstack-pair-guided skill from ~/.agents/skills/pstack-pair-guided/SKILL.md and take the sidekick role. Pair store: <T>/state/pstack/pair-guided/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
 
 $ pair.sh spawn <T>/state/pstack/pair-guided/demo --kind devin
@@ -541,6 +546,8 @@ report: missing
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 40
 
 $ pair.sh scratch <T>/state/pstack/pair-guided/demo 005-qone-review --at <SHA>
 Preparing worktree (detached HEAD <SHA>)
@@ -724,7 +731,7 @@ ready: <T>/state/pstack/pair-guided/demo/reports/000-ready.md
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick /exit
   herdr agent get demo-sidekick
-  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous
+  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
   herdr agent prompt demo-sidekick Load the pstack-pair-guided skill from ~/.agents/skills/pstack-pair-guided/SKILL.md and take the sidekick role. Pair store: <T>/state/pstack/pair-guided/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/014-qscope.md --timeout 1000
@@ -1005,9 +1012,14 @@ $ pair.sh bogus
 usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the pair store; prints its path
-  spawn <store> --kind KIND [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
+  spawn <store> --kind KIND [--fallback KIND [--fallback-arg ARG]...] [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
                                             split from the master pane, start and bootstrap the sidekick;
-                                            Devin defaults to bypass, other kinds inherit the master's mode
+                                            Devin defaults to bypass, other kinds inherit the master's mode;
+                                            a pi sidekick first proves its model answers; on failure the
+                                            --fallback kind starts instead
+  failover <store> [--reason TEXT] [--force]
+                                            replace a failing sidekick with its recorded fallback in the same pane;
+                                            the fallback picks up from the store, and the run stays on it
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]
@@ -2241,7 +2253,9 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "started_at": "<TS>",
     "start_args": [
       "--permission-mode",
-      "dangerous"
+      "dangerous",
+      "--respect-workspace-trust",
+      "false"
     ],
     "generation": 2,
     "bootstrap_pending": false,

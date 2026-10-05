@@ -24,12 +24,16 @@ usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the trio store; prints its path
   spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
-        [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]
+        [--consultant-permission MODE|none] [--fallback KIND [--fallback-arg ARG]...] [--timeout MS] [-- agent-args...]
                                             split panes beside the master, start and bootstrap both agents;
                                             Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
-                                            three kinds are all the same. --only respawns one role.
+                                            three kinds are all the same. --only respawns one role. A pi sidekick first proves
+                                            its model answers; on failure the --fallback kind starts instead.
   rotate <store>                            exit an idle Devin after a done brief, respawn with recorded
                                             arguments, and bootstrap a fresh session; preserve the queue and history
+  failover <store> [--reason TEXT] [--force]
+                                            replace a failing sidekick with its recorded fallback in the same pane;
+                                            the fallback picks up from the store, and the run stays on it
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]
@@ -103,14 +107,17 @@ require_diverse_kinds() {
 
 cmd_spawn() {
 	in_herdr
-	[ $# -ge 1 ] || die "usage: pair.sh spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none] [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]"
-	local store="$1" sidekick_kind="" consultant_kind="" only="" permission="" cpermission="" timeout=60000
+	[ $# -ge 1 ] || die "usage: pair.sh spawn <store> --sidekick KIND --consultant KIND [--fallback KIND [--fallback-arg ARG]...] [--only sidekick|consultant] [--permission MODE|none] [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]"
+	local store="$1" sidekick_kind="" consultant_kind="" only="" permission="" cpermission="" timeout=60000 fallback=""
+	local -a fallback_args=()
 	shift
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--sidekick) sidekick_kind="$2"; shift 2 ;;
 		--consultant) consultant_kind="$2"; shift 2 ;;
 		--kind) sidekick_kind="$2"; consultant_kind="${consultant_kind:-$2}"; shift 2 ;;
+		--fallback) fallback="$2"; shift 2 ;;
+		--fallback-arg) fallback_args+=("$2"); shift 2 ;;
 		--only) only="$2"; shift 2 ;;
 		--permission) permission="$2"; shift 2 ;;
 		--consultant-permission) cpermission="$2"; shift 2 ;;
@@ -137,7 +144,8 @@ cmd_spawn() {
 	[ -n "$cpermission" ] || cpermission="$permission"
 	local rc=0
 	if [ "$only" != consultant ]; then
-		spawn_role "$store" sidekick "$sidekick_kind" "$permission" "$master_pane" "$timeout" "" "" "$@" || rc=$?
+		record_fallback "$store" "$fallback" "${fallback_args[@]}"
+		spawn_sidekick "$store" "$sidekick_kind" "$permission" "$master_pane" "$timeout" "" "" "$@" || rc=$?
 		[ "$rc" -eq 0 ] || exit "$rc"
 	fi
 	if [ "$only" != sidekick ]; then

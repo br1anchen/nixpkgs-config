@@ -102,7 +102,7 @@ esac
         state = self.state()
         self.assertEqual(state['sidekick']['generation'], 2)
         self.assertEqual(state['sidekick']['start_args'],
-                         ['--model', 'swe-2-high', '--permission-mode', 'smart'])
+                         ['--respect-workspace-trust', 'false', '--model', 'swe-2-high', '--permission-mode', 'smart'])
         self.assertFalse(state['sidekick']['rotation_required'])
         self.assertTrue(report.exists())
         self.assertTrue((self.store / 'queue').exists())
@@ -162,7 +162,7 @@ esac
         (self.fake / 'agents/demo-sidekick').unlink()
         self.run_command('spawn', str(self.store), '--kind', 'devin', '--',
                          '--model', 'swe-2-high')
-        args = ['--permission-mode', 'dangerous', '--model', 'swe-2-high']
+        args = ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false', '--model', 'swe-2-high']
         self.assertEqual(self.state()['sidekick']['permission_mode'], 'bypassPermissions')
         self.assertEqual(self.state()['sidekick']['start_args'], args)
         self.complete_task()
@@ -171,10 +171,12 @@ esac
 
     def test_explicit_permission_overrides_default_bypass(self):
         for options, expected in [
-            (['--permission', 'auto'], ['--permission-mode', 'smart']),
-            (['--', '--permission-mode', 'smart'], ['--permission-mode', 'smart']),
+            (['--permission', 'auto'], ['--permission-mode', 'smart', '--respect-workspace-trust', 'false']),
+            (['--', '--permission-mode', 'smart'], ['--respect-workspace-trust', 'false', '--permission-mode', 'smart']),
             (['--permission', 'none', '--', '--model', 'swe-2-high'],
-             ['--model', 'swe-2-high']),
+             ['--respect-workspace-trust', 'false', '--model', 'swe-2-high']),
+            (['--', '--respect-workspace-trust', 'true'],
+             ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'true']),
         ]:
             with self.subTest(options=options):
                 (self.fake / 'agents/demo-sidekick').unlink()
@@ -196,7 +198,7 @@ esac
         self.run_command('spawn', str(self.store), '--sidekick', 'devin',
                          '--consultant', 'codex')
         state = self.state()
-        self.assertEqual(state['sidekick']['start_args'], ['--permission-mode', 'dangerous'])
+        self.assertEqual(state['sidekick']['start_args'], ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false'])
         self.assertEqual(state['consultant']['permission_mode'], state['master']['permission_mode'])
         (self.fake / 'agents/permissions-sidekick').unlink()
         (self.fake / 'agents/permissions-consultant').unlink()
@@ -204,9 +206,131 @@ esac
                          '--consultant', 'codex', '--permission', 'auto',
                          '--consultant-permission', 'plan')
         state = self.state()
-        self.assertEqual(state['sidekick']['start_args'], ['--permission-mode', 'smart'])
+        self.assertEqual(state['sidekick']['start_args'], ['--permission-mode', 'smart', '--respect-workspace-trust', 'false'])
         self.assertEqual(state['consultant']['start_args'],
                          ['-a', 'on-request', '-s', 'read-only'])
+
+
+class PiSidekickTests(unittest.TestCase):
+    """A pi sidekick, its print-mode preflight, and failover to a fallback kind."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name)
+        self.fake = self.path / 'fake'
+        self.fake.mkdir()
+        repo = self.path / 'repo'
+        repo.mkdir()
+        self.cwd = repo
+        self.env = {**os.environ, 'FAKE': str(self.fake),
+                    'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
+                    'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
+                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0'}
+        self.env.pop('CLAUDE_CODE_SESSION_ID', None)
+        self.script = skills / 'pstack-pair/scripts/pair.sh'
+        self.store = self.path / 'state/pstack/pair/demo'
+        self.run_command('init', 'demo')
+        hook = self.fake / 'hook'
+        hook.write_text(f'''#!/usr/bin/env bash
+case "$2" in
+Load*) printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;
+esac
+''')
+        hook.chmod(0o755)
+
+    def run_command(self, *args, code=0):
+        result = subprocess.run([self.script, *args], cwd=self.cwd, env=self.env,
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, code, result.stdout + result.stderr)
+        return result.stdout + result.stderr
+
+    def state(self):
+        return json.loads((self.store / 'pair.json').read_text())
+
+    def spawn_pi(self, *fallback, code=0):
+        return self.run_command('spawn', str(self.store), '--kind', 'pi', '--permission', 'auto',
+                                *fallback, '--', '--model', 'devin/swe-2', '--thinking', 'high', code=code)
+
+    def dispatch(self):
+        brief = self.store / 'briefs/001-first.md'
+        brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
+        return brief, self.run_command('dispatch', str(self.store), str(brief), '--timeout', '1', code=4)
+
+    def test_pi_starts_with_approve_after_a_clean_preflight(self):
+        self.spawn_pi()
+        state = self.state()
+        self.assertEqual(state['sidekick']['kind'], 'pi')
+        self.assertEqual(state['sidekick']['start_args'],
+                         ['--approve', '--model', 'devin/swe-2', '--thinking', 'high'])
+        self.assertNotIn('failovers', state['sidekick'])
+        preflight = (self.fake / 'pi.log').read_text().split('\n')[0]
+        self.assertEqual(preflight, '--no-session --no-approve --no-context-files --no-skills -p '
+                         '--model devin/swe-2 --thinking high Reply with exactly: OK')
+
+    def test_failed_preflight_starts_the_fallback_with_its_own_args(self):
+        (self.fake / 'pi-fail').write_text('Error: capacity issues with this serving model\n')
+        out = self.spawn_pi('--fallback', 'devin', '--fallback-arg', '--model', '--fallback-arg', 'swe-2-high')
+        self.assertIn('failover: pi -> devin', out)
+        sidekick = self.state()['sidekick']
+        self.assertEqual(sidekick['kind'], 'devin')
+        self.assertEqual(sidekick['start_args'],
+                         ['--permission-mode', 'dangerous', '--respect-workspace-trust', 'false', '--model', 'swe-2-high'])
+        self.assertEqual(sidekick['failovers'][0]['from'], 'pi')
+        self.assertIn('capacity issues', sidekick['failovers'][0]['reason'])
+        self.assertIn('preflight: pi 1.0.2 at ', sidekick['failovers'][0]['reason'])
+
+    def test_failed_preflight_without_fallback_starts_nothing(self):
+        (self.fake / 'pi-fail').write_text('No API key found for devin.\n')
+        self.spawn_pi(code=2)
+        self.assertFalse((self.fake / 'agents/demo-sidekick').exists())
+
+    def test_live_pi_skips_the_preflight(self):
+        self.spawn_pi()
+        (self.fake / 'pi.log').unlink()
+        self.spawn_pi()
+        self.assertFalse((self.fake / 'pi.log').exists())
+
+    def test_failover_swaps_kind_in_the_same_pane_once(self):
+        self.spawn_pi('--fallback', 'devin')
+        pane = self.state()['sidekick']['pane_id']
+        brief, _ = self.dispatch()
+        out = self.run_command('failover', str(self.store), '--reason', 'provider-error')
+        self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
+        sidekick = self.state()['sidekick']
+        self.assertEqual((sidekick['kind'], sidekick['pane_id'], sidekick['generation']), ('devin', pane, 2))
+        self.assertEqual(sidekick['failovers'][-1]['reason'], 'provider-error')
+        self.assertIn(f'next: re-dispatch {brief}', out)
+        self.assertIn('failovers: 1 (pi:devin)', self.run_command('metrics', str(self.store)))
+        self.run_command('failover', str(self.store), code=5)
+
+    def test_failover_needs_a_fallback_and_force_for_a_working_sidekick(self):
+        self.spawn_pi()
+        self.run_command('failover', str(self.store), code=5)
+        (self.fake / 'agents/demo-sidekick').unlink()
+        self.spawn_pi('--fallback', 'devin')
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        self.run_command('failover', str(self.store), code=5)
+        self.run_command('failover', str(self.store), '--force')
+        self.assertIn('send-keys demo-sidekick esc', (self.fake / 'calls.log').read_text())
+        self.assertEqual(self.state()['sidekick']['kind'], 'devin')
+
+    def test_missing_report_names_a_provider_error_and_the_failover(self):
+        self.spawn_pi('--fallback', 'devin')
+        screen = self.fake / 'screen'
+        screen.mkdir()
+        (screen / 'demo-sidekick').write_text(
+            'Error: We are currently experiencing capacity issues with this serving model.\n')
+        _, out = self.dispatch()
+        self.assertIn('report: missing', out)
+        self.assertIn('provider_error: Error: We are currently experiencing capacity issues', out)
+        self.assertIn(f'pair.sh failover {self.store} --reason provider-error', out)
+
+    def test_missing_report_without_provider_error_says_nothing_extra(self):
+        self.spawn_pi('--fallback', 'devin')
+        _, out = self.dispatch()
+        self.assertIn('report: missing', out)
+        self.assertNotIn('provider_error', out)
 
 
 if __name__ == '__main__':
