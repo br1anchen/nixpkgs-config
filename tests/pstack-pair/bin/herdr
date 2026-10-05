@@ -29,6 +29,12 @@ case "$1 $2" in
 	if [ -e "$FAKE/devin-input" ] && [ "$s" = working ]; then
 		mkdir -p "$FAKE/typing"; printf '%s' "$text" >"$FAKE/typing/$name"; ok "$s"; exit 0
 	fi
+	# $FAKE/stall: the prompt is typed but not submitted (a first-run screen
+	# took the Enter); herdr reports a stall and one Enter submits it.
+	if [ -e "$FAKE/stall" ] && [ "$wait" = 1 ]; then
+		rm -f "$FAKE/stall"; mkdir -p "$FAKE/stalled"; printf '%s' "$text" >"$FAKE/stalled/$name"
+		printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2; exit 1
+	fi
 	[ -x "$FAKE/hook" ] && "$FAKE/hook" "$name" "$text"
 	if [ "$wait" = 1 ] && [ -n "$until" ]; then
 		# --until working after a quick turn: the state was never observed.
@@ -54,7 +60,10 @@ case "$1 $2" in
 	if [ "$s" = working ]; then sleep 0.2; printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
 	ok "$s" ;;
 "agent send-keys")
-	if [ "${4:-}" = enter ] && [ -s "$FAKE/typing/$3" ]; then
+	if [ "${4:-}" = enter ] && [ -s "$FAKE/stalled/$3" ]; then
+		text="$(cat "$FAKE/stalled/$3")"; rm -f "$FAKE/stalled/$3"
+		[ -x "$FAKE/hook" ] && "$FAKE/hook" "$3" "$text"
+	elif [ "${4:-}" = enter ] && [ -s "$FAKE/typing/$3" ]; then
 		mkdir -p "$FAKE/queued"; mv "$FAKE/typing/$3" "$FAKE/queued/$3"
 	elif [ "${4:-}" = enter ] && [ -s "$FAKE/queued/$3" ]; then
 		text="$(cat "$FAKE/queued/$3")"; rm -f "$FAKE/queued/$3"

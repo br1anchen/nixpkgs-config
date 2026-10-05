@@ -951,8 +951,14 @@ spawn_role() {
 	err="$(cat "$errfile")"
 	rm -f "$errfile"
 	if [ "$code" -ne 0 ] && grep -q agent_prompt_stalled <<<"$err"; then
-		# State detection can lag on a narrow pane (Devin's status line wraps)
-		# while the agent is in fact working. The ready file is the real signal.
+		# A first-run screen (pi's changelog after an update, a trust prompt)
+		# can take the Enter that submits the bootstrap, leaving it typed in
+		# the input of an idle agent: one more Enter submits it, and an empty
+		# input ignores it. Otherwise state detection lagged on a narrow pane
+		# while the agent works. Either way the ready file is the real signal.
+		if [ "$(agent_status "$name")" != working ]; then
+			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+		fi
 		printf '%s prompt looked stalled; waiting for %s instead\n' "$role" "$ready"
 		await_file "$store/$ready" 240000 && code=0
 	fi

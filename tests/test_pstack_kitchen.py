@@ -575,6 +575,12 @@ esac
         self.assertIn('gate app behavioral', packet)
         self.assertIn('## Acceptance', packet)
 
+    def test_verify_prompt_left_typed_is_submitted(self):
+        (self.fake / 'stall').touch()
+        _, out = self.verify_app_unit('clean', 0)
+        self.assertIn('status: clean', out)
+        self.assertIn('send-keys demo-verifier enter', (self.fake / 'calls.log').read_text())
+
     def test_rejected_verdict_drafts_the_fix_brief(self):
         _, out = self.verify_app_unit('reject', 2)
         self.assertIn('Acceptance broke', out)

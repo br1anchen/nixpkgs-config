@@ -438,8 +438,13 @@ cmd_verify() {
 	json_update "$store" --arg pane "$pane" --arg kind "$kind" '.verifier.pane_id = $pane | .verifier.kind = $kind'
 	event "$store" master send-verify "$brief" "$kind:${units[*]}"
 	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$kind" "$pane" "${base:0:9}" "${head:0:9}"
-	herdr agent prompt "$name" "Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the verifier role. $PAIR_SKILL VERIFY $packet" >/dev/null ||
-		die "herdr prompt failed for $name" 2
+	# A just-started agent can take the text before it takes the Enter (pi
+	# drawing its startup screen), so the prompt must be seen working; an
+	# idle agent gets one more Enter, which submits the typed text.
+	if ! herdr agent prompt "$name" "Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the verifier role. $PAIR_SKILL VERIFY $packet" \
+		--wait --until working --timeout 30000 >/dev/null 2>&1 && [ "$(agent_status "$name")" != working ]; then
+		herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+	fi
 	local deadline=$(( $(date +%s) + timeout_m * 60 )) state=""
 	until [ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ]; do
 		state="$(agent_status "$name")"

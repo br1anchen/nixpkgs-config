@@ -285,6 +285,13 @@ esac
         self.spawn_pi(code=2)
         self.assertFalse((self.fake / 'agents/demo-sidekick').exists())
 
+    def test_bootstrap_left_typed_by_a_first_run_screen_is_submitted(self):
+        (self.fake / 'stall').touch()
+        out = self.spawn_pi()
+        self.assertIn('prompt looked stalled', out)
+        self.assertIn('send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text())
+        self.assertFalse(self.state()['sidekick']['bootstrap_pending'])
+
     def test_live_pi_skips_the_preflight(self):
         self.spawn_pi()
         (self.fake / 'pi.log').unlink()
