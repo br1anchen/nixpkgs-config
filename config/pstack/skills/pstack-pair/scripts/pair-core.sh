@@ -185,7 +185,7 @@ record_dispatch() {
 	head="$(git -C "$cwd" rev-parse HEAD 2>/dev/null || printf '')"
 	json_update "$store" --arg brief "$brief" --arg now "$now" --arg head "$head" \
 		--argjson epoch "$(date +%s)" \
-		'.dispatch = {brief: $brief, at: $now, head: $head} | .sent = {file: $brief, kind: "BRIEF", at: $now, epoch: $epoch}
+		'.dispatch = {brief: $brief, at: $now, head: $head, generation: (.sidekick.generation // 0)} | .sent = {file: $brief, kind: "BRIEF", at: $now, epoch: $epoch}
 		 | .heads[$brief | split("/") | last | rtrimstr(".md")] //= $head
 		 | .pending = ((.pending // []) + [$brief] | unique)'
 }
@@ -812,6 +812,12 @@ spawn_role() {
 	shift 8
 	local master_mode
 	master_mode="$(detect_permission_mode)"
+	if [ -z "$permission" ]; then
+		case "$kind" in
+		devin) permission=bypassPermissions ;;
+		*) permission="$master_mode" ;;
+		esac
+	fi
 	local -a agent_args=()
 	if [ "$permission" = none ] || has_permission_arg "$@"; then
 		permission="native-args"
@@ -823,11 +829,27 @@ spawn_role() {
 		fi
 	fi
 	set -- "${agent_args[@]}" "$@"
-	local name cwd status
+	if [ "$kind" = devin ]; then
+		local arg
+		for arg in "$@"; do
+			case "$arg" in -c | --continue | -r | --resume | --resume=*) die "Devin task sessions start fresh; recover partial work from the store instead of passing $arg" 5 ;; esac
+		done
+	fi
+	local name cwd status ready
+	case "$role" in
+	consultant) ready="advice/000-ready.md" ;;
+	*) ready="reports/000-ready.md" ;;
+	esac
 	name="$(field "$store" ".$role.name")"
 	cwd="$(field "$store" .cwd)"
 	status="$(agent_status "$name")"
 	if [ "$status" != absent ]; then
+		if [ "$(field "$store" ".$role.bootstrap_pending // false")" = true ]; then
+			[ -f "$store/$ready" ] || { printf '%s bootstrap still pending: %s is missing\n' "$role" "$ready" >&2; return 4; }
+			json_update "$store" --arg role "$role" '.[$role].rotation_required = false | .[$role].bootstrap_pending = false'
+			printf 'ready: %s\n' "$store/$ready"
+			event "$store" "$role" spawn - "$(field "$store" ".$role.kind"):ready"
+		fi
 		printf '%s %s already live (%s) in %s\n' "$role" "$name" "$status" "$(field "$store" ".$role.pane_id")"
 		return 0
 	fi
@@ -856,15 +878,20 @@ spawn_role() {
 	fi
 	local now
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	local args_json
+	args_json="$(jq -cn --args '$ARGS.positional' -- "$@")"
 	json_update "$store" --arg role "$role" --arg pane "$pane" --arg kind "$kind" --arg now "$now" --arg perm "$permission" --arg mperm "$master_mode" \
+		--argjson args "$args_json" \
 		'.[$role].pane_id = $pane | .[$role].kind = $kind | .[$role].started_at = $now
+		 | .[$role].start_args = $args | .[$role].generation = ((.[$role].generation // 0) + 1)
+		 | .[$role].bootstrap_pending = true
 		 | .[$role].permission_mode = $perm | .master.permission_mode = $mperm'
 	printf '%s %s (%s) started in %s with permission %s (master: %s)\n' "$role" "$name" "$kind" "$pane" "$permission" "$master_mode"
-	local ready bootstrap
-	case "$role" in
-	consultant) ready="advice/000-ready.md" ;;
-	*) ready="reports/000-ready.md" ;;
-	esac
+	local bootstrap
+	if [ -f "$store/$ready" ]; then
+		mkdir -p "$store/sessions"
+		mv "$store/$ready" "$store/sessions/$role-$(field "$store" ".$role.generation")-previous-ready.md"
+	fi
 	bootstrap="Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the $role role. $store_label store: $store. Follow its bootstrap steps, write $ready, and reply READY."
 	local out err code=0 errfile
 	errfile="$(mktemp)"
@@ -884,12 +911,53 @@ spawn_role() {
 		return 3
 	fi
 	if [ -f "$store/$ready" ]; then
+		json_update "$store" --arg role "$role" '.[$role].rotation_required = false | .[$role].bootstrap_pending = false'
 		printf 'ready: %s\n' "$store/$ready"
 		event "$store" "$role" spawn - "$kind:ready"
 	else
 		printf '%s settled but %s is missing; state=%s. Read the pane before prompting again.\n' "$role" "$ready" "$(agent_status "$name")" >&2
 		return 4
 	fi
+}
+
+require_fresh_session() {
+	if [ "$(field "$1" '.sidekick.kind')" = devin ] && [ "$(field "$1" '(.sidekick.rotation_required // false) or (.sidekick.bootstrap_pending // false)')" = true ]; then
+		die "Devin needs rotation or a successful bootstrap before another task; inspect READY and run pair.sh rotate $1 after a completed task. The queue is preserved." 5
+	fi
+}
+
+# Rotation exits the idle sidekick and reuses its pane with the same native
+# arguments. It preserves the store and never deletes a Devin session.
+cmd_rotate() {
+	in_herdr
+	[ $# -eq 1 ] || die "usage: pair.sh rotate <store>"
+	local store="$1" name status err code=0 deadline
+	pair_file "$store" >/dev/null
+	require_not_paused "$store"
+	[ "$(field "$store" '.sidekick.kind')" = devin ] || die "rotate is for a Devin sidekick" 5
+	[ "$(field "$store" '.sidekick.rotation_required // false')" = true ] || die "rotation requires a completed task; partial or blocked work keeps its session" 5
+	jq -e '.sidekick.start_args | type == "array"' "$store/pair.json" >/dev/null || die "no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags" 5
+	name="$(field "$store" .sidekick.name)"
+	status="$(agent_status "$name")"
+	case "$status" in
+	idle | "done")
+		err="$(herdr agent prompt "$name" /exit 2>&1)" || code=$?
+		if [ "$code" -ne 0 ] && ! grep -qE 'agent_prompt_stalled|agent_not_found|not_found' <<<"$err"; then
+			die "Devin exit failed: $err" 2
+		fi
+		deadline=$(($(date +%s) + 15))
+		while [ "$(agent_status "$name")" != absent ]; do
+			[ "$(date +%s)" -lt "$deadline" ] || die "Devin has not exited; inspect $name before retrying rotate" 5
+			sleep 1
+		done
+		;;
+	absent) ;;
+	*) die "sidekick $name is $status; wait for its report and turn to end before rotating" 5 ;;
+	esac
+	local -a args
+	mapfile -t args < <(jq -r '.sidekick.start_args[]' "$store/pair.json")
+	event "$store" master rotate - "generation:$(field "$store" .sidekick.generation)"
+	spawn_role "$store" sidekick devin none "$(field "$store" .master.pane_id)" 60000 "" "$(field "$store" .sidekick.pane_id)" "${args[@]}"
 }
 
 cmd_spawn() {
@@ -909,7 +977,6 @@ cmd_spawn() {
 		esac
 	done
 	[ -n "$kind" ] || die "--kind is required (run: herdr agent, for the kind list)"
-	[ -n "$permission" ] || permission="$(detect_permission_mode)"
 	local rc=0
 	spawn_role "$store" sidekick "$kind" "$permission" "$(field "$store" .master.pane_id)" "$timeout" "$direction" "$pane" "$@" || rc=$?
 	exit "$rc"
@@ -943,6 +1010,7 @@ send_and_wait() {
 	# $1 store, $2 file, $3 message kind (PLAN|BRIEF|ANSWER), $4 timeout
 	local store="$1" file="$2" kind="$3" timeout="$4" name status out err code=0
 	require_filled "$file"
+	require_fresh_session "$store"
 	name="$(field "$store" .sidekick.name)"
 	status="$(agent_status "$name")"
 	case "$status" in
@@ -1283,13 +1351,19 @@ cmd_next() {
 	[ $# -eq 1 ] || die "usage: pair.sh next <store>"
 	local brief
 	pair_file "$1" >/dev/null
+	[ "$(field "$1" .sidekick.kind)" != devin ] || die "Devin leaves the queue for the master to dispatch after a fresh bootstrap" 5
+	require_fresh_session "$1"
+	if paused_reason "$1" >/dev/null; then
+		printf 'queue: paused\n'
+		exit 4
+	fi
 	brief="$(take_queued "$1")" || { printf 'queue: empty\n'; exit 4; }
 	printf '%s BRIEF %s\n' "$PAIR_SKILL" "$brief"
 }
 
 # The one command a sidekick runs after writing any report: tells the master,
-# then says what to do next. A done report takes the queued brief; anything
-# else, and an empty queue, ends the turn.
+# then says what to do next. Devin ends the turn for master-owned rotation;
+# other kinds may take a queued brief after a done report.
 cmd_finish() {
 	in_herdr
 	[ $# -eq 2 ] || die "usage: pair.sh finish <store> <report-path>"
@@ -1304,6 +1378,15 @@ cmd_finish() {
 $open
 Resolve each as a fixup commit, record it with pair.sh step $store <sha> <summary> --resolves <n-ids>, then finish again" 7
 	fi
+	local current
+	current="$(field "$store" '.dispatch.brief // empty')"
+	if [ "$status" = "done" ] && [ "$(field "$store" .sidekick.kind)" = devin ] && [ -n "$current" ] && [ "$report" = "$(expected_report "$store" "$current")" ] && \
+		[ "$(field "$store" '.dispatch.generation // 0')" = "$(field "$store" '.sidekick.generation // 0')" ]; then
+		if [ "$(field "$store" '.sidekick.rotation_required // false')" != true ]; then
+			json_update "$store" '.sidekick.rotation_required = true'
+			event "$store" sidekick rotation-required "$report" "generation:$(field "$store" '.sidekick.generation // 0')"
+		fi
+	fi
 	cmd_notify "$store" "$report"
 	local late
 	while IFS= read -r late; do
@@ -1311,6 +1394,13 @@ Resolve each as a fixup commit, record it with pair.sh step $store <sha> <summar
 		printf 'late steer: %s arrived after this report; record pair.sh progress %s "steer s%s late: reported" and the master folds it into the next brief\n' \
 			"$late" "$store" "$(basename "$late" .md | sed -E 's/.*-s([0-9]+)$/\1/')"
 	done < <(open_steers "$store")
+	if [ "$status" = "done" ] && [ "$(field "$store" .sidekick.kind)" = devin ]; then
+		if [ "$(field "$store" '.sidekick.rotation_required // false')" = true ]; then
+			printf 'rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate %s\n' "$store"
+		fi
+		printf 'next: end the turn with the single line: %s REPORT %s\n' "$PAIR_SKILL" "$report"
+		return 0
+	fi
 	if [ "$status" = done ] && ! paused_reason "$store" >/dev/null && brief="$(take_queued "$store")"; then
 		printf 'next: the master queued %s BRIEF %s\n' "$PAIR_SKILL" "$brief"
 		printf 'Start that brief now, in this turn, as if the message had just arrived.\n'

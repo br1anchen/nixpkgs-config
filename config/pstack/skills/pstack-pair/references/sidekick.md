@@ -11,16 +11,20 @@ in a report file; the terminal is not the record.
 1. `test "${HERDR_ENV:-}" = 1`, then read `<store>/pair.json`. If
    `$HERDR_PANE_ID` differs from `.sidekick.pane_id`, you are not this pair's
    sidekick: say so and stop.
-2. Read `standing-orders.md`. If briefs exist, read the newest brief and its
-   report and run the session-pickup playbook against the working tree, so a
-   restart resumes instead of redoing.
+2. Read `standing-orders.md` and `session-handoff.md` when present. Inspect
+   the dispatched brief named in `pair.json`, its report, and its step log.
+   Run session pickup read-only for partial work. A completed or merely queued
+   brief is not work to repeat or start. Bootstrap ends at READY; wait for the
+   master to dispatch a PLAN or BRIEF.
 3. Open poteto-mode (`../poteto-mode/SKILL.md`) once here. The playbooks point
    back into its Non-negotiables, Comments, Subagents, and Writing the reply
    sections, so it must be in context before the first brief.
 4. Write `reports/000-ready.md` with status `done`, your runtime and model if
    you know them, the permission mode from `pair.json`
    `.sidekick.permission_mode`, cwd, branch, head, and tree state, following
-   the report template. Reply `READY` and end the turn.
+   the report template. Include `.sidekick.generation`, the native session ID
+   when available, and the model/effort actually selected. Reply `READY` and end
+   the turn.
 
 ## On `pstack-pair PLAN <path>`
 
@@ -81,13 +85,12 @@ and the decision stays with the master.
    fast checks (format, lint, typecheck) passing on the commit. Those are what
    reviews and landings most often send back. Anything less is `partial`,
    `blocked`, or `failed`, with the reason.
-5. `pair.sh finish <store> <report>`, and do what it prints. It tells the
-   master, then either names a brief the master queued while you worked, which
-   you start now, in this turn, as if the message had just arrived, or gives
-   the REPORT line to end the turn with. Only a `done` report takes a queued
-   brief; any other status leaves it for the master. `finish` refuses a `done`
-   report while a blocking note is open; resolve it first. Never end a brief
-   without running it: the master's wait and the queue both hang on it.
+5. Run `pair.sh finish <store> <report>` and follow its output. A Devin
+   `done` report requires a fresh session for the next task: end the turn with
+   the REPORT line and leave the queue for the master. Other agent kinds may
+   start the queued brief it names in the same turn. Partial, blocked, or failed
+   reports leave the queue for the master. Resolve open blocking notes before
+   reporting `done`. Every brief ends through `finish`.
 6. When any `pair.sh` command prints `PAUSE:`, you are at a safe point: commit
    what is verified, write the report as `partial` with where you stopped and
    the next step under Deviations, run `pair.sh finish`, and end the turn.

@@ -5,9 +5,11 @@ usage: pair.sh <command> [args]
   init <slug> [--store DIR]                 create or re-register the trio store; prints its path
   spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
         [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]
-                                            split panes beside the master, start both agents with the master's
-                                            permission mode (default auto), bootstrap them. Refuses a trio whose
+                                            split panes beside the master, start and bootstrap both agents;
+                                            Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
                                             three kinds are all the same. --only respawns one role.
+  rotate <store>                            exit an idle Devin after a done brief, respawn with recorded
+                                            arguments, and bootstrap a fresh session; preserve the queue and history
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]
@@ -28,7 +30,7 @@ usage: pair.sh <command> [args]
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written. One slot. queue <store> --clear empties it
+                                            current report is written (Devin waits for rotation and dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -36,7 +38,7 @@ usage: pair.sh <command> [args]
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start (after a done report) or the line to end on
+                                            the queued brief to start for other kinds, or the REPORT line; Devin done requires rotation
   next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
@@ -90,7 +92,7 @@ auto
 
 $ pair.sh spawn <T>/state/pstack/trio/demo --sidekick devin --consultant codex
 split p0 right -> p1
-sidekick demo-sidekick (devin) started in p1 with permission auto (master: auto)
+sidekick demo-sidekick (devin) started in p1 with permission bypassPermissions (master: auto)
 ready: <T>/state/pstack/trio/demo/reports/000-ready.md
 split p1 right -> p2
 consultant demo-consultant (codex) started in p2 with permission auto (master: auto)
@@ -101,7 +103,7 @@ kinds: master claude, sidekick devin, consultant codex
   herdr agent get demo-sidekick
   herdr pane layout --pane p0
   herdr pane split --pane p0 --direction right --cwd <T>/repo --no-focus
-  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode smart
+  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous
   herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role. Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
   herdr pane get p1
   herdr agent get demo-consultant
@@ -751,6 +753,7 @@ steer <T>/state/pstack/trio/demo/steers/012-qsteps-s1.md left for demo-sidekick:
 $ pair.sh finish <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/reports/012-qsteps.md
 prompted master demo-master (was idle) with REPORT <T>/state/pstack/trio/demo/reports/012-qsteps.md
 late steer: <T>/state/pstack/trio/demo/steers/012-qsteps-s1.md arrived after this report; record pair.sh progress <T>/state/pstack/trio/demo "steer s1 late: reported" and the master folds it into the next brief
+rotation: required before the next task; leave the queue for the master to dispatch after pair.sh rotate <T>/state/pstack/trio/demo
 next: end the turn with the single line: pstack-trio REPORT <T>/state/pstack/trio/demo/reports/012-qsteps.md
 [exit 0]
   herdr agent get demo-master
@@ -773,6 +776,31 @@ idle: the reply to 012-qsteps.md was already shown (<T>/state/pstack/trio/demo/r
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
+
+$ pair.sh next <T>/state/pstack/trio/demo
+pair.sh: Devin leaves the queue for the master to dispatch after a fresh bootstrap 5
+[exit 5]
+
+$ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/006-qthree.md
+pair.sh: Devin needs rotation or a successful bootstrap before another task; inspect READY and run pair.sh rotate <T>/state/pstack/trio/demo after a completed task. The queue is preserved. 5
+[exit 5]
+
+$ pair.sh rotate <T>/state/pstack/trio/demo
+pair.sh: sidekick demo-sidekick is working; wait for its report and turn to end before rotating 5
+[exit 5]
+  herdr agent get demo-sidekick
+
+$ pair.sh rotate <T>/state/pstack/trio/demo
+reused pane p1
+sidekick demo-sidekick (devin) started in p1 with permission native-args (master: auto)
+ready: <T>/state/pstack/trio/demo/reports/000-ready.md
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent prompt demo-sidekick /exit
+  herdr agent get demo-sidekick
+  herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous
+  herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role. Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/013-qscope.md --timeout 1000
 state: timeout
@@ -1115,9 +1143,11 @@ usage: pair.sh <command> [args]
   init <slug> [--store DIR]                 create or re-register the trio store; prints its path
   spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
         [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]
-                                            split panes beside the master, start both agents with the master's
-                                            permission mode (default auto), bootstrap them. Refuses a trio whose
+                                            split panes beside the master, start and bootstrap both agents;
+                                            Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
                                             three kinds are all the same. --only respawns one role.
+  rotate <store>                            exit an idle Devin after a done brief, respawn with recorded
+                                            arguments, and bootstrap a fresh session; preserve the queue and history
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]
@@ -1138,7 +1168,7 @@ usage: pair.sh <command> [args]
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written. One slot. queue <store> --clear empties it
+                                            current report is written (Devin waits for rotation and dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -1146,7 +1176,7 @@ usage: pair.sh <command> [args]
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start (after a done report) or the line to end on
+                                            the queued brief to start for other kinds, or the REPORT line; Devin done requires rotation
   next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
@@ -2297,9 +2327,12 @@ ts	phase	decision	why	evidence	result
 <TS>	<EPOCH>	sidekick	step	012-qsteps	4:<SHA>
 <TS>	<EPOCH>	master	note	012-qsteps	4:clear
 <TS>	<EPOCH>	master	send-steer	012-qsteps-s1	working
+<TS>	<EPOCH>	sidekick	rotation-required	012-qsteps	generation:1
 <TS>	<EPOCH>	sidekick	report	012-qsteps	done
 <TS>	<EPOCH>	master	wake	012-qsteps	report:done
 <TS>	<EPOCH>	master	wake	012-qsteps	idle
+<TS>	<EPOCH>	master	rotate	-	generation:1
+<TS>	<EPOCH>	sidekick	spawn	-	devin:ready
 <TS>	<EPOCH>	master	send-brief	013-qscope	
 <TS>	<EPOCH>	master	wake	013-qscope	checkin
 <TS>	<EPOCH>	master	send-brief	014-qglob	
@@ -2443,21 +2476,38 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
     "pane_id": "p1",
     "kind": "devin",
     "started_at": "<TS>",
-    "permission_mode": "auto"
+    "start_args": [
+      "--permission-mode",
+      "dangerous"
+    ],
+    "generation": 2,
+    "bootstrap_pending": false,
+    "permission_mode": "native-args",
+    "rotation_required": false
   },
   "consultant": {
     "name": "demo-consultant",
     "pane_id": "p2",
     "kind": "codex",
     "started_at": "<TS>",
-    "permission_mode": "auto"
+    "start_args": [
+      "-a",
+      "on-request",
+      "-s",
+      "workspace-write"
+    ],
+    "generation": 1,
+    "bootstrap_pending": false,
+    "permission_mode": "auto",
+    "rotation_required": false
   },
   "scratch": [],
   "pending": [],
   "dispatch": {
     "brief": "<T>/state/pstack/trio/demo/briefs/015-qnine.md",
     "at": "<TS>",
-    "head": "<SHA>"
+    "head": "<SHA>",
+    "generation": 2
   },
   "sent": {
     "file": "<T>/state/pstack/trio/demo/briefs/015-qnine.md",
@@ -2568,15 +2618,15 @@ head: abc
 
 status: done
 head: abc
+--- ./reports/003-build-s1.md
+# Objection
+
+status: object
 --- ./reports/003-build.md
 # report
 
 status: done
 head: abc
---- ./reports/003-build-s1.md
-# Objection
-
-status: object
 --- ./reports/004-qone.md
 # Report
 
@@ -2638,6 +2688,11 @@ approval: not-required
 # Review
 
 verdict: accept
+--- ./sessions/sidekick-2-previous-ready.md
+# ready
+
+status: done
+head: abc
 --- ./standing-orders.md
 # Standing orders
 
@@ -2651,7 +2706,7 @@ instruction (the encode-lessons-in-structure principle).
 4. On timebox expiry, stop, write a partial report, end the turn.
 5. A question for the human goes in the report under Questions with status `blocked`; the master owns the human.
 6. Approval dialogs: the master reads them and asks the human. Neither agent answers the other's dialogs.
-7. All three agents run in the master's permission mode, auto unless the human said otherwise. Neither agent changes its own mode.
+7. Devin defaults to bypass permissions; other kinds inherit the master's permission mode. Explicit permission overrides take precedence. Neither agent changes its own mode.
 8. Sidekick progress log: one line per completed todolist step and per change of approach, via `pair.sh progress`. A STEER is read the moment it arrives, between tool calls, and agreed or objected to there; two fresh steers per brief, two rounds each.
 9. Consultant never writes a non-ignored path in the shared tree and never builds, tests, or installs there. Prototypes and builds run in `pair.sh scratch`, removed before the advice is sent.
 10. Consultant advice is advisory: the master decides and records an overrule in the review. Three consults per unit; a fourth is a plan round.

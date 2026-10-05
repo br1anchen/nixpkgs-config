@@ -21,6 +21,7 @@ case "$1 $2" in
 	printf 'idle %s\n' "$kind" >"$FAKE/agents/$name"; ok idle "$kind" ;;
 "agent prompt")
 	name="$3"; text="$4"; wait=0; until=""; shift 4
+	if [ "$text" = /exit ]; then rm -f "$FAKE/agents/$name"; printf '{}\n'; exit 0; fi
 	while [ $# -gt 0 ]; do case "$1" in --wait) wait=1; shift ;; --until) until="$until $2"; shift 2 ;; *) shift ;; esac; done
 	s="$(status_of "$name")"
 	# $FAKE/devin-input: a working Devin leaves a prompt typed in its input

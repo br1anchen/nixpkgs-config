@@ -30,11 +30,13 @@ never messages the sidekick and never writes the shared tree.
    `pair.sh spawn` reads the master's kind from Herdr and exits 8 when all
    three would match; tell the human to pick another kind or use
    `pstack-pair`. Sidekick and consultant may share a kind.
-5. All three agents run with the master's permission mode, auto by default.
-   `pair.sh spawn` detects it and translates per kind (`--permission-mode`
-   for Claude Code, `--permission-mode smart` for Devin, `-a on-request -s
-   workspace-write` for Codex); `--permission` and `--consultant-permission`
-   override it. Kinds without a translation take native flags after `--`.
+5. Start the master in auto mode. Devin defaults to bypass permissions with
+   `--permission-mode dangerous`. Other kinds inherit the master's mode.
+   `pair.sh permission` prints the detected master mode. `--permission <mode>`
+   overrides both spawned roles; `--consultant-permission <mode>` overrides
+   only the consultant. Native permission flags after `--` override the
+   default for every role spawned by that call. `--permission auto` selects
+   Devin smart mode. Kinds without a translation take native flags after `--`.
 
 ## Roles
 
@@ -73,10 +75,12 @@ Consultant: [references/consultant.md](references/consultant.md).
 | `gates.md` | master | open questions for the human |
 | `decisions.tsv` | master via `pair.sh log` | the show-me-your-work trail |
 | `status.md` | `pair.sh status` | derived table; never hand-edited |
-| `queue` | master via `pair.sh queue`; the sidekick empties it with `pair.sh next` | the next brief's path, one slot |
+| `queue` | master via `pair.sh queue` and `dispatch`; other sidekicks via `pair.sh next` | the next brief's path, one slot |
 | `steps/NNN-<slug>.tsv` | sidekick via `pair.sh step` | one row per committed step: number, commit, time, notes it resolves, summary |
 | `notes/NNN-<slug>-n<k>.md` | master via `pair.sh new-note` and `note` | review of the unit's steps through step k, from [the note template](references/note-template.md): blocking items and follow-ups |
 | `followups.md` | master via `pair.sh note` | follow-ups from every note, for a later brief or an issue |
+| `session-handoff.md` | master | compact recovery and next-task context, read at bootstrap |
+| `sessions/` | `pair.sh spawn` / `rotate` | prior ready reports; retained session exports and timing evidence |
 | `events.tsv` | every `pair.sh` command | one row per message, report, wake, and log entry, read by `pair.sh metrics` |
 
 `NNN` is a zero-padded sequence shared by plan or brief, report, advice, and
@@ -89,7 +93,7 @@ review, so the files for one unit sort together.
 | bootstrap (names the skill, the role, and the store) | master to sidekick and consultant | `pair.sh spawn` | bootstrap steps, `reports/000-ready.md` or `advice/000-ready.md`, reply `READY` |
 | `pstack-trio PLAN <plan-path>` | master to sidekick and consultant at once | `pair.sh discuss` | sidekick grounds the plan in the code; consultant critiques the design; each writes agree or object, ends the turn |
 | `pstack-trio BRIEF <brief-path>` | master to sidekick | `pair.sh dispatch` | run the brief, write its report, run `pair.sh finish`, then start the queued brief it names or end the turn |
-| `pstack-trio BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | taken with `pair.sh next` right after a `done` report, in the same turn |
+| `pstack-trio BRIEF <brief-path>`, queued | master to a working sidekick | `pair.sh queue` | Devin: master dispatches after rotation; other kinds: same-turn pickup with `pair.sh next` |
 | `pstack-trio STEER <steer-path>` | master to a working sidekick, or one paused on an objection | `pair.sh steer` | read it between tool calls; agree and continue, or object with evidence and end the turn |
 | `pstack-trio CONSULT <consult-path>` | master to consultant | `pair.sh consult` | read the named files, prototype in scratch if needed, write the advice, end the turn |
 | `pstack-trio REPORT <report-path>` | sidekick to master | `pair.sh finish` (or `notify`) | read the report, review |
@@ -170,6 +174,14 @@ rounds each. The consultant adds one step: when a digest or objection shows a
 finding that changes the design, the master consults before it steers, and
 the steer's Direction cites the advice path.
 
+## Devin task sessions
+
+A Devin sidekick uses a fresh conversation for each completed brief. Before
+spawning, queueing, rotating, or cleaning its storage, read
+[the Devin session lifecycle](../pstack-pair/references/devin-sessions.md). Partial and blocked work stays in
+its session; a completed brief leaves the queue for the master to dispatch
+after `pair.sh rotate`. The pstack store persists across sessions.
+
 ## Keeping the sidekick busy
 
 The sidekick is the critical path: the master turns a report around in
@@ -177,8 +189,9 @@ minutes, while a unit takes tens of minutes to hours. Three habits keep the
 sidekick from waiting on the master.
 
 - **Queue the next brief.** While a unit runs, the master drafts the next one
-  and holds it with `pair.sh queue`. The sidekick runs `pair.sh next` after a
-  `done` report and starts it in the same turn. The queue has one slot and
+  and holds it with `pair.sh queue`. After a Devin `done` report, rotate and
+  bootstrap the sidekick, then dispatch that brief. Other kinds take it with
+  `pair.sh next` in the same turn. The queue has one slot and
   holds only a unit that does not hinge on the running unit's review, so a
   `revise` becomes a follow-up brief, not a rework of the queued one.
 - **Review at the commit.** A brief that writes says `commit: yes`, and the

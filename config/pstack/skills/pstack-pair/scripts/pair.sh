@@ -20,8 +20,10 @@ usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the pair store; prints its path
   spawn <store> --kind KIND [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
-                                            split from the master pane, start the sidekick with the master's
-                                            permission mode (default auto), bootstrap it
+                                            split from the master pane, start and bootstrap the sidekick;
+                                            Devin defaults to bypass, other kinds inherit the master's mode
+  rotate <store>                            exit an idle Devin after a done brief, respawn with recorded
+                                            arguments, and bootstrap a fresh session; preserve the queue and history
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]
@@ -34,7 +36,7 @@ usage: pair.sh <command> [args]
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written. One slot. queue <store> --clear empties it
+                                            current report is written (Devin waits for rotation and dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -42,7 +44,7 @@ usage: pair.sh <command> [args]
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start (after a done report) or the line to end on
+                                            the queued brief to start for other kinds, or the REPORT line; Devin done requires rotation
   next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]

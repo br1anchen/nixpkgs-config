@@ -140,6 +140,8 @@ fi
 # which takes it the moment its report is written. The report of the first
 # brief lands, and the queued one is taken, before the master's wait, which
 # must still surface that report.
+# Non-Devin kinds retain immediate queue pickup.
+jq '.sidekick.kind = "codex"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 q1="$("$P" new-brief "$store" qone)"; fill "$q1"; set_hdr "$q1" playbook investigation; set_hdr "$q1" plan none
 q2="$("$P" new-brief "$store" qtwo)"; fill "$q2"; set_hdr "$q2" playbook investigation; set_hdr "$q2" plan none
 status "demo-sidekick" idle devin
@@ -163,6 +165,7 @@ run finish "$store" "$store/reports/$(basename "$q2")"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 run wait "$store" --timeout 1500
 run status "$store"
+jq '.sidekick.kind = "devin"' "$store/pair.json" >"$store/pair.json.t" && mv "$store/pair.json.t" "$store/pair.json"
 # herdr reports a settle while the sidekick still works (a Devin sidekick
 # flips done to idle as a prompt lands): dispatch keeps looking, and the
 # report that lands on a later poll is what it returns.
@@ -266,6 +269,13 @@ rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 run wait "$store" --timeout 1500
 # a finished unit never holds a later wait on its steps
 run wait "$store" --timeout 1500
+# Devin cannot consume or dispatch another task in the completed conversation.
+run next "$store"
+run dispatch "$store" "$q3"
+status "demo-sidekick" working devin
+run rotate "$store"
+status "demo-sidekick" idle devin
+run rotate "$store"
 # annotated may-write lines: paths with notes, comma lists, and a directory
 qa="$("$P" new-brief "$store" qscope)"; fill "$qa"; set_hdr "$qa" playbook investigation; set_hdr "$qa" plan none
 printf -- '\n## Scope\n\nmay write:\n- `b.txt` — the fixture, next to a.txt and docs/a.txt (new file)\n- docs/, notes.md (only a link)\n\nmust not write:\n- x\n' >>"$qa"

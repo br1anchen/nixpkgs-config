@@ -17,9 +17,9 @@ is yours alone.
    Edit `standing-orders.md` so it holds every constraint the human gave you,
    including approval policy and landing policy (commit only, or push and PR).
 3. **Spawn the sidekick.** `pair.sh spawn <store> --kind <kind>`. Use the kind
-   the human named; otherwise your own kind. The sidekick starts with your
-   permission mode (auto unless you were started otherwise); check the
-   `permission` line the command prints and correct it with `--permission
+   the human named; otherwise your own kind. Devin starts with bypass
+   permissions by default; other kinds inherit your permission mode. Check
+   the `permission` line the command prints and correct it with `--permission
    <mode>` if it is not what the human intended. Pass other native agent
    arguments after `--` only when the human asked for them. The command splits
    a pane beside yours, starts the agent, sends the bootstrap prompt, and
@@ -159,12 +159,19 @@ paused sidekick and waits for it to settle. Two rounds per steer; when the
 second still draws an objection, withdraw it or `pair.sh stop` and take the
 disagreement to a plan round. Log a row per round.
 
+## Devin session lifecycle
+
+When the sidekick is Devin, follow [the session lifecycle](../references/devin-sessions.md).
+After its `done` report and settled turn, write the handoff, run `pair.sh rotate`,
+verify the new READY report, and dispatch the next task. Keep partial work in
+its session. Storage cleanup requires a coordinated pause and recovery handoff.
+
 ## Queueing
 
 The queue is how the sidekick never waits for you. At a check-in, draft the
 next unit's brief and `pair.sh queue <store> <brief>`: dispatch's checks
-apply, and the sidekick takes it with `pair.sh next` right after a `done`
-report, in the same turn. Queue a unit only when it does not hinge on the
+apply. A Devin `done` report leaves it queued until you rotate the sidekick
+and dispatch it. Other kinds take it with `pair.sh next` in the same turn. Queue a unit only when it does not hinge on the
 running unit's review; when it does, wait for the report. One slot:
 `--replace` swaps it, `pair.sh queue <store> --clear` empties it, and `stop`
 clears it. `wait` returns each dispatched brief's report once, oldest first,

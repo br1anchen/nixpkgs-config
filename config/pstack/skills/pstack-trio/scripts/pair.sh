@@ -23,9 +23,11 @@ usage: pair.sh <command> [args]
   init <slug> [--store DIR]                 create or re-register the trio store; prints its path
   spawn <store> --sidekick KIND --consultant KIND [--only sidekick|consultant] [--permission MODE|none]
         [--consultant-permission MODE|none] [--timeout MS] [-- agent-args...]
-                                            split panes beside the master, start both agents with the master's
-                                            permission mode (default auto), bootstrap them. Refuses a trio whose
+                                            split panes beside the master, start and bootstrap both agents;
+                                            Devin defaults to bypass, other kinds inherit the master's mode. Refuses a trio whose
                                             three kinds are all the same. --only respawns one role.
+  rotate <store>                            exit an idle Devin after a done brief, respawn with recorded
+                                            arguments, and bootstrap a fresh session; preserve the queue and history
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]
@@ -46,7 +48,7 @@ usage: pair.sh <command> [args]
                                             (and any queued or now-running brief), or a check-in digest when the
                                             interval passes first
   queue <store> <brief-path> [--replace]    hold the next brief for a working sidekick; it takes it the moment its
-                                            current report is written. One slot. queue <store> --clear empties it
+                                            current report is written (Devin waits for rotation and dispatch). One slot. queue <store> --clear empties it
   step <store> <sha> <summary> [--resolves n1,n2]
                                             sidekick: record a committed step of the running brief and go on;
                                             the master's wait picks it up for review
@@ -54,7 +56,7 @@ usage: pair.sh <command> [args]
   new-note <store> <NNN>                    create the draft note reviewing unit NNN's steps since the last note
   note <store> <note-draft-path>            publish a filled note to the sidekick; its follow-ups go to followups.md
   finish <store> <report-path>              sidekick, after writing any report: notify the master, then print
-                                            the queued brief to start (after a done report) or the line to end on
+                                            the queued brief to start for other kinds, or the REPORT line; Devin done requires rotation
   next <store>                              sidekick: take the queued brief after writing a report; exit 4 when empty
   progress <store> <text>                   sidekick: append one timestamped line to the running brief's progress log
   new-steer <store> <NNN> [--supersedes STEER | --force]
@@ -135,10 +137,8 @@ cmd_spawn() {
 	local master_kind
 	master_kind="$(agent_kind "$(field "$store" .master.pane_id)")"
 	require_diverse_kinds "$master_kind" "${sidekick_kind:-$master_kind}" "${consultant_kind:-$master_kind}"
-	local master_mode master_pane
-	master_mode="$(detect_permission_mode)"
+	local master_pane
 	master_pane="$(field "$store" .master.pane_id)"
-	[ -n "$permission" ] || permission="$master_mode"
 	[ -n "$cpermission" ] || cpermission="$permission"
 	local rc=0
 	if [ "$only" != consultant ]; then
@@ -162,6 +162,7 @@ cmd_discuss() {
 	in_herdr
 	[ $# -ge 2 ] || die "usage: pair.sh discuss <store> <plan-path> [--timeout MS]"
 	local store="$1" plan="$2" timeout=540000
+	require_fresh_session "$store"
 	shift 2
 	while [ $# -gt 0 ]; do
 		case "$1" in

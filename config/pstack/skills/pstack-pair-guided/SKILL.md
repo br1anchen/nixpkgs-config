@@ -27,13 +27,12 @@ never the record, because agents on the alternate screen leave no scrollback.
    absent. Its safety rules apply throughout.
 3. `jq` and `herdr` on PATH. `scripts/pair.sh help` lists every store and
    channel operation; use it instead of hand-built `herdr` calls for the pair.
-4. Both agents run with the same permission mode, auto by default, where the
-   model decides what needs approval. Start the master in auto mode.
-   `pair.sh spawn` detects the master's mode and starts the sidekick with its
-   equivalent (`--permission-mode` for Claude Code, `--permission-mode smart`
-   for Devin, `-a on-request -s workspace-write` for Codex); `pair.sh permission` prints what it detected,
-   and `--permission <mode>` overrides it. Kinds without a translation take
-   native flags after `--`.
+4. Start the master in auto mode. Devin defaults to bypass permissions with
+   `--permission-mode dangerous`. Other kinds inherit the master's mode.
+   `pair.sh permission` prints the detected master mode. Use `--permission
+   <mode>` or native permission flags after `--` to override the default;
+   `--permission auto` selects Devin smart mode. Kinds without a translation
+   take native flags after `--`.
 
 ## Roles
 
@@ -192,6 +191,12 @@ not continuously, and corrects direction, not keystrokes.
   stays with the master, and a standing disagreement goes to a plan round.
 - Two fresh steers per brief. A third means the brief was wrong: stop the
   unit and re-brief.
+
+## Devin task sessions
+
+For a Devin sidekick, the shared helper requires rotation after a completed
+brief. Follow [the Devin session lifecycle](../pstack-pair/references/devin-sessions.md)
+in place of same-turn queue pickup. Partial work keeps its session.
 
 ## Keeping the sidekick busy
 

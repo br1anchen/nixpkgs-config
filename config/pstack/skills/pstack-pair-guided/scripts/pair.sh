@@ -22,8 +22,8 @@ usage: pair.sh <command> [args]
 
   init <slug> [--store DIR]                 create or re-register the pair store; prints its path
   spawn <store> --kind KIND [--permission MODE|none] [--direction right|down] [--pane ID] [--timeout MS] [-- agent-args...]
-                                            split from the master pane, start the sidekick with the master's
-                                            permission mode (default auto), bootstrap it
+                                            split from the master pane, start and bootstrap the sidekick;
+                                            Devin defaults to bypass, other kinds inherit the master's mode
   permission                                print the master's detected permission mode
   new-plan <store> <slug>                   create plans/NNN-<slug>.md from the template; prints its path
   discuss <store> <plan-path> [--timeout MS]

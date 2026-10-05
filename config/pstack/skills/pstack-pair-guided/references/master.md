@@ -17,9 +17,9 @@ is yours alone.
    Edit `standing-orders.md` so it holds every constraint the human gave you,
    including approval policy and landing policy (commit only, or push and PR).
 3. **Spawn the sidekick.** `pair.sh spawn <store> --kind <kind>`. Use the kind
-   the human named; otherwise your own kind. The sidekick starts with your
-   permission mode (auto unless you were started otherwise); check the
-   `permission` line the command prints and correct it with `--permission
+   the human named; otherwise your own kind. Devin starts with bypass
+   permissions by default; other kinds inherit your permission mode. Check
+   the `permission` line the command prints and correct it with `--permission
    <mode>` if it is not what the human intended. Pass other native agent
    arguments after `--` only when the human asked for them. The command splits
    a pane beside yours, starts the agent, sends the bootstrap prompt, and
