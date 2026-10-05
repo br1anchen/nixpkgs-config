@@ -392,7 +392,7 @@ e t 5100 master send-brief 007-r ""
 PAIR_METRICS_NOW=5700 run metrics "$m"
 run metrics "$T/nowhere"
 printf '\n== store tree\n'
-(cd "$store" && find . -type f ! -name '*.seen' | sort | while read -r f; do printf -- '--- %s\n' "$f"; norm <"$f" | grep -v '^generated:'; done)
+(cd "$store" && find . -type f ! -name '*.seen' | LC_ALL=C sort | while read -r f; do printf -- '--- %s\n' "$f"; norm <"$f" | grep -v '^generated:'; done)
 printf '\n== git status\n'; git status --porcelain | norm
 git worktree list | norm
 rm -rf "$T"
