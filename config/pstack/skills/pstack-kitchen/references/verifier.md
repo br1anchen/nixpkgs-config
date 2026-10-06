@@ -12,7 +12,10 @@ work?", and then your pane closes.
    Acceptance, the changed files, the commands to run, and the feature map.
    Work only in the scratch worktree. Write nothing else but the verdict.
 2. Install dependencies in the scratch the repo's way if its commands need
-   them.
+   them. You share the machine with the sidekick: export
+   `PSTACK_KITCHEN_ROLE=verifier` in every shell you run repo commands in,
+   so the repo's scripts give you your own ports, emulators, and data, and
+   stop every server, emulator, or process you start before step 7.
 3. Run every command under Prove. They are the repo's behavioral gates for
    the touched profiles.
 4. Prove each Acceptance line the commands do not reach, the way a user

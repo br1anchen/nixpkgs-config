@@ -6,4 +6,6 @@ set -u
 [ "${1:-}" = --version ] && { printf '1.0.2\n'; exit 0; }
 printf '%s\n' "$*" >>"$FAKE/pi.log"
 if [ -s "$FAKE/pi-fail" ]; then cat "$FAKE/pi-fail" >&2; exit 1; fi
+# $FAKE/pi-fail-once: the provider fails one request, then answers.
+if [ -e "$FAKE/pi-fail-once" ]; then rm -f "$FAKE/pi-fail-once"; exit 1; fi
 printf 'OK\n'

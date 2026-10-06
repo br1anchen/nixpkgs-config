@@ -42,12 +42,19 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    direction only, as the pair master does; steer only when your review would
    otherwise say revise.
 6. **On a done report:** verify, then review.
-   - `kitchen.sh verify <store> <NNN>`. A `batch` unit may wait for the next
-     done unit and verify together (`kitchen.sh verify <store> 004 005`);
-     verify a batch before landing at the latest. Exit 2 with `reject`: run
-     the `revise` command it prints, read the fix brief, dispatch it. A second
-     rejection, an `inconclusive`, or an `invalid` verdict is yours: read the
-     verdict and the unit before anything else.
+   - `kitchen.sh verify <store> <NNN>`. It returns every nine minutes with
+     the verifier's progress (exit 4) while the verifier works on: do other
+     work, such as `kitchen.sh wait` on the sidekick, then
+     `kitchen.sh verify <store> --wait`. One verification is open at a time.
+     A `batch` unit may wait for the next done unit and verify together
+     (`kitchen.sh verify <store> 004 005`); verify a batch before landing at
+     the latest. Exit 2 with `reject`: run the `revise` command it prints,
+     read the fix brief, dispatch it, and verify the fix together with the
+     unit it fixes (`kitchen.sh verify <store> 007 --covers 003`): one
+     verdict at the fix's head covers both, and land-check accepts it. Never
+     re-verify the rejected unit at its own head. A second rejection, an
+     `inconclusive`, or an `invalid` verdict is yours: read the verdict and
+     the unit before anything else.
    - `kitchen.sh review <store> <NNN>`. For each blocking finding, read it in
      context (`joo connected review context --artifact <artifact> --finding
      <id> --json`) and decide: `kitchen.sh resolve <store> <id> fixed "<commit
@@ -80,6 +87,15 @@ precise brief costs you a few hundred tokens and saves it a wrong turn:
 name the function to change and the one to leave alone, the test file to
 add to, the existing pattern to copy (by path), and what done looks like as
 a command's output. Put prior verdicts and findings in Context by path.
+
+## Reports and bookkeeping
+
+`finish` refuses a done report without its `head:`, so a malformed report is
+fixed in the sidekick's own turn, not by a brief. When a report must still
+change after the fact, a brief whose Scope lists only store files is
+bookkeeping: `classify` keeps it routine and gates-only, and it escalates
+nothing. Prefer `--covers` over a brief that rewrites a report to say a later
+unit met its acceptance.
 
 ## Escalation mid-unit
 

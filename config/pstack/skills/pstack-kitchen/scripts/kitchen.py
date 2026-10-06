@@ -284,11 +284,19 @@ def load(root: Path, at: str | None, config: str | None) -> Kitchen:
         raise ConfigError(f'kitchen.toml: {e}') from None
 
 
+# One state directory per repository, keyed by its git common dir, so a
+# worktree (a verifier's scratch, a jj workspace) shares the main checkout's
+# ledger and logs instead of leaving a directory of its own. A ledger kept
+# under the older per-checkout key is copied over once.
 def state_dir(root: Path) -> Path:
-    base = Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state')
-    tag = hashlib.sha256(str(root).encode()).hexdigest()[:8]
-    d = base / 'pstack/kitchen/repos' / f'{root.name}-{tag}'
+    base = Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state') / 'pstack/kitchen/repos'
+    common = git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir', check=False).strip()
+    main = Path(common).parent if common else root
+    d = base / f'{main.name}-{hashlib.sha256(str(main).encode()).hexdigest()[:8]}'
     d.mkdir(parents=True, exist_ok=True)
+    old = base / f'{root.name}-{hashlib.sha256(str(root).encode()).hexdigest()[:8]}'
+    if old != d and (old / 'ledger.tsv').exists() and not (d / 'ledger.tsv').exists():
+        shutil.copy2(old / 'ledger.tsv', d / 'ledger.tsv')
     return d
 
 
@@ -305,7 +313,17 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
     if args.paths:
         files = tracked(root, args.at)
         out, seen = [], set()
+        args.outside = []
         for pattern in args.paths:
+            # An absolute path is repo-relative when it is inside the repo;
+            # outside it (the run's own store, a report) it is bookkeeping that
+            # no gate covers and no rule escalates.
+            if pattern.startswith('/'):
+                try:
+                    pattern = str(Path(pattern).relative_to(root))
+                except ValueError:
+                    args.outside.append(pattern)
+                    continue
             rx = glob_regex(pattern)
             # A glob for files that do not exist yet stands for one file it
             # would match, so a new directory still maps to its profile.
@@ -336,7 +354,7 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
     return out
 
 
-def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]]) -> dict:
+def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: list[str] | None = None) -> dict:
     files, touched, unmapped, reasons = [], set(), [], []
     for path, added, removed in changed:
         hit = [p.name for p in kitchen.profiles.values() if matches(path, p.path_res)]
@@ -373,6 +391,8 @@ def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]]) -> dict:
         'behavioral': [p.name for p in profiles if p.commands['behavioral']],
         'max_batch_diff': kitchen.review['max_batch_diff'],
         'files': files,
+        'outside': outside or [],
+        'bookkeeping': not changed and bool(outside),
     }
 
 
@@ -405,7 +425,7 @@ def wrap_of(kitchen: Kitchen, p: Profile) -> str:
 # and writes its result to a file, since a wrap's shell hook may print to
 # stdout. The outer run keeps the heavy slot.
 def run_wrapped(root: Path, wrap: str, profile: str, stage: str, log_dir: Path,
-                keep_going: bool, only: int | None) -> dict:
+                keep_going: bool, only: int | None, role: str) -> dict:
     result = log_dir / f'{profile}-{stage}-result.json'
     result.unlink(missing_ok=True)
     inner = [sys.executable, str(Path(__file__).resolve()), *INVOCATION, 'gate', profile, stage,
@@ -416,7 +436,7 @@ def run_wrapped(root: Path, wrap: str, profile: str, stage: str, log_dir: Path,
     start = time.monotonic()
     with open(log, 'w') as out:
         code = subprocess.run(['bash', '-c', f'{wrap} {shlex.join(inner)}'], cwd=root, stdout=out,
-                              stderr=subprocess.STDOUT, env={**os.environ, WRAPPED: '1'}, check=False).returncode
+                              stderr=subprocess.STDOUT, env={**os.environ, WRAPPED: '1', ROLE: role}, check=False).returncode
     if result.exists():
         return json.loads(result.read_text())
     tail = log.read_text(errors='replace').splitlines()[-20:]
@@ -425,8 +445,19 @@ def run_wrapped(root: Path, wrap: str, profile: str, stage: str, log_dir: Path,
          'log': str(log), 'tail': tail}]}
 
 
+# Every command sees PSTACK_KITCHEN_ROLE (sidekick or verifier), so a repo's
+# scripts can give each role its own ports, emulators, and data: a verifier
+# and the sidekick run at the same time on one machine.
+ROLE = 'PSTACK_KITCHEN_ROLE'
+ROLES = ('sidekick', 'verifier')
+
+
 def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Path | None,
-             keep_going: bool = False, only: int | None = None, result: Path | None = None) -> dict:
+             keep_going: bool = False, only: int | None = None, result: Path | None = None,
+             role: str | None = None) -> dict:
+    role = role or os.environ.get(ROLE) or 'sidekick'
+    if role not in ROLES:
+        raise ConfigError(f'role must be sidekick or verifier, not {role}')
     if profile not in kitchen.profiles:
         raise ConfigError(f'no profile {profile}; profiles: {", ".join(kitchen.profiles)}')
     p = kitchen.profiles[profile]
@@ -442,7 +473,7 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
     if wrap and commands and not inside:
         slot = heavy_slot(root, kitchen) if p.heavy else None
         try:
-            return run_wrapped(root, wrap, profile, stage, log_dir, keep_going, only)
+            return run_wrapped(root, wrap, profile, stage, log_dir, keep_going, only, role)
         finally:
             if slot:
                 slot.close()
@@ -453,7 +484,8 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
             log = log_dir / f'{profile}-{stage}-{i}.log'
             start = time.monotonic()
             with open(log, 'w') as out:
-                code = subprocess.run(['bash', '-c', cmd], cwd=root, stdout=out, stderr=subprocess.STDOUT, check=False).returncode
+                code = subprocess.run(['bash', '-c', cmd], cwd=root, stdout=out, stderr=subprocess.STDOUT,
+                                      env={**os.environ, ROLE: role}, check=False).returncode
             r = {'command': cmd, 'exit': code, 'seconds': round(time.monotonic() - start, 1), 'log': str(log)}
             if code != 0:
                 r['tail'] = log.read_text(errors='replace').splitlines()[-20:]
@@ -463,7 +495,8 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
     finally:
         if slot:
             slot.close()
-    out = {'profile': profile, 'stage': stage, 'passed': all(r['exit'] == 0 for r in results), 'commands': results}
+    out = {'profile': profile, 'stage': stage, 'role': role, 'passed': all(r['exit'] == 0 for r in results),
+           'commands': results}
     if result:
         result.write_text(json.dumps(out))
     return out
@@ -682,6 +715,8 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument('--keep-going', action='store_true', help='run every command after a failure')
     g.add_argument('--only', type=int, metavar='N', help='run only command N, counted from 0')
     g.add_argument('--result', type=Path, help=argparse.SUPPRESS)
+    g.add_argument('--role', choices=('sidekick', 'verifier'),
+                   help='exported as PSTACK_KITCHEN_ROLE (default: that variable, else sidekick)')
     h = sub.add_parser('history', help='classify and policy-check each of the last commits')
     h.add_argument('--last', type=int, default=20)
     d = sub.add_parser('doctor', help='check the kitchen against the repo')
@@ -714,17 +749,20 @@ def main(argv: list[str] | None = None) -> int:
         if args.cmd == 'classify':
             if not args.paths:
                 args.paths = None
-            r = classify(kitchen, changes(root, args))
+            changed = changes(root, args)
+            r = classify(kitchen, changed, getattr(args, 'outside', []))
             text = [f'risk: {r["risk"]}', f'profiles: {", ".join(r["profiles"]) or "none"}',
                     f'diff_lines: {r["diff_lines"]}',
                     f'verify: {r["verify"]["mode"]} by {r["verify"]["kind"]}', f'sample: {r["sample"]}',
                     f'review: {r["review"]["engine"]} {r["review"]["style"]} budget {r["review"]["budget"]}']
             text += [f'escalate: {x}' for x in r['escalate']]
             text += [f'unmapped: {x}' for x in r['unmapped']]
+            text += [f'outside the repo: {x}' for x in r['outside']]
             emit(r, args.json, '\n'.join(text))
             return 0
         if args.cmd == 'gate':
-            r = run_gate(root, kitchen, args.profile, args.stage, args.log_dir, args.keep_going, args.only, args.result)
+            r = run_gate(root, kitchen, args.profile, args.stage, args.log_dir, args.keep_going, args.only, args.result,
+                         args.role)
             lines = [f'{args.profile} {args.stage}: {"pass" if r["passed"] else "FAIL"}'
                      + ('' if r['commands'] else ' (no commands)')]
             for x in r['commands']:

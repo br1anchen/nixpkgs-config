@@ -1061,13 +1061,24 @@ preflight_kind() {
 	for arg in "$@"; do
 		case "$arg" in --approve | -a | --no-approve | -na) ;; *) args+=("$arg") ;; esac
 	done
-	if out="$(timeout "$preflight_timeout_s" pi --no-session --no-approve --no-context-files --no-skills -p "${args[@]}" 'Reply with exactly: OK' 2>&1)" &&
-		grep -q OK <<<"$out"; then
-		return 0
-	fi
+	# A provider can fail one request and answer the next, so a failure is
+	# retried once before it counts.
+	local attempt rc=0
+	for attempt in 1 2; do
+		rc=0
+		out="$(timeout "$preflight_timeout_s" pi --no-session --no-approve --no-context-files --no-skills -p "${args[@]}" 'Reply with exactly: OK' 2>&1)" || rc=$?
+		[ "$rc" -eq 0 ] && grep -q OK <<<"$out" && return 0
+		[ "$attempt" -eq 2 ] || sleep "${PAIR_PREFLIGHT_RETRY_S:-3}"
+	done
 	# The master's PATH can hold an older pi than the pane's, so name it.
-	printf 'pi %s at %s: ' "$(pi --version 2>/dev/null || printf '?')" "$(command -v pi)" >&2
+	printf 'pi %s at %s, twice: ' "$(pi --version 2>/dev/null || printf '?')" "$(command -v pi)" >&2
+	case "$rc" in
+	124) printf 'timed out after %ss ' "$preflight_timeout_s" >&2 ;;
+	0) printf 'answered without OK ' >&2 ;;
+	*) printf 'exit %s ' "$rc" >&2 ;;
+	esac
 	printf '%s\n' "$out" | grep -v '^[[:space:]]*$' | tail -3 | tr '\n' ' ' >&2
+	[ -n "$(tr -d '[:space:]' <<<"$out")" ] || printf '(no output)' >&2
 	return 1
 }
 
@@ -1623,6 +1634,13 @@ cmd_finish() {
 	report="$(readlink -f "$2")"
 	[ -f "$report" ] || die "report not found: $report; write it first"
 	status="$(header_field "$report" status)"
+	# A done report the master cannot verify costs a whole brief to repair,
+	# so its header is checked while the sidekick is still in this turn.
+	if [ "$status" = done ] && [ "$report" = "$(expected_report "$store" "$(field "$store" '.dispatch.brief // "-"')")" ]; then
+		case "$(header_field "$report" head)" in
+		"" | "<"*) die "$(basename "$report"): a done report needs the report template's header, with head: <the unit's commit> (HEAD when the brief says commit: no); add it and run finish again" 1 ;;
+		esac
+	fi
 	if [ "$status" = done ]; then
 		local open
 		open="$(open_notes "$store" "$report")"

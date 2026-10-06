@@ -73,7 +73,9 @@ Verifier: [references/verifier.md](references/verifier.md).
 3. **Verify.** `kitchen.sh verify` per the unit's verify mode: `gates` (the
    step gates were the proof), `batch` (one verifier for several routine
    units), or `unit`. The verifier proves the brief's Acceptance at the
-   unit's head and writes a verdict with evidence.
+   unit's head and writes a verdict with evidence; a fix is verified with
+   the unit it fixes (`--covers`). `verify` returns at an interval while the
+   verifier works, so the master is never held in one long call.
 4. **Review.** `kitchen.sh review` runs Judge of Owls on the unit's range at
    the risk class's style and budget. The master triages every critical or
    high finding: fixed, follow-up, or dismissed, each recorded with

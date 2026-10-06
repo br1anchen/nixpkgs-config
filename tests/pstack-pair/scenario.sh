@@ -152,7 +152,7 @@ run queue "$store" "$q2"
 run queue "$store" "$q1"
 run dispatch "$store" "$q1"
 run status "$store"
-printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$q1")"
+printf '# Report\n\nstatus: done\nhead: abc\n' >"$store/reports/$(basename "$q1")"
 # finish: the sidekick's one command after a report takes the queued brief
 run finish "$store" "$store/reports/$(basename "$q1")"
 run next "$store"
@@ -194,7 +194,7 @@ printf '# Stop\n\nstatus: partial\n' >"$store/reports/$(basename "$q7" | cut -c1
 run wait "$store" --timeout 1500
 # a brief the master read and reviewed without a wait does not come back as
 # the reply to the next dispatch (kg-map, brief 003)
-printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$q7")"
+printf '# Report\n\nstatus: done\nhead: abc\n' >"$store/reports/$(basename "$q7")"
 printf '# Review\n\nverdict: accept\n' >"$store/reviews/$(basename "$q7")"
 status "demo-sidekick" idle devin
 q8="$("$P" new-brief "$store" qeight)"; fill "$q8"; set_hdr "$q8" playbook investigation; set_hdr "$q8" plan none
@@ -241,7 +241,7 @@ fill "$n2"; set_hdr "$n2" status clear
 run note "$store" "$n2"
 run new-note "$store" "$qn"
 run notes "$store"
-printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$qs")"
+printf '# Report\n\nstatus: done\nhead: abc\n' >"$store/reports/$(basename "$qs")"
 run finish "$store" "$store/reports/$(basename "$qs")"
 rm -f "$store/reports/$(basename "$qs")"
 run step "$store" "$(commit "stray")" "claims a note not published" --resolves n9
@@ -263,7 +263,7 @@ run note "$store" "$n4"
 # as work to apply now
 sl="$("$P" new-steer "$store" "$qn")"; fill "$sl"; set_hdr "$sl" kind narrow; set_hdr "$sl" "scope effect" none; set_hdr "$sl" supersedes none
 run steer "$store" "$sl"
-printf '# Report\n\nstatus: done\n' >"$store/reports/$(basename "$qs")"
+printf '# Report\n\nstatus: done\nhead: abc\n' >"$store/reports/$(basename "$qs")"
 run finish "$store" "$store/reports/$(basename "$qs")"
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin
 run wait "$store" --timeout 1500

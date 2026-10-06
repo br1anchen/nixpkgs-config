@@ -2434,6 +2434,7 @@ head: abc
 # Report
 
 status: done
+head: abc
 --- ./reports/006-qtwo.md
 # Report
 
@@ -2450,6 +2451,7 @@ status: done
 # Report
 
 status: done
+head: abc
 --- ./reports/010-stop.md
 # Stop
 
@@ -2458,6 +2460,7 @@ status: partial
 # Report
 
 status: done
+head: abc
 --- ./reports/016-bus-stop.md
 # report
 

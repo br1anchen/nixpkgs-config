@@ -200,6 +200,27 @@ class ClassifyTests(KitchenTests):
         self.assertEqual((r['profiles'], r['risk']), (['app', 'contracts'], 'escalated'))
         self.assertEqual((r['behavioral'], r['max_batch_diff']), (['app'], 800))
 
+    def test_scope_outside_the_repo_is_bookkeeping(self):
+        r = self.data('classify', '--paths', '/elsewhere/store/reports/007-x.md', f'{self.repo}/src/util.py')
+        self.assertEqual(([f['path'] for f in r['files']], r['outside'], r['risk']),
+                         (['src/util.py'], ['/elsewhere/store/reports/007-x.md'], 'routine'))
+        r = self.data('classify', '--paths', '/elsewhere/store/reports/007-x.md')
+        self.assertEqual((r['risk'], r['bookkeeping'], r['escalate'], r['verify']['mode']), ('routine', True, [], 'gates'))
+
+    def test_statedir_is_shared_by_worktrees_and_keeps_the_old_ledger(self):
+        main = self.run_kitchen('statedir').strip()
+        wt = Path(self.tmp.name) / 'wt'
+        self.git('worktree', 'add', '-q', '--detach', str(wt), 'HEAD')
+        self.assertEqual(self.run_kitchen('--repo', str(wt), 'statedir').strip(), main)
+        # A ledger under the older per-checkout key moves to the shared one.
+        import hashlib
+        old = Path(self.tmp.name) / 'state/pstack/kitchen/repos' / f"wt-{hashlib.sha256(str(wt).encode()).hexdigest()[:8]}"
+        old.mkdir(parents=True)
+        (old / 'ledger.tsv').write_text('ts\trun\tkind\tclass\tdetail\n')
+        Path(main, 'ledger.tsv').unlink(missing_ok=True)
+        self.run_kitchen('--repo', str(wt), 'statedir')
+        self.assertTrue(Path(main, 'ledger.tsv').exists())
+
     def test_roster_and_statedir(self):
         roster = Path(self.tmp.name) / 'roster.toml'
         roster.write_text('[sidekick]\nkind = "pi"\nargs = ["--model", "devin/swe-2"]\n'
@@ -242,7 +263,7 @@ class GateTests(KitchenTests):
         r = self.data('gate', 'app', 'fast')
         self.assertTrue(r['passed'])
         self.assertTrue(Path(r['commands'][0]['log']).exists())
-        self.assertEqual(self.data('gate', 'app', 'landing'), {'profile': 'app', 'stage': 'landing',
+        self.assertEqual(self.data('gate', 'app', 'landing'), {'profile': 'app', 'stage': 'landing', 'role': 'sidekick',
                                                                 'passed': True, 'commands': []})
 
     def test_failing_gate_stops_prints_the_log_tail_and_exits_2(self):
@@ -264,6 +285,14 @@ class GateTests(KitchenTests):
         self.data('gate', 'app', 'fast')
         locks = list((Path(self.tmp.name) / 'state/pstack/kitchen/repos').glob('heavy-*.lock'))
         self.assertEqual([p.name for p in locks], ['heavy-0.lock'])
+
+    def test_commands_see_the_role_they_run_for(self):
+        self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]',
+                                                           'fast = ["test \\"$PSTACK_KITCHEN_ROLE\\" = sidekick"]'))
+        self.assertTrue(self.data('gate', 'app', 'fast')['passed'])
+        self.data('gate', 'app', 'fast', '--role', 'verifier', code=2)
+        self.env['PSTACK_KITCHEN_ROLE'] = 'verifier'
+        self.assertEqual(self.data('gate', 'app', 'fast', code=2)['role'], 'verifier')
 
     def test_unknown_profile(self):
         self.assertIn('no profile web', self.run_kitchen('gate', 'web', 'fast', code=1))
@@ -425,6 +454,7 @@ Load*VERIFY*)
   verdict="$(sed -n 's/^verdict: //p' "$packet")"
   units="$(sed -n 's/^units: //p' "$packet")"
   mode="$(cat "$FAKE/verdict-mode" 2>/dev/null || echo clean)"
+  [ "$mode" = slow ] && exit 0
   status=clean; [ "$mode" = clean ] || status=reject
   {{ printf '# Verdict\\n\\nstatus: %s\\nunits: %s\\n\\n## Findings\\n\\n' "$status" "$units"
      [ "$status" = reject ] && printf '1. Acceptance broke: add returns 0\\n'
@@ -608,16 +638,57 @@ esac
         state = json.loads((self.store / 'pair.json').read_text())
         state['placement'] = 'tab'
         (self.store / 'pair.json').write_text(json.dumps(state))
-        _, out = self.verify_app_unit('clean', 0)
+        self.verify_app_unit('clean', 0)
         calls = (self.fake / 'calls.log').read_text()
         self.assertIn('--label demo-verifier --no-focus', calls)
         self.assertRegex(calls, r'pane close t\d')
+
+    def test_a_fix_is_verified_with_the_unit_it_fixes(self):
+        first = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(first)
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        self.commit('first')
+        (self.store / 'reports' / first.name).write_text('# Report\n\nstatus: partial\nhead: x\n')
+        fix = self.brief('002', 'util-fix', ['src/**', 'tests/**'], playbook='bug-fix')
+        self.dispatch(fix)
+        self.write('src/util.py', 'X = 6\n')
+        self.write('tests/test_app.py', 'x = 6\n')
+        self.done(fix, self.commit('fix'))
+        out = self.run_sh('verify', str(self.store), '002', '--covers', '001')
+        self.assertIn('status: clean', out)
+        packet = (self.store / 'verdicts/002-util-fix-v1-packet.md').read_text()
+        self.assertIn('units: 001 002', packet)
+        self.assertIn('Unit 002 fixes unit 001', packet)
+        self.assertIn('--role verifier', packet)
+        for name in ('001-util', '002-util-fix'):
+            (self.store / f'reviews/{name}.md').write_text('verdict: accept\n')
+        self.assertIn('land-check: pass', self.run_sh('land-check', str(self.store)))
+
+    def test_verify_returns_at_the_interval_and_resumes(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 8\n')
+        self.write('tests/test_app.py', 'x = 8\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+        out = self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        self.assertIn('verifying: units 001 by pi', out)
+        self.assertIn(f'next: other work, then kitchen.sh verify {self.store} --wait', out)
+        self.assertIn('a verification is open', self.run_sh('verify', str(self.store), '001', code=5))
+        open_ = json.loads((self.store / 'pair.json').read_text())['verifying']
+        Path(open_['verdict']).write_text('status: clean\nunits: 001\n\n## Evidence\n\n```\n$ true\n```\n')
+        out = self.run_sh('verify', str(self.store), '--wait')
+        self.assertIn('status: clean', out)
+        self.assertNotIn('verifying', json.loads((self.store / 'pair.json').read_text()))
+        self.assertEqual(list((self.store / 'scratch').iterdir()), [])
+        self.assertIn('no verification is open', self.run_sh('verify', str(self.store), '--wait', code=4))
 
     def test_rejected_verdict_drafts_the_fix_brief(self):
         _, out = self.verify_app_unit('reject', 2)
         self.assertIn('Acceptance broke', out)
         verdict = self.store / 'verdicts/001-util-v1.md'
-        self.assertIn(f'next: kitchen.sh revise {self.store} {verdict}', out)
+        self.assertIn(f'next: kitchen.sh revise {self.store} {verdict}, then verify the fix with --covers 001', out)
         fix = Path(self.run_sh('revise', str(self.store), str(verdict)).strip())
         text = fix.read_text()
         self.assertEqual(fix.name, '002-util-fix.md')

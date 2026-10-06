@@ -84,7 +84,7 @@ esac
         brief = self.write_brief('001-first.md')
         self.run_command('dispatch', str(self.store), str(brief), '--timeout', '1', code=4)
         report = self.store / 'reports' / brief.name
-        report.write_text(f'status: {status}\n')
+        report.write_text(f'status: {status}\nhead: abc123\n')
         queued = self.write_brief('002-next.md')
         (self.fake / 'agents/demo-sidekick').write_text('working devin\n')
         self.run_command('queue', str(self.store), str(queued))
@@ -226,7 +226,8 @@ class PiSidekickTests(unittest.TestCase):
         self.env = {**os.environ, 'FAKE': str(self.fake),
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
-                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0'}
+                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0',
+                    'PAIR_PREFLIGHT_RETRY_S': '0'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
         self.store = self.path / 'state/pstack/pair/demo'
@@ -279,6 +280,23 @@ esac
         self.assertEqual(sidekick['failovers'][0]['from'], 'pi')
         self.assertIn('capacity issues', sidekick['failovers'][0]['reason'])
         self.assertIn('preflight: pi 1.0.2 at ', sidekick['failovers'][0]['reason'])
+        self.assertIn(', twice: exit 1 ', sidekick['failovers'][0]['reason'])
+
+    def test_one_failed_preflight_is_retried_before_a_failover(self):
+        (self.fake / 'pi-fail-once').touch()
+        self.spawn_pi('--fallback', 'devin')
+        self.assertEqual(self.state()['sidekick']['kind'], 'pi')
+        self.assertNotIn('failovers', self.state()['sidekick'])
+
+    def test_done_report_without_its_head_is_refused_in_the_same_turn(self):
+        self.spawn_pi()
+        brief, _ = self.dispatch()
+        report = self.store / 'reports' / brief.name
+        report.write_text('# Report\n\nstatus: done\n')
+        out = self.run_command('finish', str(self.store), str(report), code=1)
+        self.assertIn("needs the report template's header, with head:", out)
+        report.write_text('# Report\n\nstatus: done\nhead: abc123\n')
+        self.run_command('finish', str(self.store), str(report))
 
     def test_failed_preflight_without_fallback_starts_nothing(self):
         (self.fake / 'pi-fail').write_text('No API key found for devin.\n')
@@ -297,7 +315,7 @@ esac
         args = self.state()['sidekick']['start_args']
         brief, _ = self.dispatch()
         report = self.store / 'reports' / brief.name
-        report.write_text('status: done\n')
+        report.write_text('status: done\nhead: abc123\n')
         queued = self.store / 'briefs/002-next.md'
         queued.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')

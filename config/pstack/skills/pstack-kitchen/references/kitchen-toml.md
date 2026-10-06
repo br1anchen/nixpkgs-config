@@ -66,7 +66,11 @@ one. A pattern never matches a basename alone: `*.md` is top-level only,
 Each command runs with `bash -c` from the repo root; its output goes to a log
 under `${XDG_STATE_HOME:-~/.local/state}/pstack/kitchen/repos/<repo>/logs/`,
 and a failure prints the log's last 20 lines. A gate stops at its first
-failure. With a wrap, `kitchen.py` re-runs itself inside it once per gate,
+failure. Every command sees `PSTACK_KITCHEN_ROLE` (`sidekick` or `verifier`):
+the verifier runs at the same time as the sidekick, so a repo's scripts that
+start servers, emulators, or databases should pick their ports and data from
+it. State (logs, the baseline, the ledger) is kept per repository, shared by
+its worktrees. With a wrap, `kitchen.py` re-runs itself inside it once per gate,
 so a shell that takes seconds to enter costs that once, not per command, and
 `doctor` checks each program inside the wrap it runs in. Use the repo's own entry points
 (package scripts, `just`, `make`, wrappers the AGENTS file requires) so the

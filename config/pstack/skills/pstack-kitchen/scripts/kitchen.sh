@@ -43,9 +43,12 @@ consult, advice. These differ or are new:
   step <store> <sha> <summary> [--resolves n1,n2]
                                             sidekick: run the touched profiles' fast gates and policy on the
                                             step's commits, then record it; exit 2 when they fail
-  verify <store> <NNN>... [--timeout MIN]   verify one unit, or several as a batch: gates only, or a fresh
-                                            verifier pane in a scratch worktree at the unit's head; prints the
-                                            verdict and whether to audit
+  verify <store> <NNN>... [--covers NNN]... [--every MIN] [--timeout MIN]
+                                            verify one unit, or several as a batch, or a fix with the unit it
+                                            fixes (--covers): gates only, or a fresh verifier in a scratch
+                                            worktree at the head; returns at the interval with its progress
+                                            (exit 4), and with the verdict and whether to audit when it lands
+  verify <store> --wait [--every MIN]       wait again for the open verification
   revise <store> <verdict-path>             draft the fix brief for a rejected verdict
   review <store> <NNN>... | --landing       Judge of Owls on the units' range (or the whole run for landing);
                                             prints blocking findings without a resolution
@@ -109,12 +112,14 @@ unit_brief() {
 
 unit_range() {
 	# $1 store, rest: NNN...; prints "base head" for the units, first to
-	# last, from their dispatch heads and done reports.
+	# last, from their dispatch heads and done reports. A unit named in the
+	# global covered list needs no done report: a later fix unit carries it.
 	local store="$1" first="$2" last="${*: -1}" brief report base head unit
 	brief="$(unit_brief "$store" "$first")"
 	base="$(jq -r --arg u "$(basename "$brief" .md)" '.heads[$u] // empty' "$store/pair.json")"
 	[ -n "$base" ] || die "unit $first was never dispatched"
 	for unit in "${@:2}"; do
+		[[ " ${covered[*]:-} " != *" $unit "* ]] || continue
 		report="$(expected_report "$store" "$(unit_brief "$store" "$unit")")"
 		[ -f "$report" ] || die "unit $unit has no report"
 		[ "$(header_field "$report" status)" = "done" ] || die "unit $unit's report is $(header_field "$report" status), not done"
@@ -223,7 +228,8 @@ classify_brief() {
 	set_header "$brief" profiles "$(jq -r '.profiles | join(", ") | if . == "" then "none" else . end' <<<"$json")"
 	set_header "$brief" verify "$(jq -r '"\(.verify.mode) by \(.verify.kind)"' <<<"$json")"
 	printf 'risk: %s\n' "$risk"
-	jq -r '"profiles: \(.profiles | join(", "))", "verify: \(.verify.mode) by \(.verify.kind)", (.escalate[] | "escalate: \(.)")' <<<"$json"
+	jq -r '"profiles: \(.profiles | join(", "))", "verify: \(.verify.mode) by \(.verify.kind)", (.escalate[] | "escalate: \(.)"),
+		(if .bookkeeping then "bookkeeping: the Scope is outside the repo; gates only, nothing to escalate" else empty end)' <<<"$json"
 	if [ "$risk" = escalated ] && [ "$(agent_status "$(field "$store" .consultant.name)")" = absent ]; then
 		printf 'next: kitchen.sh consultant %s --reason "%s", then a plan round with it\n' "$store" "$(jq -r '.escalate[0]' <<<"$json")"
 	fi
@@ -318,7 +324,7 @@ cmd_step() {
 	local -a profiles
 	mapfile -t profiles < <(jq -r '.profiles[]' <<<"$json")
 	for p in "${profiles[@]}"; do
-		out="$(kpy "$store" gate "$p" fast 2>&1)" || { rc=2; printf '%s\n' "$out"; }
+		out="$(kpy "$store" gate "$p" fast --role sidekick 2>&1)" || { rc=2; printf '%s\n' "$out"; }
 	done
 	out="$(kpy "$store" policy --base "$base" --head "$full" 2>&1)" || { rc=2; printf '%s\n' "$out"; }
 	mkdir -p "$store/steps"
@@ -358,31 +364,47 @@ audit_due() {
 	awk -v h="$h" -v s="$2" 'BEGIN{exit !((h % 1000) < s * 1000)}'
 }
 
+# verify starts a verification and waits for it in slices of --every
+# minutes, so one call never outlasts a master's shell limit; the verifier
+# keeps working between calls, and `verify <store> --wait` picks it up. The
+# open verification lives in pair.json .verifying, one at a time.
 cmd_verify() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--timeout MIN]"
-	local store="$1" timeout_m=45 units=()
+	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--every MIN] [--timeout MIN] | kitchen.sh verify <store> --wait [--every MIN]"
+	local store="$1" timeout_m=45 every_m=9 wait=0 units=()
+	covered=()
 	shift
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--timeout) timeout_m="$2"; shift 2 ;;
+		--every) every_m="$2"; shift 2 ;;
+		--covers) covered+=("$2"); shift 2 ;;
+		--wait) wait=1; shift ;;
 		[0-9][0-9][0-9]) units+=("$1"); shift ;;
 		*) die "unknown option $1" ;;
 		esac
 	done
-	[ "${#units[@]}" -gt 0 ] || die "name at least one unit NNN"
 	pair_file "$store" >/dev/null
+	if [ "$wait" -eq 1 ]; then
+		[ -n "$(field "$store" '.verifying.verdict // empty')" ] || die "no verification is open; start one with kitchen.sh verify $store <NNN>" 4
+		verify_wait "$store" "$every_m"
+	fi
+	[ "${#units[@]}" -gt 0 ] || die "name at least one unit NNN"
+	[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "a verification is open ($(field "$store" '.verifying.units')); kitchen.sh verify $store --wait" 5
+	local -a all=("${covered[@]}" "${units[@]}")
 	local root base head json last brief slug k verdict packet mode role risk
 	root="$(field "$store" .git_root)"
-	read -r base head <<<"$(unit_range "$store" "${units[@]}")"
+	read -r base head <<<"$(unit_range "$store" "${all[@]}")"
 	json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
 	risk="$(jq -r .risk <<<"$json")"
 	mode="$(jq -r .verify.mode <<<"$json")"
 	role="$(jq -r .verify.kind <<<"$json")"
-	if [ "${#units[@]}" -gt 1 ] && [ "$(jq '.diff_lines > .max_batch_diff' <<<"$json")" = true ]; then
+	# A batch of independent units has a size cap; a fix verified with the
+	# unit it fixes does not, since splitting it would re-reject the first.
+	if [ "${#covered[@]}" -eq 0 ] && [ "${#units[@]}" -gt 1 ] && [ "$(jq '.diff_lines > .max_batch_diff' <<<"$json")" = true ]; then
 		die "batch of $(jq .diff_lines <<<"$json") diff lines is over review.max_batch_diff; verify each unit" 2
 	fi
-	last="${units[-1]}"
+	last="${all[-1]}"
 	brief="$(unit_brief "$store" "$last")"
 	slug="$(basename "$brief" .md | cut -c5-)"
 	k="$(next_index "$store/verdicts" "$last-$slug" v)"
@@ -390,10 +412,10 @@ cmd_verify() {
 	packet="$store/verdicts/$last-$slug-v$k-packet.md"
 	if [ "$mode" = gates ]; then
 		{
-			printf '# Verdict %s: %s\n\nstatus: clean\nunits: %s\nrange: %s..%s\nverifier: gates\n\n' "$last" "$slug" "${units[*]}" "${base:0:9}" "${head:0:9}"
+			printf '# Verdict %s: %s\n\nstatus: clean\nunits: %s\nrange: %s..%s\nverifier: gates\n\n' "$last" "$slug" "${all[*]}" "${base:0:9}" "${head:0:9}"
 			printf '## Findings\n\nnone\n\n## Evidence\n\nEvery step passed its profiles'"'"' fast gates and the policy check:\n\n```\n'
 			local u
-			for u in "${units[@]}"; do
+			for u in "${all[@]}"; do
 				awk -F '\t' -v u="$(basename "$(unit_brief "$store" "$u")" .md)" '$2 == u' "$store/gates.tsv" 2>/dev/null || true
 			done
 			printf '```\n'
@@ -416,17 +438,18 @@ cmd_verify() {
 	scratch="$(cmd_scratch "$store" "$scratch_id" --at "$head" | tail -1)"
 	{
 		printf '# Verify %s: %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: %s\nunits: %s\n\n' \
-			"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${units[*]}"
+			"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${all[*]}"
+		[ "${#covered[@]}" -eq 0 ] || printf 'Unit %s fixes unit %s: prove every unit'"'"'s Acceptance at this one head.\n\n' "${units[*]}" "${covered[*]}"
 		local u b
-		for u in "${units[@]}"; do
+		for u in "${all[@]}"; do
 			b="$(unit_brief "$store" "$u")"
 			printf '## Unit %s\n\nbrief: %s\n\n' "$u" "$b"
 			awk '/^## (Goal|Acceptance)/{p=1; print; next} /^## /{p=0} p' "$b"
 			printf '\n'
 		done
 		printf '## Changed\n\n```\n%s\n```\n\n' "$(git -C "$root" diff --stat "$base" "$head" | tail -40)"
-		printf '## Prove\n\nRun these in the scratch worktree, then drive what they cannot reach:\n\n```bash\n'
-		jq -r --arg k "$here/kitchen.py" --arg s "$scratch" '.behavioral[] | "python3 \($k) --repo \($s) gate \(.) behavioral"' <<<"$json"
+		printf '## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo'"'"'s scripts give you\nyour own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n```bash\nexport PSTACK_KITCHEN_ROLE=verifier\n'
+		jq -r --arg k "$here/kitchen.py" --arg s "$scratch" '.behavioral[] | "python3 \($k) --repo \($s) gate \(.) behavioral --role verifier"' <<<"$json"
 		printf '```\n\nfeature map: %s\n' "$(jq -r '.features | if length == 0 then "none listed" else join(", ") end' <<<"$json")"
 		printf 'verification skill: %s\n' "$(ls -d "$root"/.agents/skills/verify-*/ 2>/dev/null | tr '\n' ' ' || true)"
 	} >"$packet"
@@ -445,8 +468,14 @@ cmd_verify() {
 		cmd_scratch "$store" "$scratch_id" --remove >/dev/null
 		die "$why" 5
 	fi
-	json_update "$store" --arg pane "$pane" --arg kind "$kind" '.verifier.pane_id = $pane | .verifier.kind = $kind'
-	event "$store" master send-verify "$brief" "$kind:${units[*]}"
+	json_update "$store" --arg pane "$pane" --arg kind "$kind" --arg verdict "$verdict" --arg packet "$packet" \
+		--arg brief "$brief" --arg scratch "$scratch_id" --arg units "${all[*]}" --arg risk "$risk" \
+		--argjson sample "$(jq .sample <<<"$json")" --arg unit "$last-$slug" \
+		--argjson started "$(date +%s)" --argjson deadline "$(( $(date +%s) + timeout_m * 60 ))" \
+		'.verifier.pane_id = $pane | .verifier.kind = $kind
+		 | .verifying = {verdict: $verdict, packet: $packet, brief: $brief, scratch: $scratch, units: $units,
+		                 risk: $risk, sample: $sample, unit: $unit, started: $started, deadline: $deadline}'
+	event "$store" master send-verify "$brief" "$kind:${all[*]}"
 	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$kind" "$pane" "${base:0:9}" "${head:0:9}"
 	# A just-started agent can take the text before it takes the Enter (pi
 	# drawing its startup screen), so the prompt must be seen working; an
@@ -455,19 +484,45 @@ cmd_verify() {
 		--wait --until working --timeout 30000 >/dev/null 2>&1 && [ "$(agent_status "$name")" != working ]; then
 		herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
 	fi
-	local deadline=$(( $(date +%s) + timeout_m * 60 )) state=""
-	until [ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ]; do
+	verify_wait "$store" "$every_m"
+}
+
+# Waits up to $2 minutes for the open verification's verdict. A verifier
+# still working at the interval leaves the verification open (exit 4, with
+# its progress); a verdict, a gone verifier, or the deadline closes it:
+# the pane is closed, the scratch removed, and the verdict read.
+verify_wait() {
+	local store="$1" every_m="$2" verdict name kind until state="" now
+	verdict="$(field "$store" .verifying.verdict)"
+	name="$(field "$store" .verifier.name)"
+	kind="$(field "$store" .verifier.kind)"
+	until=$(( $(date +%s) + every_m * 60 ))
+	while :; do
+		[ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ] && break
 		state="$(agent_status "$name")"
-		[ "$state" != absent ] || break
-		[ "$(date +%s)" -lt "$deadline" ] || break
+		now="$(date +%s)"
+		[ "$state" != absent ] && [ "$now" -lt "$(field "$store" .verifying.deadline)" ] || break
+		if [ "$now" -ge "$until" ]; then
+			printf 'verifying: units %s by %s, %sm of %sm, verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
+				"$(( (now - $(field "$store" .verifying.started)) / 60 ))" "$(( ($(field "$store" .verifying.deadline) - $(field "$store" .verifying.started)) / 60 ))" "$state"
+			printf 'next: other work, then kitchen.sh verify %s --wait\n' "$store"
+			exit 4
+		fi
 		sleep 10
 	done
 	[ -f "$verdict" ] && sleep 3
+	local brief risk sample unit pane
+	brief="$(field "$store" .verifying.brief)"
+	risk="$(field "$store" .verifying.risk)"
+	sample="$(field "$store" .verifying.sample)"
+	unit="$(field "$store" .verifying.unit)"
+	pane="$(field "$store" .verifier.pane_id)"
 	herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
 	local gone=$(( $(date +%s) + 15 ))
 	while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
 	herdr pane close "$pane" >/dev/null 2>&1 || true
-	cmd_scratch "$store" "$scratch_id" --remove >/dev/null
+	cmd_scratch "$store" "$(field "$store" .verifying.scratch)" --remove >/dev/null
+	json_update "$store" 'del(.verifying)'
 	if [ ! -f "$verdict" ]; then
 		event "$store" master wake "$brief" "verify:missing"
 		die "no verdict at $verdict (verifier ${state:-gone}); read the packet and verify by hand, or rerun" 4
@@ -480,7 +535,7 @@ cmd_verify() {
 	printf 'verdict: %s\nstatus: %s%s\n' "$verdict" "$status" "${problem:+ ($problem)}"
 	case "$status" in
 	clean)
-		if [ "$risk" = routine ] && audit_due "$last-$slug" "$(jq -r .sample <<<"$json")"; then
+		if [ "$risk" = routine ] && audit_due "$unit" "$sample"; then
 			printf 'audit: yes; read the review-delta yourself before accepting, and kitchen.sh catch what the kitchen missed\n'
 		else
 			printf 'audit: no\n'
@@ -489,11 +544,11 @@ cmd_verify() {
 	reject)
 		awk '/^## Findings/{p=1; next} /^## /{p=0} p' "$verdict" | sed '/^$/d' | head -20
 		local rejects
-		rejects="$(grep -l '^status: reject' "$store/verdicts/$last-$slug"-v[0-9]*.md 2>/dev/null | grep -vc packet || true)"
+		rejects="$(grep -l '^status: reject' "$store/verdicts/$unit"-v[0-9]*.md 2>/dev/null | grep -vc packet || true)"
 		if [ "$rejects" -ge 2 ]; then
-			printf 'next: second rejection of unit %s; read the verdict and the unit yourself before another fix\n' "$last"
+			printf 'next: second rejection of %s; read the verdict and the unit yourself before another fix\n' "$unit"
 		else
-			printf 'next: kitchen.sh revise %s %s\n' "$store" "$verdict"
+			printf 'next: kitchen.sh revise %s %s, then verify the fix with --covers %s\n' "$store" "$verdict" "${unit:0:3}"
 		fi
 		exit 2 ;;
 	*)
