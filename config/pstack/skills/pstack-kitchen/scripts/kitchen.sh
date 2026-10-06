@@ -38,11 +38,15 @@ consult, advice. These differ or are new:
   classify <store> <brief-path>             map the brief's may-write Scope to profiles and a risk class and
                                             stamp risk:, profiles:, verify: into its header
   discuss <store> <plan-path>               a routine plan goes to the sidekick; risk: escalated to both
-  dispatch <store> <brief-path> [...]       classify, then the pair's dispatch; escalated units need an agreed
-                                            plan with advice, landing units need land-check to pass
+  dispatch <store> <brief-path> [...] [--max MIN]
+                                            classify, then the pair's dispatch; escalated units need an agreed
+                                            plan with advice, landing units need land-check to pass; waits quietly
+  wait <store> [...] [--max MIN]            the pair's wait, quiet through check-ins with nothing flagged; returns
+                                            for a report, steps, a block, a flagged check-in, or after --max (60)
   step <store> <sha> <summary> [--resolves n1,n2]
                                             sidekick: run the touched profiles' fast gates and policy on the
-                                            step's commits, then record it; exit 2 when they fail
+                                            step's commits, then record it; exit 2 when they fail. The checks run
+                                            detached: exit 4 "still running" after ~2 minutes, run it again to wait
   verify <store> <NNN>... [--covers NNN]... [--every MIN] [--timeout MIN]
                                             verify one unit, or several as a batch, or a fix with the unit it
                                             fixes (--covers): gates only, or a fresh verifier in a scratch
@@ -72,6 +76,7 @@ copy_fn() {
 copy_fn cmd_init core_init
 copy_fn cmd_spawn core_spawn
 copy_fn cmd_dispatch core_dispatch
+copy_fn cmd_wait core_wait
 copy_fn cmd_queue core_queue
 copy_fn cmd_discuss core_discuss
 copy_fn cmd_step core_step
@@ -268,15 +273,73 @@ is_landing() {
 	[ "$(header_field "$1" landing)" = yes ]
 }
 
+# A routine check-in is a wake with nothing to act on, so a kitchen wait
+# stays quiet through it: it returns for a report, a steps wake, a blocked
+# sidekick, or a check-in that carries a flag (a stale log, a write outside
+# Scope, an objection, an open blocking note, a timebox overrun, a pause),
+# or after --max minutes (KITCHEN_QUIET_MAX_S; default an hour) with the
+# latest digest. Run it in the harness's background mode where there is one.
+quiet_flagged() {
+	grep -qE 'STALE|^outside scope: [1-9]|[1-9][0-9]* objected|[1-9][0-9]* blocking notes open|^paused:' <<<"$1" && return 0
+	local spent box
+	read -r spent box < <(sed -nE 's/^check-in: .*elapsed ([0-9]+)m of ([0-9]+)m.*/\1 \2/p' <<<"$1") || true
+	[ -n "${spent:-}" ] && [ -n "${box:-}" ] && [ "$spent" -gt "$box" ]
+}
+
+quiet_wait() {
+	local store="$1" max="${KITCHEN_QUIET_MAX_S:-3600}" start out rc
+	shift
+	local -a args=()
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--max) max=$(( $2 * 60 )); shift 2 ;;
+		*) args+=("$1"); shift ;;
+		esac
+	done
+	start="$(date +%s)"
+	while :; do
+		rc=0
+		out="$(core_wait "$store" "${args[@]}")" || rc=$?
+		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out" && [ $(( $(date +%s) - start )) -lt "$max" ]; then
+			sleep 1
+			continue
+		fi
+		[ "$rc" -ne 4 ] || ! grep -q '^check-in:' <<<"$out" || quiet_flagged "$out" ||
+			printf 'quiet: %sm with nothing flagged; the sidekick works on\n' "$(( ($(date +%s) - start) / 60 ))"
+		printf '%s\n' "$out"
+		exit "$rc"
+	done
+}
+
+cmd_wait() {
+	[ $# -ge 1 ] || die "usage: kitchen.sh wait <store> [--timeout MS | --every MIN] [--max MIN]"
+	quiet_wait "$@"
+}
+
 cmd_dispatch() {
-	[ $# -ge 2 ] || die "usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN]"
+	[ $# -ge 2 ] || die "usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]"
 	[ -f "$2" ] || die "brief not found: $2"
 	if is_landing "$2"; then
 		land_check "$1" >/dev/null || die "landing refused: kitchen.sh land-check $1 fails" 2
 	else
 		classify_brief "$1" "$2"
 	fi
-	core_dispatch "$@"
+	local -a waitargs=() sendargs=()
+	local a rc=0 out
+	for a in "${@:3}"; do waitargs+=("$a"); done
+	# --max belongs to the quiet wait, not to the pair's dispatch.
+	set -- "$1" "$2"
+	local i=0
+	while [ "$i" -lt "${#waitargs[@]}" ]; do
+		if [ "${waitargs[$i]}" = --max ]; then i=$((i + 2)); else sendargs+=("${waitargs[$i]}"); i=$((i + 1)); fi
+	done
+	out="$(core_dispatch "$@" "${sendargs[@]}")" || rc=$?
+	if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out"; then
+		printf '%s\n' "$(grep -v -e '^check-in:' -e '^progress:' -e '^touched:' -e '^  ' -e '^steers:' -e '^steps:' -e '^report: missing' <<<"$out")"
+		quiet_wait "$1" "${waitargs[@]}"
+	fi
+	printf '%s\n' "$out"
+	exit "$rc"
 }
 
 cmd_queue() {
@@ -308,31 +371,74 @@ steps_due() {
 
 # A step is recorded only once the touched profiles' fast gates and the
 # policy check pass on it. Two failures in a row are an exception for the
-# master, reported as blocked.
+# master, reported as blocked. The checks run detached and step returns
+# within KITCHEN_STEP_SLICE_S seconds (default 100): an agent harness moves a
+# longer command to the background and can sit idle on it, so a step still
+# checking says so, and running the same step command again waits on.
 cmd_step() {
 	[ $# -ge 3 ] || die "usage: kitchen.sh step <store> <sha> <summary> [--resolves n1,n2]"
-	local store="$1" sha="$2" brief root base full json p out rc=0 fails file
+	local store="$1" sha="$2" brief root base full json p fails file unit job slice
 	pair_file "$store" >/dev/null
 	brief="$(field "$store" '.dispatch.brief // empty')"
 	[ -n "$brief" ] || die "no brief dispatched; a step belongs to a running brief"
+	unit="$(basename "$brief" .md)"
 	root="$(field "$store" .git_root)"
 	full="$(git -C "$root" rev-parse --verify --quiet "$sha^{commit}")" || die "not a commit: $sha; commit the step first"
 	file="$(steps_file "$store" "$brief")"
-	base="$( { [ -s "$file" ] && tail -1 "$file" | cut -f2; } || jq -r --arg u "$(basename "$brief" .md)" '.heads[$u] // empty' "$store/pair.json")"
-	[ -n "$base" ] || die "no base for $(basename "$brief" .md); was it dispatched?"
-	json="$(kpy "$store" --json classify --base "$base" --head "$full")"
-	local -a profiles
-	mapfile -t profiles < <(jq -r '.profiles[]' <<<"$json")
-	for p in "${profiles[@]}"; do
-		out="$(kpy "$store" gate "$p" fast --role sidekick 2>&1)" || { rc=2; printf '%s\n' "$out"; }
+	base="$( { [ -s "$file" ] && tail -1 "$file" | cut -f2; } || jq -r --arg u "$unit" '.heads[$u] // empty' "$store/pair.json")"
+	[ -n "$base" ] || die "no base for $unit; was it dispatched?"
+	# A commit made before this brief was dispatched (a resumed unit) is the
+	# brief's own base, which leaves an empty range; check its own diff.
+	if [ "$(git -C "$root" rev-list --count "$base..$full" 2>/dev/null || printf 0)" -eq 0 ]; then
+		base="$(git -C "$root" rev-parse --verify --quiet "$full~1")" || die "$sha has no parent to check it against"
+	fi
+	job="$store/steps/jobs/$unit-${full:0:12}"
+	if [ ! -d "$job" ] || [ -f "$job/consumed" ]; then
+		rm -rf "$job"
+		mkdir -p "$job"
+		json="$(kpy "$store" --json classify --base "$base" --head "$full")"
+		printf '%s\n' "$json" >"$job/classify.json"
+		jq -r '.profiles[]' <<<"$json" >"$job/profiles"
+		printf '%s\n' "$base" >"$job/base"
+		# shellcheck disable=SC2016
+		setsid bash -c '
+			cd "$1" || exit 1
+			rc=0
+			while IFS= read -r p; do
+				[ -n "$p" ] || continue
+				python3 "$2" --repo "$1" gate "$p" fast --role sidekick || rc=2
+			done <"$3/profiles"
+			python3 "$2" --repo "$1" policy --base "$4" --head "$5" || rc=2
+			printf "%s\n" "$rc" >"$3/rc"
+		' kitchen-step "$root" "$here/kitchen.py" "$job" "$base" "$full" >"$job/out" 2>&1 </dev/null &
+		disown 2>/dev/null || true
+	fi
+	slice="${KITCHEN_STEP_SLICE_S:-100}"
+	local deadline=$(( $(date +%s) + slice ))
+	until [ -f "$job/rc" ]; do
+		if [ "$(date +%s)" -ge "$deadline" ]; then
+			printf 'gates: still running for %s (%ss so far; log: %s)\n' "${full:0:9}" "$(( $(date +%s) - $(file_mtime "$job/base") ))" "$job/out"
+			printf 'next: run the same command again to keep waiting: kitchen.sh step %s %s "%s"\n' "$store" "$sha" "$3"
+			exit 4
+		fi
+		sleep 2
 	done
-	out="$(kpy "$store" policy --base "$base" --head "$full" 2>&1)" || { rc=2; printf '%s\n' "$out"; }
+	: >"$job/consumed"
+	local rc state
+	rc="$(cat "$job/rc")"
+	json="$(cat "$job/classify.json")"
+	local -a profiles
+	mapfile -t profiles <"$job/profiles"
+	# A step with no profile ran no gate: it is recorded as none, never pass.
+	if [ "$rc" -ne 0 ]; then state=fail
+	elif [ "${#profiles[@]}" -eq 0 ]; then state=none
+	else state=pass; fi
 	mkdir -p "$store/steps"
-	printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$(basename "$brief" .md)" "${full:0:9}" \
-		"$([ "$rc" -eq 0 ] && printf pass || printf fail)" "$(IFS=,; printf '%s' "${profiles[*]}")" >>"$store/gates.tsv"
+	printf '%s\t%s\t%s\t%s\t%s\n' "$(date +%s)" "$unit" "${full:0:9}" "$state" "$(IFS=,; printf '%s' "${profiles[*]}")" >>"$store/gates.tsv"
 	if [ "$rc" -ne 0 ]; then
+		cat "$job/out"
 		event "$store" sidekick gate-fail "$brief" "${full:0:9}"
-		fails="$(awk -F '\t' -v u="$(basename "$brief" .md)" '$2 == u {n = ($4 == "fail") ? n + 1 : 0} END {print n + 0}' "$store/gates.tsv")"
+		fails="$(awk -F '\t' -v u="$unit" '$2 == u {n = ($4 == "fail") ? n + 1 : 0} END {print n + 0}' "$store/gates.tsv")"
 		if [ "$fails" -ge 2 ]; then
 			printf 'next: %s failed checks in a row; write the report as blocked with the logs under Questions, then kitchen.sh finish\n' "$fails"
 		else
@@ -340,8 +446,8 @@ cmd_step() {
 		fi
 		exit 2
 	fi
-	if [ "${#profiles[@]}" -eq 0 ]; then
-		printf 'gates: none ran; no profile covers %s\n' "$(jq -r '.unmapped | join(", ")' <<<"$json")"
+	if [ "$state" = none ]; then
+		printf 'gates: none ran; no profile covers %s\n' "$(jq -r '.unmapped | join(", ") | if . == "" then "these changes" else . end' <<<"$json")"
 	else
 		printf 'gates: pass (%s)\n' "$(IFS=,; printf '%s' "${profiles[*]}")"
 	fi
@@ -480,10 +586,23 @@ cmd_verify() {
 	# A just-started agent can take the text before it takes the Enter (pi
 	# drawing its startup screen), so the prompt must be seen working; an
 	# idle agent gets one more Enter, which submits the typed text.
-	if ! herdr agent prompt "$name" "Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the verifier role. $PAIR_SKILL VERIFY $packet" \
-		--wait --until working --timeout 30000 >/dev/null 2>&1 && [ "$(agent_status "$name")" != working ]; then
+	herdr agent prompt "$name" "Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the verifier role. $PAIR_SKILL VERIFY $packet" \
+		--wait --until working --timeout 30000 >/dev/null 2>&1 || true
+	# Herdr can report a just-started agent working while the prompt still
+	# sits typed in its input (a Claude verifier waited 25 minutes so), so
+	# the pane is read: while its last lines still show the packet's name,
+	# Enter submits it. An Enter on an empty input does nothing; a working
+	# Devin is left alone, since there Enter cancels the running command.
+	local tries=0 marker
+	marker="$(basename "$packet")"
+	while [ "$tries" -lt 3 ]; do
+		sleep "${KITCHEN_SUBMIT_CHECK_S:-5}"
+		[ ! -f "$verdict" ] || break
+		grep -qF "$marker" <<<"$(herdr agent read "$name" --source visible --lines 12 2>/dev/null | tr -d '\n │')" || break
+		[ "$kind" != devin ] || [ "$(agent_status "$name")" != working ] || break
 		herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
-	fi
+		tries=$((tries + 1))
+	done
 	verify_wait "$store" "$every_m"
 }
 

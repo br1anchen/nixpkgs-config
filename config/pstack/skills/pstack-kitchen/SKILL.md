@@ -40,7 +40,13 @@ differs.
    kind = "devin"
    [consultant]
    kind = "codex"
+   [machine]
+   gate_slots = 1   # gates running at once across every kitchen on this host
    ```
+
+   Every gate takes one of the machine's slots, so parallel kitchens queue
+   their test suites instead of overloading the machine. The default is one
+   slot per eight cores.
 
 ## Roles and quota
 

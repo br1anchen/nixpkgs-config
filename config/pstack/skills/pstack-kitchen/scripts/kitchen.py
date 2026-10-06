@@ -396,19 +396,42 @@ def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: lis
     }
 
 
-# Heavy profiles share max_parallel_heavy slots across every kitchen on the
-# machine, so a verifier's build never races the sidekick's.
-def heavy_slot(root: Path, kitchen: Kitchen):
-    lock_dir = state_dir(root).parent
+def acquire_slot(lock_dir: Path, prefix: str, slots: int):
+    """Holds one of `slots` machine-wide locks named <prefix>-<i>.lock; returns
+    the open file and the seconds spent waiting for it."""
+    start = time.monotonic()
     while True:
-        for i in range(kitchen.max_parallel_heavy):
-            f = open(lock_dir / f'heavy-{i}.lock', 'w')  # noqa: SIM115 - held open as the slot until the gate ends
+        for i in range(slots):
+            f = open(lock_dir / f'{prefix}-{i}.lock', 'w')  # noqa: SIM115 - held open as the slot until the gate ends
             try:
                 fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                return f
+                return f, round(time.monotonic() - start, 1)
             except BlockingIOError:
                 f.close()
         time.sleep(2)
+
+
+# Heavy profiles share max_parallel_heavy slots across every kitchen on the
+# machine, so a verifier's build never races the sidekick's.
+def heavy_slot(root: Path, kitchen: Kitchen):
+    return acquire_slot(state_dir(root).parent, 'heavy', kitchen.max_parallel_heavy)[0]
+
+
+# Every gate takes one of the machine's gate slots, shared by all kitchens on
+# it, so two runs queue their test suites instead of running them at once and
+# slowing both past the per-step budget. The size is the host's: [machine]
+# gate_slots in the roster, else PSTACK_KITCHEN_GATE_SLOTS, else one slot per
+# eight cores.
+def machine_gate_slots() -> int:
+    env = os.environ.get('PSTACK_KITCHEN_GATE_SLOTS')
+    if env:
+        return max(1, int(env))
+    path = Path(os.environ.get('PSTACK_KITCHEN_ROSTER') or Path.home() / '.config/pstack/kitchen.toml')
+    try:
+        slots = tomllib.loads(path.read_text()).get('machine', {}).get('gate_slots')
+    except (OSError, tomllib.TOMLDecodeError):
+        slots = None
+    return max(1, int(slots)) if slots else max(1, (os.cpu_count() or 8) // 8)
 
 
 # Global options that re-run this script inside a profile's wrap; set by main.
@@ -470,13 +493,22 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
     log_dir.mkdir(parents=True, exist_ok=True)
     inside = os.environ.get(WRAPPED) == '1'
     wrap = wrap_of(kitchen, p)
+    pool, waited = (None, 0.0)
+    if commands and not inside:
+        slots = machine_gate_slots()
+        pool, waited = acquire_slot(state_dir(root).parent, 'gate', slots)
+        if waited >= 2:
+            print(f'kitchen: waited {waited:.0f}s for one of {slots} machine gate slots', file=sys.stderr)
     if wrap and commands and not inside:
         slot = heavy_slot(root, kitchen) if p.heavy else None
         try:
-            return run_wrapped(root, wrap, profile, stage, log_dir, keep_going, only, role)
+            out = run_wrapped(root, wrap, profile, stage, log_dir, keep_going, only, role)
+            out['waited'] = waited
+            return out
         finally:
             if slot:
                 slot.close()
+            pool.close()
     slot = heavy_slot(root, kitchen) if p.heavy and commands and not inside else None
     results = []
     try:
@@ -495,8 +527,10 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
     finally:
         if slot:
             slot.close()
+        if pool:
+            pool.close()
     out = {'profile': profile, 'stage': stage, 'role': role, 'passed': all(r['exit'] == 0 for r in results),
-           'commands': results}
+           'commands': results, 'waited': waited}
     if result:
         result.write_text(json.dumps(out))
     return out

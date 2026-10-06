@@ -87,6 +87,7 @@ case "$1 $2" in
 	if [ -s "$FAKE/typing/$3" ] || [ -s "$FAKE/queued/$3" ]; then
 		[ -s "$FAKE/queued/$3" ] && printf '── 1 ↑ edit · ↵ send now ──\n○ %s\n' "$(cat "$FAKE/queued/$3")"
 		if [ -s "$FAKE/typing/$3" ]; then printf '❭ %s\n' "$(cat "$FAKE/typing/$3")"; else printf '❭ Press Enter to send\n  queued messages now\n'; fi
+	elif [ -s "$FAKE/stalled/$3" ]; then printf '❯ %s\n' "$(cat "$FAKE/stalled/$3")"
 	elif [ -s "$FAKE/screen/$3" ]; then cat "$FAKE/screen/$3"
 	elif [ -e "$FAKE/busy/$3" ]; then printf 'Thinking · 7m 52s (esc\n  twice to interrupt)\n'
 	elif [ -e "$FAKE/busy-guide/$3" ]; then printf '❭ Guide Devin while it\n  works\n'

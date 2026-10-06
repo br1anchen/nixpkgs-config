@@ -264,7 +264,7 @@ class GateTests(KitchenTests):
         self.assertTrue(r['passed'])
         self.assertTrue(Path(r['commands'][0]['log']).exists())
         self.assertEqual(self.data('gate', 'app', 'landing'), {'profile': 'app', 'stage': 'landing', 'role': 'sidekick',
-                                                                'passed': True, 'commands': []})
+                                                                'passed': True, 'commands': [], 'waited': 0.0})
 
     def test_failing_gate_stops_prints_the_log_tail_and_exits_2(self):
         self.write('.agents/kitchen.toml', KITCHEN.replace(
@@ -293,6 +293,14 @@ class GateTests(KitchenTests):
         self.data('gate', 'app', 'fast', '--role', 'verifier', code=2)
         self.env['PSTACK_KITCHEN_ROLE'] = 'verifier'
         self.assertEqual(self.data('gate', 'app', 'fast', code=2)['role'], 'verifier')
+
+    def test_gates_share_the_machine_slots(self):
+        self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["sleep 2"]'))
+        env = {**self.env, 'PSTACK_KITCHEN_GATE_SLOTS': '1'}
+        procs = [subprocess.Popen([sys.executable, str(script), '--json', 'gate', 'app', 'fast'], cwd=self.repo,
+                                  env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) for _ in range(2)]
+        results = [json.loads(p.communicate()[0]) for p in procs]
+        self.assertEqual(sorted(r['waited'] >= 1.5 for r in results), [False, True])
 
     def test_unknown_profile(self):
         self.assertIn('no profile web', self.run_kitchen('gate', 'web', 'fast', code=1))
@@ -434,6 +442,7 @@ class KitchenScriptTests(unittest.TestCase):
                     'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
                     'HOME': str(t / 'home'), 'XDG_STATE_HOME': str(t / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0',
+                    'KITCHEN_SUBMIT_CHECK_S': '0', 'KITCHEN_QUIET_MAX_S': '20',
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
@@ -571,6 +580,47 @@ esac
         self.assertIn('2 failed checks in a row; write the report as blocked', out)
         self.assertEqual(len((self.store / 'steps/001-util.tsv').read_text().splitlines()), 2)
 
+    def test_a_resumed_units_commit_is_checked_against_its_own_diff(self):
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        sha = self.commit('made before the brief')
+        self.dispatch(self.brief('001', 'resume', ['src/**', 'tests/**']))
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'resumed'))
+        self.write('notes.txt', 'x\n')
+        out = self.run_sh('step', str(self.store), self.commit('unmapped'), 'notes')
+        self.assertIn('gates: none ran', out)
+        rows = [r.split('\t') for r in (self.store / 'gates.tsv').read_text().splitlines()]
+        self.assertEqual([(r[3], r[4]) for r in rows], [('pass', 'app'), ('none', '')])
+
+    def test_step_returns_while_checks_run_and_resumes(self):
+        self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
+                   .replace('fast = ["test ! -e FAIL"]', 'fast = ["sleep 5"]'))
+        self.commit('slow gate')
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.write('src/util.py', 'X = 4\n')
+        self.write('tests/test_app.py', 'x = 4\n')
+        sha = self.commit('step')
+        self.env['KITCHEN_STEP_SLICE_S'] = '1'
+        out = self.run_sh('step', str(self.store), sha, 'slow', code=4)
+        self.assertIn('gates: still running', out)
+        self.assertIn(f'kitchen.sh step {self.store} {sha} "slow"', out)
+        self.env['KITCHEN_STEP_SLICE_S'] = '30'
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'slow'))
+        self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
+
+    def test_quiet_wait_skips_unflagged_check_ins(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        self.env['KITCHEN_QUIET_MAX_S'] = '3'
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertIn('quiet: 0m with nothing flagged', out)
+        checkins = [l for l in (self.store / 'events.tsv').read_text().splitlines() if l.endswith('\tcheckin')]
+        self.assertGreater(len(checkins), 1)
+        self.write('elsewhere.txt', 'x\n')
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertIn('outside scope: 1', out)
+        self.assertNotIn('quiet:', out)
+
     def test_gates_mode_verifies_without_a_verifier(self):
         b = self.brief('001', 'docs', ['docs/**'])
         self.dispatch(b)
@@ -581,7 +631,7 @@ esac
         self.assertIn('status: clean (gates only', out)
         self.assertNotIn('agent start demo-verifier', (self.fake / 'calls.log').read_text())
 
-    def verify_app_unit(self, mode, code):
+    def verify_app_unit(self, mode, code, stall=False):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         self.write('src/util.py', 'X = 9\n')
@@ -589,6 +639,8 @@ esac
         head = self.commit('util')
         self.done(b, head)
         (self.fake / 'verdict-mode').write_text(mode)
+        if stall:
+            (self.fake / 'stall').touch()
         return b, self.run_sh('verify', str(self.store), '001', code=code)
 
     def test_verifier_pane_writes_a_clean_verdict_then_goes(self):
@@ -629,8 +681,7 @@ esac
         self.assertNotRegex(calls, r'send-keys \S+ enter')
 
     def test_verify_prompt_left_typed_is_submitted(self):
-        (self.fake / 'stall').touch()
-        _, out = self.verify_app_unit('clean', 0)
+        _, out = self.verify_app_unit('clean', 0, stall=True)
         self.assertIn('status: clean', out)
         self.assertIn('send-keys demo-verifier enter', (self.fake / 'calls.log').read_text())
 

@@ -36,11 +36,16 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      `risk: escalated`, `kitchen.sh discuss`. Consults work as in
      [the trio master](../../pstack-trio/references/master.md), with
      `kitchen.sh` for `pair.sh`.
-5. **Dispatch and wait.** `kitchen.sh dispatch <store> <brief> --every 20`. A
-   routine unit's steps do not wake you; its check-ins do, so a longer
-   interval than the pair's nine minutes is right. Read a digest for
-   direction only, as the pair master does; steer only when your review would
-   otherwise say revise.
+5. **Dispatch and wait.** `kitchen.sh dispatch <store> <brief>`, then
+   `kitchen.sh wait <store>`, each in your harness's background mode where it
+   has one (Claude Code: run in the background and you are re-invoked when it
+   returns), so a wait never holds your turn. The kitchen's wait is quiet: a
+   check-in with nothing flagged does not return. It returns for a report, an
+   escalated unit's steps, a blocked sidekick, a digest that carries a flag
+   (a stale log, a write outside Scope, an objection, an open blocking note,
+   a timebox overrun, a pause), or after `--max` minutes (an hour) with the
+   latest digest. Read a digest for direction only, as the pair master does;
+   steer only when your review would otherwise say revise.
 6. **On a done report:** verify, then review.
    - `kitchen.sh verify <store> <NNN>`. It returns every nine minutes with
      the verifier's progress (exit 4) while the verifier works on: do other

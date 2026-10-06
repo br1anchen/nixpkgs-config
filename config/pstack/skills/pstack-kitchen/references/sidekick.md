@@ -13,6 +13,10 @@ differ:
   tail: fix it in a new commit and run `step` again with that commit. When it
   says two failures in a row, stop: write the report with status `blocked`,
   the logs under Questions, and what you tried, then `kitchen.sh finish`.
+  The checks run detached, and `step` returns within about two minutes; when
+  it prints `gates: still running`, run the same command again, at once, to
+  keep waiting. Never move `step` to your harness's background and wait for a
+  notification: an idle turn there is a stalled kitchen.
 - **Policy rules are the repo's.** A forbid finding names what to use
   instead; use it. Opting a line out (`kitchen-allow: <id>` with the reason)
   is for a case the rule did not foresee, and the master reads every one.
