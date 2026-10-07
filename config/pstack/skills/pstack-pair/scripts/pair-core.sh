@@ -314,10 +314,6 @@ busy_command() {
 	[ -z "$best" ] || printf '%s for %dm' "$best" $((best_et / 60))
 }
 
-# Check-in digest for a sidekick still working at the interval: elapsed against
-# the timebox, progress lines not yet shown, files touched against the brief's
-# Scope, commits since dispatch, and steer counts. Bounded, so the master can
-# poll it cheaply instead of reading the pane. $2 is the interval in minutes.
 # The newest sign of work in the sidekick's tree, as an epoch: the mtime of
 # each file git status lists (NUL-delimited, so names are real paths; a rename
 # counts at its new path, a deleted file is skipped) and the committer time of
@@ -345,6 +341,10 @@ tree_activity() {
 	[ "$newest" -eq 0 ] || printf '%s\n' "$newest"
 }
 
+# Check-in digest for a sidekick still working at the interval: elapsed against
+# the timebox, progress lines not yet shown, files touched against the brief's
+# Scope, commits since dispatch, and steer counts. Bounded, so the master can
+# poll it cheaply instead of reading the pane. $2 is the interval in minutes.
 checkin() {
 	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale busy active timebox elapsed_m now
 	brief="$(field "$store" '.dispatch.brief // empty')"
