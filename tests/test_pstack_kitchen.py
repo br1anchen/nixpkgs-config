@@ -889,6 +889,70 @@ esac
         self.assertNotIn('devin/swe-2', starts[1])
         self.assertIn('verify:provider', (self.store / 'events.tsv').read_text())
 
+    def set_roster(self, extra):
+        Path(self.env['PSTACK_KITCHEN_ROSTER']).write_text(
+            '[sidekick]\nkind = "pi"\nargs = ["--model", "devin/swe-2"]\n'
+            '[sidekick.fallback]\nkind = "devin"\n[consultant]\nkind = "codex"\n' + extra)
+
+    def verifier_starts(self):
+        return [line for line in (self.fake / 'calls.log').read_text().splitlines()
+                if line.startswith('agent start demo-verifier')]
+
+    def verify_landing(self):
+        self.git('update-ref', 'refs/remotes/origin/main', self.git('rev-list', '--max-parents=0', 'HEAD'))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        return self.run_sh('verify', str(self.store), '--landing')
+
+    def test_a_routine_verifier_defaults_to_the_sidekick(self):
+        self.verify_app_unit('clean', 0)
+        self.assertIn('--kind pi', self.verifier_starts()[0])
+        self.assertIn('--model devin/swe-2', self.verifier_starts()[0])
+        self.assertEqual(self.state()['verifier']['kind'], 'pi')
+
+    def test_an_explicit_verifier_entry_wins_over_the_sidekick(self):
+        self.set_roster('[verifier]\nkind = "devin"\nargs = ["--model", "swe-x"]\n')
+        self.verify_app_unit('clean', 0)
+        (start,) = self.verifier_starts()
+        self.assertIn('--kind devin', start)
+        self.assertIn('--model swe-x', start)
+        self.assertNotIn('devin/swe-2', start)
+
+    def test_landing_and_escalated_verifiers_default_to_claude_opus(self):
+        self.verify_landing()
+        (start,) = self.verifier_starts()
+        self.assertIn('--kind claude', start)
+        self.assertIn('--model claude-opus-5-5', start)
+
+    def test_the_master_sentinel_starts_the_masters_own_kind(self):
+        self.set_roster('[verifier.escalated]\nkind = "master"\n')
+        self.verify_landing()
+        (start,) = self.verifier_starts()
+        self.assertIn('--kind claude', start)
+        self.assertNotIn('claude-opus-5-5', start)
+
+    def test_a_rate_limited_verifier_retries_on_the_roster_fallback_once(self):
+        self.set_roster('[verifier]\nkind = "pi"\nargs = ["--model", "m"]\n'
+                        '[verifier.fallback]\nkind = "devin"\nargs = ["--model", "fb"]\n')
+        self.rate_limited_verifier()
+        _, out = self.verify_app_unit('ratelimit', 0)
+        self.assertIn('retry: verifying again on the fallback, devin', out)
+        first, second = self.verifier_starts()
+        self.assertIn('--kind pi', first)
+        self.assertIn('--model m', first)
+        self.assertIn('--kind devin', second)
+        self.assertIn('--model fb', second)
+        self.assertTrue(self.state()['verifier']['kind'] == 'devin')
+
+    def test_a_fallback_of_the_failed_kind_is_not_retried(self):
+        self.set_roster('[verifier]\nkind = "pi"\n[verifier.fallback]\nkind = "pi"\nargs = ["--model", "other"]\n')
+        self.rate_limited_verifier()
+        self.verify_app_unit('ratelimit', 2)
+        self.assertEqual(len(self.verifier_starts()), 1)
+
     def test_a_rate_limited_verifier_without_a_fallback_is_inconclusive(self):
         state = self.state()
         del state['sidekick']['fallback']

@@ -553,7 +553,7 @@ audit_due() {
 cmd_verify() {
 	in_herdr
 	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV] [...] | kitchen.sh verify <store> --wait [--every MIN]"
-	local store="$1" timeout_m="" every_m=9 wait=0 units=() kind_override="" landing=0
+	local store="$1" timeout_m="" every_m=9 wait=0 units=() kind_override="" landing=0 retry_entry=""
 	range_base=""
 	local -a argv=("${@:2}")
 	covered=()
@@ -562,6 +562,7 @@ cmd_verify() {
 		case "$1" in
 		--timeout) timeout_m="$2"; shift 2 ;;
 		--kind) kind_override="$2"; shift 2 ;;
+		--retry-entry) retry_entry="$2"; shift 2 ;;
 		--every) every_m="$2"; shift 2 ;;
 		--covers) covered+=("$2"); shift 2 ;;
 		--base) range_base="$2"; shift 2 ;;
@@ -580,11 +581,11 @@ cmd_verify() {
 	[ "$landing" -eq 0 ] || [ "${#units[@]}" -eq 0 ] || die "--landing verifies the whole stack; name no units"
 	[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "a verification is open ($(field "$store" '.verifying.units')); kitchen.sh verify $store --wait" 5
 	local -a all=("${covered[@]}" "${units[@]}")
-	local root base head json last brief slug k verdict packet mode role risk
+	local root base head json last brief slug k verdict packet mode class risk
 	root="$(field "$store" .git_root)"
 	if [ "$landing" -eq 1 ]; then
 		# The stack tip, from where it leaves trunk, by a fresh verifier of
-		# the master's kind: a squash or rebase step touches no profile, so
+		# the escalated class: a squash or rebase step touches no profile, so
 		# the units' own verdicts never saw the stack as it lands.
 		head="$(git -C "$root" rev-parse HEAD)"
 		if [ -n "$range_base" ]; then
@@ -596,13 +597,13 @@ cmd_verify() {
 		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
 		risk=landing
 		mode=unit
-		role=master
+		class=escalated
 	else
 		read -r base head <<<"$(unit_range "$store" "${all[@]}")"
 		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
 		risk="$(jq -r .risk <<<"$json")"
 		mode="$(jq -r .verify.mode <<<"$json")"
-		role="$(jq -r 'if .verify.kind == "routine" then "sidekick" else "master" end' <<<"$json")"
+		class="$(jq -r .verify.kind <<<"$json")"
 	fi
 	# A batch of independent units has a size cap; a fix verified with the
 	# unit it fixes does not, since splitting it would re-reject the first.
@@ -646,19 +647,20 @@ cmd_verify() {
 		timeout_m=$(( (measured * 3 + 59) / 60 ))
 		[ "$timeout_m" -ge 45 ] || timeout_m=45
 	fi
-	local kind name pane anchor scratch_id scratch new_pane_id
+	local kind name pane anchor scratch_id scratch new_pane_id entry
 	local -a args=()
-	if [ -n "$kind_override" ]; then
+	entry="$(verifier_entry "$store" "$class")"
+	if [ -n "$retry_entry" ]; then
+		kind="$(jq -r .kind <<<"$retry_entry")"
+		mapfile -t args < <(verifier_args "$kind" "$(jq -c '{kind, args}' <<<"$retry_entry")")
+	elif [ -n "$kind_override" ]; then
 		kind="$kind_override"
-		mapfile -t args < <(verifier_args "$store" "$kind")
-	elif [ "$role" = sidekick ]; then
-		kind="$(field "$store" .sidekick.kind)"
-		mapfile -t args < <(jq -r '.sidekick.start_args[]?' "$store/pair.json")
+		mapfile -t args < <(verifier_args "$kind" "$(jq -c --arg k "$kind" '[., .fallback][] | select(. != null and .kind == $k) | {kind, args}' <<<"$entry" | head -1)")
 	else
-		kind="$(agent_kind "$(field "$store" .master.pane_id)")"
-		mapfile -t args < <(permission_args "$kind" "$(detect_permission_mode)"; trust_args "$kind")
+		kind="$(jq -r .kind <<<"$entry")"
+		mapfile -t args < <(verifier_args "$kind" "$entry")
 	fi
-	[ -n "$kind" ] && [ "$kind" != null ] || die "cannot tell which agent kind verifies ($role)"
+	[ -n "$kind" ] && [ "$kind" != null ] || die "cannot tell which agent kind verifies ($class)"
 	if [ "$landing" -eq 1 ]; then scratch_id="000-landing-verify"; else scratch_id="$last-$slug-verify"; fi
 	scratch="$(cmd_scratch "$store" "$scratch_id" --at "$head" | tail -1)"
 	{
@@ -711,11 +713,12 @@ cmd_verify() {
 		--argjson sample "$(if [ "$landing" -eq 1 ]; then echo 0; else jq .sample <<<"$json"; fi)" \
 		--arg unit "$(if [ "$landing" -eq 1 ]; then echo landing; else echo "$last-$slug"; fi)" \
 		--argjson started "$(date +%s)" --argjson deadline "$(( $(date +%s) + timeout_m * 60 ))" \
-		--arg role "$role" --argjson argv "$(jq -cn '$ARGS.positional' --args -- "${argv[@]}")" \
+		--arg class "$class" --argjson entry "$entry" --argjson retried "$(if [ -n "$retry_entry" ]; then echo true; else echo false; fi)" \
+		--argjson argv "$(jq -cn '$ARGS.positional' --args -- "${argv[@]}")" \
 		'.verifier.pane_id = $pane | .verifier.kind = $kind
 		 | .verifying = {verdict: $verdict, packet: $packet, brief: $brief, scratch: $scratch, units: $units,
 		                 risk: $risk, sample: $sample, unit: $unit, started: $started, deadline: $deadline,
-		                 role: $role, argv: $argv}'
+		                 class: $class, entry: $entry, retried: $retried, argv: $argv}'
 	event "$store" master send-verify "$brief" "$kind:${all[*]:-landing}"
 	record_verifier_session "$store" "$name"
 	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$kind" "$pane" "${base:0:9}" "${head:0:9}"
@@ -729,14 +732,31 @@ cmd_verify() {
 	verify_wait "$store" "$every_m"
 }
 
-# A verifier of the fallback kind (or of any kind named with --kind) starts
-# with the fallback's recorded arguments, its kind's permission default, and
-# the trust flag; never with the sidekick's own model arguments.
+# The verifier for a class: the host roster's entry, with the sidekick marker
+# resolved from the run (so after a failover it is the agent now implementing)
+# and the master sentinel resolved to the master's own kind. One JSON object:
+# kind, args, fallback (kind and args, or null), and where it came from.
+verifier_entry() {
+	local store="$1" class="$2" entry kind
+	entry="$(python3 "$here/kitchen.py" --json roster | jq -c --arg c "$class" '.verifier[$c]')"
+	kind="$(jq -r .kind <<<"$entry")"
+	case "$kind" in
+	sidekick)
+		jq -c '{kind: .sidekick.kind, args: (.sidekick.start_args // []), source: "sidekick",
+			fallback: (if .sidekick.fallback.kind then {kind: .sidekick.fallback.kind, args: (.sidekick.fallback.args // [])} else null end)}' "$store/pair.json" ;;
+	master)
+		jq -c --arg k "$(agent_kind "$(field "$store" .master.pane_id)")" '.kind = $k | .args = [] | .source = "master"' <<<"$entry" ;;
+	*) printf '%s\n' "$entry" ;;
+	esac
+}
+
+# A verifier starts with its entry's arguments, then its kind's permission
+# default and trust flag when they are missing; $2 is the entry (or an empty
+# string for a kind the class does not name).
 verifier_args() {
-	local store="$1" kind="$2" permission
+	local kind="$1" entry="$2" permission
 	local -a args=()
-	[ "$kind" != "$(field "$store" '.sidekick.fallback.kind // empty')" ] ||
-		mapfile -t args < <(jq -r '.sidekick.fallback.args[]?' "$store/pair.json")
+	[ -z "$entry" ] || mapfile -t args < <(jq -r '.args[]?' <<<"$entry")
 	if ! has_permission_arg "${args[@]}"; then
 		case "$kind" in devin) permission=bypassPermissions ;; *) permission="$(detect_permission_mode)" ;; esac
 		permission_args "$kind" "$permission"
@@ -803,10 +823,11 @@ verify_wait() {
 	sample="$(field "$store" .verifying.sample)"
 	unit="$(field "$store" .verifying.unit)"
 	pane="$(field "$store" .verifier.pane_id)"
-	local provider="" role
+	local provider="" fallback="" retried
 	local -a argv=()
 	[ -f "$verdict" ] || provider="$(verifier_provider_error "$store" "$name")"
-	role="$(field "$store" '.verifying.role // empty')"
+	fallback="$(field "$store" '.verifying.entry.fallback // empty' | jq -c . 2>/dev/null || true)"
+	retried="$(field "$store" '.verifying.retried // false')"
 	mapfile -t argv < <(jq -r '.verifying.argv[]?' "$store/pair.json")
 	herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
 	local gone=$(( $(date +%s) + 15 ))
@@ -817,11 +838,9 @@ verify_wait() {
 	if [ ! -f "$verdict" ] && [ -n "$provider" ]; then
 		event "$store" master wake "$brief" "verify:provider"
 		printf 'verdict: none\nstatus: inconclusive (the verifier hit its provider, not the work)\nprovider_error: %s\n' "$provider"
-		local fallback
-		fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
-		if [ "$role" = sidekick ] && [ -n "$fallback" ] && [ "$fallback" != "$kind" ] && [ "${#argv[@]}" -gt 0 ]; then
-			printf 'retry: verifying again on the fallback, %s\n' "$fallback"
-			exec "$here/kitchen.sh" verify "$store" "${argv[@]}" --kind "$fallback"
+		if [ "$retried" = false ] && [ -n "$fallback" ] && [ "$(jq -r .kind <<<"$fallback")" != "$kind" ] && [ "${#argv[@]}" -gt 0 ]; then
+			printf 'retry: verifying again on the fallback, %s\n' "$(jq -r .kind <<<"$fallback")"
+			exec "$here/kitchen.sh" verify "$store" "${argv[@]}" --retry-entry "$fallback"
 		fi
 		printf 'next: wait for the limit, or kitchen.sh verify %s %s --kind <another kind>\n' "$store" "${argv[*]}"
 		exit 2
