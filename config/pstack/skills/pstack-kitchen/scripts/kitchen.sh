@@ -48,17 +48,19 @@ consult, advice. These differ or are new:
                                             sidekick: run the touched profiles' fast gates and policy on the
                                             step's commits, then record it; exit 2 when they fail. The checks run
                                             detached: exit 4 "still running" after ~2 minutes, run it again to wait
-  verify <store> <NNN>... [--covers NNN]... [--every MIN] [--timeout MIN] [--kind KIND]
+  verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN] [--timeout MIN] [--kind KIND]
                                             verify one unit, or several as a batch, or a fix with the unit it
                                             fixes (--covers): gates only, or a fresh verifier in a scratch
                                             worktree at the head; returns at the interval with its progress
                                             (exit 4), and with the verdict and whether to audit when it lands.
                                             A verifier stopped by its provider is retried on the sidekick's
                                             fallback; the deadline defaults to 3x the measured gate time
+  verify <store> --landing [--base REV]     a fresh verifier at the stack tip: every behavioral gate the stack
+                                            touches, from where it leaves trunk (or --base)
   verify <store> --wait [--every MIN]       wait again for the open verification: exit 4 while it runs, 5 when none
                                             is open
   revise <store> <verdict-path>             draft the fix brief for a rejected verdict
-  review <store> <NNN>... | --landing [--base REV]
+  review <store> <NNN>... [--base REV] | --landing [--base REV]
                                             Judge of Owls on the units' range, or for landing on the stack from
                                             where it leaves trunk (or --base); prints blocking findings unresolved
   resolve <store> <finding-id> fixed|followup|dismissed <note>
@@ -120,6 +122,29 @@ unit_brief() {
 	printf '%s\n' "$f"
 }
 
+# The repo's trunk: origin's default branch, else main or master; never the
+# checked-out branch itself. Prints the ref, or nothing.
+trunk_ref() {
+	local root="$1" ref current candidates
+	current="$(git -C "$root" symbolic-ref --quiet HEAD 2>/dev/null || true)"
+	candidates="$(git -C "$root" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
+	for ref in $candidates refs/remotes/origin/main refs/remotes/origin/master refs/heads/main refs/heads/master; do
+		[ "$ref" != "$current" ] || continue
+		git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null && { printf '%s\n' "$ref"; return 0; }
+	done
+}
+
+# Where a stack at $2 leaves trunk, in $landing_base_rev; call it directly,
+# not in a command substitution, so its refusals end the command.
+landing_base() {
+	local root="$1" head="$2" trunk
+	trunk="$(trunk_ref "$root")"
+	[ -n "$trunk" ] || die "cannot tell this repo's trunk; pass --base <trunk ref or commit>"
+	landing_base_rev="$(git -C "$root" merge-base "$trunk" "$head")" || die "no merge-base between $trunk and HEAD; pass --base"
+	[ "$landing_base_rev" != "$head" ] || die "HEAD is already on ${trunk#refs/}, so the landing range is empty; pass --base <where the stack starts>"
+	printf 'landing base: merge-base of %s and HEAD (%s)\n' "${trunk#refs/}" "${landing_base_rev:0:9}"
+}
+
 unit_range() {
 	# $1 store, rest: NNN...; prints "base head" for the units, first to
 	# last, from their dispatch heads and done reports. A unit named in the
@@ -142,7 +167,25 @@ unit_range() {
 	done
 	head="$(header_field "$(expected_report "$store" "$(unit_brief "$store" "$last")")" head)"
 	[ -n "$head" ] || die "unit $last's report has no head:"
-	head="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$head^{commit}")" || die "unit $last's head is not a commit"
+	local root mb tmb trunk
+	root="$(field "$store" .git_root)"
+	head="$(git -C "$root" rev-parse --verify --quiet "$head^{commit}")" || die "unit $last's head is not a commit"
+	if [ -n "${range_base:-}" ]; then
+		base="$(git -C "$root" rev-parse --verify --quiet "$range_base^{commit}")" || die "--base $range_base is not a commit"
+	else
+		# A unit is never measured from before where its branch leaves trunk:
+		# one dispatched before a landing (a squash, a rebase) keeps a base
+		# that trunk has since replaced, and its merge-base with the head is
+		# the old trunk, which would take the whole landed stack in.
+		mb="$(git -C "$root" merge-base "$base" "$head" 2>/dev/null || printf '%s' "$base")"
+		trunk="$(trunk_ref "$root")"
+		if [ -n "$trunk" ] && tmb="$(git -C "$root" merge-base "$trunk" "$head" 2>/dev/null)" &&
+			[ "$tmb" != "$head" ] && [ "$tmb" != "$mb" ] && git -C "$root" merge-base --is-ancestor "$mb" "$tmb"; then
+			printf 'note: unit %s'"'"'s recorded base %s is behind where its branch leaves %s; measuring from %s\n' \
+				"$first" "${base:0:9}" "${trunk#refs/}" "${tmb:0:9}" >&2
+			base="$tmb"
+		fi
+	fi
 	printf '%s %s\n' "$base" "$head"
 }
 
@@ -475,6 +518,14 @@ cmd_step() {
 		printf 'gates: none ran; no profile covers %s\n' "$(jq -r '.unmapped | join(", ") | if . == "" then "these changes" else . end' <<<"$json")"
 	else
 		printf 'gates: pass (%s)\n' "$(IFS=,; printf '%s' "${profiles[*]}")"
+		# A pass that needed a rerun under load is recorded, so retro shows
+		# which suites flake on a loaded machine.
+		local flaky
+		flaky="$(sed -n 's/^flaky under load: \([^ ]*\) .*/\1/p' "$job/out" | sort -u | paste -sd, -)"
+		if [ -n "$flaky" ]; then
+			printf 'flaky under load: %s failed, then passed on a rerun (see %s)\n' "$flaky" "$job/out"
+			event "$store" sidekick gate-flaky "$brief" "$flaky"
+		fi
 	fi
 	core_step "$@"
 }
@@ -501,8 +552,9 @@ audit_due() {
 # open verification lives in pair.json .verifying, one at a time.
 cmd_verify() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--every MIN] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --wait [--every MIN]"
-	local store="$1" timeout_m="" every_m=9 wait=0 units=() kind_override=""
+	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV] [...] | kitchen.sh verify <store> --wait [--every MIN]"
+	local store="$1" timeout_m="" every_m=9 wait=0 units=() kind_override="" landing=0
+	range_base=""
 	local -a argv=("${@:2}")
 	covered=()
 	shift
@@ -512,6 +564,8 @@ cmd_verify() {
 		--kind) kind_override="$2"; shift 2 ;;
 		--every) every_m="$2"; shift 2 ;;
 		--covers) covered+=("$2"); shift 2 ;;
+		--base) range_base="$2"; shift 2 ;;
+		--landing) landing=1; shift ;;
 		--wait) wait=1; shift ;;
 		[0-9][0-9][0-9]) units+=("$1"); shift ;;
 		*) die "unknown option $1" ;;
@@ -522,27 +576,53 @@ cmd_verify() {
 		[ -n "$(field "$store" '.verifying.verdict // empty')" ] || die "no verification is open; start one with kitchen.sh verify $store <NNN>" 5
 		verify_wait "$store" "$every_m"
 	fi
-	[ "${#units[@]}" -gt 0 ] || die "name at least one unit NNN"
+	[ "$landing" -eq 1 ] || [ "${#units[@]}" -gt 0 ] || die "name at least one unit NNN, or --landing"
+	[ "$landing" -eq 0 ] || [ "${#units[@]}" -eq 0 ] || die "--landing verifies the whole stack; name no units"
 	[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "a verification is open ($(field "$store" '.verifying.units')); kitchen.sh verify $store --wait" 5
 	local -a all=("${covered[@]}" "${units[@]}")
 	local root base head json last brief slug k verdict packet mode role risk
 	root="$(field "$store" .git_root)"
-	read -r base head <<<"$(unit_range "$store" "${all[@]}")"
-	json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
-	risk="$(jq -r .risk <<<"$json")"
-	mode="$(jq -r .verify.mode <<<"$json")"
-	role="$(jq -r .verify.kind <<<"$json")"
+	if [ "$landing" -eq 1 ]; then
+		# The stack tip, from where it leaves trunk, by a fresh verifier of
+		# the master's kind: a squash or rebase step touches no profile, so
+		# the units' own verdicts never saw the stack as it lands.
+		head="$(git -C "$root" rev-parse HEAD)"
+		if [ -n "$range_base" ]; then
+			base="$(git -C "$root" rev-parse --verify --quiet "$range_base^{commit}")" || die "--base $range_base is not a commit"
+		else
+			landing_base "$root" "$head"
+			base="$landing_base_rev"
+		fi
+		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
+		risk=landing
+		mode=unit
+		role=master
+	else
+		read -r base head <<<"$(unit_range "$store" "${all[@]}")"
+		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
+		risk="$(jq -r .risk <<<"$json")"
+		mode="$(jq -r .verify.mode <<<"$json")"
+		role="$(jq -r .verify.kind <<<"$json")"
+	fi
 	# A batch of independent units has a size cap; a fix verified with the
 	# unit it fixes does not, since splitting it would re-reject the first.
 	if [ "${#covered[@]}" -eq 0 ] && [ "${#units[@]}" -gt 1 ] && [ "$(jq '.diff_lines > .max_batch_diff' <<<"$json")" = true ]; then
 		die "batch of $(jq .diff_lines <<<"$json") diff lines is over review.max_batch_diff; verify each unit" 2
 	fi
-	last="${all[-1]}"
-	brief="$(unit_brief "$store" "$last")"
-	slug="$(basename "$brief" .md | cut -c5-)"
-	k="$(next_index "$store/verdicts" "$last-$slug" v)"
-	verdict="$store/verdicts/$last-$slug-v$k.md"
-	packet="$store/verdicts/$last-$slug-v$k-packet.md"
+	if [ "$landing" -eq 1 ]; then
+		last=landing
+		brief=-
+		k="$(next_index "$store/verdicts" landing v)"
+		verdict="$store/verdicts/landing-v$k.md"
+		packet="$store/verdicts/landing-v$k-packet.md"
+	else
+		last="${all[-1]}"
+		brief="$(unit_brief "$store" "$last")"
+		slug="$(basename "$brief" .md | cut -c5-)"
+		k="$(next_index "$store/verdicts" "$last-$slug" v)"
+		verdict="$store/verdicts/$last-$slug-v$k.md"
+		packet="$store/verdicts/$last-$slug-v$k-packet.md"
+	fi
 	if [ "$mode" = gates ]; then
 		{
 			printf '# Verdict %s: %s\n\nstatus: clean\nunits: %s\nrange: %s..%s\nverifier: gates\n\n' "$last" "$slug" "${all[*]}" "${base:0:9}" "${head:0:9}"
@@ -579,19 +659,31 @@ cmd_verify() {
 		mapfile -t args < <(permission_args "$kind" "$(detect_permission_mode)"; trust_args "$kind")
 	fi
 	[ -n "$kind" ] && [ "$kind" != null ] || die "cannot tell which agent kind verifies ($role)"
-	scratch_id="$last-$slug-verify"
+	if [ "$landing" -eq 1 ]; then scratch_id="000-landing-verify"; else scratch_id="$last-$slug-verify"; fi
 	scratch="$(cmd_scratch "$store" "$scratch_id" --at "$head" | tail -1)"
 	{
-		printf '# Verify %s: %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: %s\nunits: %s\n\n' \
-			"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${all[*]}"
-		[ "${#covered[@]}" -eq 0 ] || printf 'Unit %s fixes unit %s: prove every unit'"'"'s Acceptance at this one head.\n\n' "${units[*]}" "${covered[*]}"
 		local u b
-		for u in "${all[@]}"; do
-			b="$(unit_brief "$store" "$u")"
-			printf '## Unit %s\n\nbrief: %s\n\n' "$u" "$b"
-			awk '/^## (Goal|Acceptance)/{p=1; print; next} /^## /{p=0} p' "$b"
+		if [ "$landing" -eq 1 ]; then
+			printf '# Verify landing: the stack at %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: landing\nunits: landing\n\n' \
+				"${head:0:9}" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head"
+			printf '## Stack\n\nEach unit below was verified on its own. Prove that together, at this tip,\nthey still hold: run every Prove command, then drive the main flows the\nbriefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n'
+			for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
+				[ -e "$b" ] && [ "$(header_field "$(expected_report "$store" "$b")" status 2>/dev/null)" = "done" ] || continue
+				is_landing "$b" && continue
+				printf -- '- %s\n' "$b"
+			done
 			printf '\n'
-		done
+		else
+			printf '# Verify %s: %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: %s\nunits: %s\n\n' \
+				"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${all[*]}"
+			[ "${#covered[@]}" -eq 0 ] || printf 'Unit %s fixes unit %s: prove every unit'"'"'s Acceptance at this one head.\n\n' "${units[*]}" "${covered[*]}"
+			for u in "${all[@]}"; do
+				b="$(unit_brief "$store" "$u")"
+				printf '## Unit %s\n\nbrief: %s\n\n' "$u" "$b"
+				awk '/^## (Goal|Acceptance)/{p=1; print; next} /^## /{p=0} p' "$b"
+				printf '\n'
+			done
+		fi
 		printf '## Changed\n\n```\n%s\n```\n\n' "$(git -C "$root" diff --stat "$base...$head" | tail -40)"
 		printf '## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo'"'"'s scripts give you\nyour own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n```bash\nexport PSTACK_KITCHEN_ROLE=verifier\n'
 		jq -r --arg k "$here/kitchen.py" --arg s "$scratch" --arg b "$(git -C "$root" merge-base "$base" "$head" 2>/dev/null || printf '%s' "$base")" \
@@ -615,15 +707,16 @@ cmd_verify() {
 		die "$why" 5
 	fi
 	json_update "$store" --arg pane "$pane" --arg kind "$kind" --arg verdict "$verdict" --arg packet "$packet" \
-		--arg brief "$brief" --arg scratch "$scratch_id" --arg units "${all[*]}" --arg risk "$risk" \
-		--argjson sample "$(jq .sample <<<"$json")" --arg unit "$last-$slug" \
+		--arg brief "$brief" --arg scratch "$scratch_id" --arg units "${all[*]:-landing}" --arg risk "$risk" \
+		--argjson sample "$(if [ "$landing" -eq 1 ]; then echo 0; else jq .sample <<<"$json"; fi)" \
+		--arg unit "$(if [ "$landing" -eq 1 ]; then echo landing; else echo "$last-$slug"; fi)" \
 		--argjson started "$(date +%s)" --argjson deadline "$(( $(date +%s) + timeout_m * 60 ))" \
 		--arg role "$role" --argjson argv "$(jq -cn '$ARGS.positional' --args -- "${argv[@]}")" \
 		'.verifier.pane_id = $pane | .verifier.kind = $kind
 		 | .verifying = {verdict: $verdict, packet: $packet, brief: $brief, scratch: $scratch, units: $units,
 		                 risk: $risk, sample: $sample, unit: $unit, started: $started, deadline: $deadline,
 		                 role: $role, argv: $argv}'
-	event "$store" master send-verify "$brief" "$kind:${all[*]}"
+	event "$store" master send-verify "$brief" "$kind:${all[*]:-landing}"
 	record_verifier_session "$store" "$name"
 	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$kind" "$pane" "${base:0:9}" "${head:0:9}"
 	# A just-started agent can take the text before it takes the Enter (pi
@@ -667,8 +760,11 @@ verifier_provider_error() {
 	[ "$(agent_status "$name")" = absent ] ||
 		line="$(grep -oiE ".{0,60}($provider_error_re).{0,100}" <<<"$(pane_text "$name")" | tail -1 || true)"
 	session="$(field "$store" '.verifying.session // empty')"
-	if [ -z "$line" ] && [ -n "$session" ] && [ -f "$session" ]; then
-		line="$(tail -n 200 "$session" | jq -r 'select(.message.stopReason? == "error") | .message.errorMessage // empty' 2>/dev/null | tail -1 || true)"
+	if [ -z "$line" ]; then
+		local cwd=""
+		[ "$(field "$store" .verifier.kind)" != pi ] ||
+			cwd="$(readlink -f "$store/scratch/$(field "$store" .verifying.scratch)" 2>/dev/null || true)"
+		line="$(agent_session_error "$session" "$cwd")"
 	fi
 	printf '%s' "${line:0:240}"
 }
@@ -752,7 +848,9 @@ verify_wait() {
 		awk '/^## Findings/{p=1; next} /^## /{p=0} p' "$verdict" | sed '/^$/d' | head -20
 		local rejects
 		rejects="$(grep -l '^status: reject' "$store/verdicts/$unit"-v[0-9]*.md 2>/dev/null | grep -vc packet || true)"
-		if [ "$rejects" -ge 2 ]; then
+		if [ "$unit" = landing ]; then
+			printf 'next: brief a fix for each finding, then kitchen.sh verify %s --landing again\n' "$store"
+		elif [ "$rejects" -ge 2 ]; then
 			printf 'next: second rejection of %s; read the verdict and the unit yourself before another fix\n' "$unit"
 		else
 			printf 'next: kitchen.sh revise %s %s, then verify the fix with --covers %s\n' "$store" "$verdict" "${unit:0:3}"
@@ -804,19 +902,30 @@ joo_bin() {
 	command -v joo-dev || command -v joo || die "review.engine is joo, but neither joo-dev nor joo is on PATH" 1
 }
 
-blocking_findings() {
-	# Every critical or high actionable finding across the run's artifacts
-	# that has no resolution: id, severity, place, summary, artifact.
-	local store="$1" f
-	for f in "$store"/joo/*.json; do
+# The latest round of each review: joo/<label>-r<k>.json, highest k. A
+# re-review supersedes the round before it, whose findings no longer block.
+latest_reviews() {
+	local f b
+	for f in "$1"/joo/*.json; do
 		[ -e "$f" ] || continue
+		b="$(basename "$f" .json)"
+		printf '%s\t%s\t%s\n' "${b%-r*}" "${b##*-r}" "$f"
+	done | sort -t "$(printf '\t')" -k1,1 -k2,2n | awk -F '\t' '{last[$1] = $3} END {for (k in last) print last[k]}' | sort
+}
+
+blocking_findings() {
+	# Every critical or high actionable finding in the latest round of each
+	# review that has no resolution: id, severity, place, summary, artifact.
+	local store="$1" f
+	while IFS= read -r f; do
+		[ -n "$f" ] || continue
 		jq -r --arg a "$f" '.findings[]? | select((.severity == "critical" or .severity == "high") and .status == "actionable")
 			| [.id, .severity, "\(.filePath):\(.line)", (.summary // .rationale // "" | gsub("[\t\n]"; " ") | .[0:120]), $a] | @tsv' "$f"
-	done | awk -F '\t' -v r="$store/resolutions.tsv" 'BEGIN{while ((getline l < r) > 0) {split(l, x, "\t"); done[x[2]] = 1}} !done[$1] && !seen[$1]++'
+	done < <(latest_reviews "$store") | awk -F '\t' -v r="$store/resolutions.tsv" 'BEGIN{while ((getline l < r) > 0) {split(l, x, "\t"); done[x[2]] = 1}} !done[$1] && !seen[$1]++'
 }
 
 cmd_review() {
-	[ $# -ge 2 ] || die "usage: kitchen.sh review <store> <NNN>... | kitchen.sh review <store> --landing"
+	[ $# -ge 2 ] || die "usage: kitchen.sh review <store> <NNN>... [--base REV] | kitchen.sh review <store> --landing [--base REV]"
 	local store="$1" landing=0 units=() root base="" head json cls engine joo out k label tmp
 	shift
 	while [ $# -gt 0 ]; do
@@ -835,23 +944,14 @@ cmd_review() {
 		# dispatch head is stale once the stack is rebased, and reviewing from
 		# it took trunk's own commits into the landing review.
 		if [ -z "$base" ]; then
-			# The checked-out branch is never its own trunk.
-			local trunk="" ref current candidates
-			current="$(git -C "$root" symbolic-ref --quiet HEAD 2>/dev/null || true)"
-			candidates="$(git -C "$root" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
-			for ref in $candidates refs/remotes/origin/main refs/remotes/origin/master refs/heads/main refs/heads/master; do
-				[ "$ref" != "$current" ] || continue
-				git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null && { trunk="$ref"; break; }
-			done
-			[ -n "$trunk" ] || die "cannot tell this repo's trunk; pass --base <trunk ref or commit>"
-			base="$(git -C "$root" merge-base "$trunk" "$head")" || die "no merge-base between $trunk and HEAD; pass --base"
-			[ "$base" != "$head" ] || die "HEAD is already on ${trunk#refs/}, so the landing range is empty; pass --base <where the stack starts>"
-			printf 'landing base: merge-base of %s and HEAD (%s)\n' "${trunk#refs/}" "${base:0:9}"
+			landing_base "$root" "$head"
+			base="$landing_base_rev"
 		fi
 		base="$(git -C "$root" rev-parse --verify --quiet "$base^{commit}")" || die "--base is not a commit"
 		label=landing
 	else
 		[ "${#units[@]}" -gt 0 ] || die "name the units, or --landing"
+		range_base="$base"
 		read -r base head <<<"$(unit_range "$store" "${units[@]}")"
 		label="${units[-1]}-$(basename "$(unit_brief "$store" "${units[-1]}")" .md | cut -c5-)"
 	fi
@@ -928,6 +1028,19 @@ land_check() {
 		fi
 	done
 	if ls "$store"/joo/*.json >/dev/null 2>&1; then engine=joo; fi
+	# A landing verification is reported, not required.
+	local landing_verdict="" lk best=0
+	for f in "$store"/verdicts/landing-v[0-9]*.md; do
+		[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
+		lk="${f##*-v}"
+		lk="${lk%.md}"
+		[ "$lk" -le "$best" ] || { best="$lk"; landing_verdict="$f"; }
+	done
+	if [ -n "$landing_verdict" ]; then
+		printf 'landing verification: %s (%s)\n' "$(header_field "$landing_verdict" status)" "$landing_verdict"
+	else
+		printf 'landing verification: none; kitchen.sh verify %s --landing proves the stack tip with a fresh verifier\n' "$store"
+	fi
 	open="$(blocking_findings "$store")"
 	if [ -n "$open" ]; then
 		awk -F '\t' '{printf "unresolved: %s %s %s %s\n", $1, $2, $3, $4}' <<<"$open"
@@ -979,6 +1092,7 @@ cmd_retro() {
 		done
 		[ -f "$store/resolutions.tsv" ] && awk -F '\t' -v t="$now" -v r="$run" 'NR > 1 && $3 == "dismissed" {printf "%s\t%s\tdismissed\treview\t%s\n", t, r, $2}' "$store/resolutions.tsv"
 		for f in "$store"/steers/*-s[0-9]*.md; do [ -e "$f" ] && printf '%s\t%s\tsteer\tbrief\t%s\n' "$now" "$run" "$(basename "$f" .md)"; done
+		[ -f "$store/events.tsv" ] && awk -F '\t' -v t="$now" -v r="$run" '$4 == "gate-flaky" {printf "%s\t%s\tgate-flaky\t%s\t%s\n", t, r, $6, $5}' "$store/events.tsv"
 	} >>"$ledger"
 	local f units verified clean_first wakes escalations failovers
 	units=0
@@ -999,6 +1113,7 @@ cmd_retro() {
 	cat <<'HINT'
 encode a repeated class at the highest level that works (the correct skill):
   gate-fail <profile>  a sharper brief, or a lint whose error names the fix
+  gate-flaky <profile> a suite that fails under load: related tests per step, the full suite in behavioral
   finding <category>   a lint or type for the pattern; joo reviewer skills for repo-specific taste
   dismissed review     joo is wrong here repeatedly: tune its reviewer skills or config
   reject verify        acceptance the gates do not cover: add a behavioral command or test

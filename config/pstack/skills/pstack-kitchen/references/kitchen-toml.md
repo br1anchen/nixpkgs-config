@@ -50,7 +50,7 @@ silently doing nothing.
 | `[verify]` | | |
 | `.routine_kind` | `"sidekick"` | who verifies a routine unit: a fresh pane of the sidekick's kind or the master's |
 | `.escalated_kind` | `"master"` | the same for an escalated unit |
-| `[landing].mode` | `"commit"` | how far the kitchen goes: `commit`, `branch` (push), `stack` (a linear stack of PRs), `pr`. It never merges |
+| `[landing].mode` | `"commit"` | how far the kitchen goes: `commit`, `branch` (push), `stack` (a linear stack of PRs), `pr`. It never merges. A stack landed by a push that rewrites its commits (a squash; `jj checked-push` of an spr stack, whose PRs sit on synthetic merge heads) leaves its PRs open: the landing brief closes each with a pointer to its landed commit |
 | `[coverage].ignore` | `[]` | globs `doctor` and `classify` treat as covered without a gate |
 | `[resources].max_parallel_heavy` | `1` | heavy gates running at once on this machine |
 | `[run].wrap` | `""` | a prefix the gates run inside, such as `nix develop --impure --command`, entered once per gate |
@@ -66,7 +66,13 @@ one. A pattern never matches a basename alone: `*.md` is top-level only,
 Each command runs with `bash -c` from the repo root; its output goes to a log
 under `${XDG_STATE_HOME:-~/.local/state}/pstack/kitchen/repos/<repo>/logs/`,
 and a failure prints the log's last 20 lines. A gate stops at its first
-failure. Every command sees `PSTACK_KITCHEN_STEP_BASE`, the commit the step or unit
+failure. A command that fails while the one-minute load is over one per core
+runs once more: a pass then counts, marked `flaky under load` in the step's
+output and counted by `retro` as `gate-flaky`, so a suite that only fails on
+a loaded machine shows up as that rather than as broken changes.
+`PSTACK_KITCHEN_RETRY_LOAD` sets the load per core (default `1.0`; `off` never
+reruns). Each gate also runs with its own short `TMPDIR` under `/tmp`, removed
+when it ends (`PSTACK_KITCHEN_GATE_TMP` moves it). Every command sees `PSTACK_KITCHEN_STEP_BASE`, the commit the step or unit
 is checked against, so an affected-only command covers every commit of a
 multi-commit step (`turbo run test --filter=...[$PSTACK_KITCHEN_STEP_BASE]`;
 give a fallback such as `${PSTACK_KITCHEN_STEP_BASE:-HEAD^1}` for runs

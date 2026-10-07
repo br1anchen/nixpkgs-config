@@ -312,6 +312,25 @@ class GateTests(KitchenTests):
         self.assertFalse(dead.exists())
         self.assertTrue(live.exists())
 
+    def test_a_failure_under_load_is_rerun_once_and_marked_flaky(self):
+        mark = Path(self.tmp.name) / 'ran-once'
+        self.write('.agents/kitchen.toml', KITCHEN.replace(
+            'fast = ["test -f src/app.py"]', f'fast = ["test -e {mark} || {{ touch {mark}; exit 1; }}"]'))
+        self.env['PSTACK_KITCHEN_RETRY_LOAD'] = '-1'
+        r = self.data('gate', 'app', 'fast')
+        c = r['commands'][0]
+        self.assertTrue(r['passed'])
+        self.assertTrue(c['flaky'])
+        self.assertEqual(c['retried']['first_exit'], 1)
+        self.assertTrue(Path(c['retried']['first_log']).exists())
+        mark.unlink()
+        out = self.run_kitchen('gate', 'app', 'fast')
+        self.assertIn('flaky under load: app fast', out)
+        self.assertIn('after exit 1', out)
+        mark.unlink()
+        self.env['PSTACK_KITCHEN_RETRY_LOAD'] = 'off'
+        self.assertNotIn('retried', self.data('gate', 'app', 'fast', code=2)['commands'][0])
+
     def test_gate_tmpdirs_default_to_slash_tmp(self):
         os.environ.pop('PSTACK_KITCHEN_GATE_TMP', None)
         self.assertEqual(kitchen.gate_tmp_base(), Path('/tmp'))
@@ -898,6 +917,73 @@ esac
         out = self.run_sh('wait', str(self.store), '--timeout', '1', '--max', '0', code=4)
         self.assertIn('running: sleep for 0m', out)
         self.assertNotIn('STALE', out)
+
+    def test_a_unit_rebased_onto_a_new_trunk_is_measured_from_it(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.write('docs/a.md', '# A\n')
+        self.commit('a, before the landing')
+        b = self.brief('001', 'docs', ['docs/**'])
+        self.dispatch(b)
+        # The stack lands as a squash; the unit goes on from the new trunk.
+        self.git('checkout', '-q', '-b', 'after-landing', init)
+        self.write('docs/a.md', '# A\n')
+        landed = self.commit('squash of the stack')
+        self.git('update-ref', 'refs/remotes/origin/main', landed)
+        self.write('docs/b.md', '# B\n')
+        head = self.commit('b, on the new trunk')
+        self.done(b, head)
+        out = self.run_sh('verify', str(self.store), '001')
+        self.assertIn("note: unit 001's recorded base", out)
+        self.assertIn(f'measuring from {landed[:9]}', out)
+        verdict = (self.store / 'verdicts/001-docs-v1.md').read_text()
+        self.assertIn(f'range: {landed[:9]}..{head[:9]}', verdict)
+        out = self.run_sh('verify', str(self.store), '001', '--base', init)
+        self.assertIn(f'range: {init[:9]}..{head[:9]}', (self.store / 'verdicts/001-docs-v2.md').read_text())
+
+    def test_land_check_reads_only_the_latest_review_round(self):
+        joo = self.store / 'joo'
+        joo.mkdir(exist_ok=True)
+        high = {'id': 'f-old', 'severity': 'high', 'status': 'actionable', 'filePath': 'a', 'line': 1, 'summary': 's'}
+        (joo / '001-util-r1.json').write_text(json.dumps({'findings': [high]}))
+        self.assertIn('unresolved: f-old', self.run_sh('land-check', str(self.store), code=2))
+        (joo / '001-util-r2.json').write_text(json.dumps({'findings': []}))
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn('land-check: pass', out)
+        self.assertIn('landing verification: none', out)
+
+    def test_a_pi_sidekick_that_exits_on_a_rate_limit_says_so(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        cwd = self.state()['cwd']
+        logs = Path(self.env['HOME']) / '.pi/agent/sessions' / ('--' + cwd.lstrip('/').replace('/', '-') + '--')
+        logs.mkdir(parents=True)
+        (logs / 's.jsonl').write_text(
+            '{"type":"message","message":{"role":"assistant","stopReason":"stop"}}\n'
+            '{"type":"message","message":{"role":"assistant","stopReason":"error",'
+            '"errorMessage":"Reached free model rate limit. Your limit will reset in 50 minutes (at 11:26 UTC)."}}\n')
+        (self.fake / 'agents/demo-sidekick').unlink()
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', '--max', '0', code=4)
+        self.assertIn('provider_error: the pi sidekick exited on: Reached free model rate limit', out)
+        self.assertIn(f'next: pair.sh failover {self.store} --reason exited', out)
+
+    def test_landing_verification_proves_the_stack_tip(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        self.git('update-ref', 'refs/remotes/origin/main', init)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        self.done(b, self.commit('util'))
+        self.assertIn('name no units', self.run_sh('verify', str(self.store), '001', '--landing', code=1))
+        out = self.run_sh('verify', str(self.store), '--landing')
+        self.assertIn('landing base: merge-base of remotes/origin/main and HEAD', out)
+        self.assertIn('verifier demo-verifier (claude)', out)
+        self.assertIn('status: clean', out)
+        packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
+        self.assertIn('units: landing', packet)
+        self.assertIn(str(b), packet)
+        self.assertIn('gate app behavioral', packet)
+        self.assertIn('landing verification: clean', self.run_sh('land-check', str(self.store), code=0))
 
     def test_rejected_verdict_drafts_the_fix_brief(self):
         _, out = self.verify_app_unit('reject', 2)

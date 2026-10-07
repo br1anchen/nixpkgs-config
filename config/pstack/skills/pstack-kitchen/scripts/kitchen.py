@@ -605,10 +605,17 @@ def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str
         for i, cmd in commands:
             log = log_dir / f'{profile}-{stage}-{i}.log'
             start = time.monotonic()
-            with open(log, 'w') as out:
-                code = subprocess.run(['bash', '-c', cmd], cwd=root, stdout=out, stderr=subprocess.STDOUT,
-                                      env={**os.environ, ROLE: role}, check=False).returncode
+            code = run_command(root, cmd, log, role)
             r = {'command': cmd, 'exit': code, 'seconds': round(time.monotonic() - start, 1), 'log': str(log)}
+            load = overloaded() if code != 0 else None
+            if load is not None:
+                # A suite that times out on a loaded machine is not a broken
+                # change: it gets one rerun, recorded as flaky when it passes.
+                first = log.with_name(f'{log.stem}.first.log')
+                log.rename(first)
+                code = run_command(root, cmd, log, role)
+                r.update(exit=code, seconds=round(time.monotonic() - start, 1),
+                         retried={'load': load, 'first_exit': r['exit'], 'first_log': str(first)}, flaky=code == 0)
             if code != 0:
                 r['tail'] = log.read_text(errors='replace').splitlines()[-20:]
             results.append(r)
@@ -624,6 +631,25 @@ def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str
     if result:
         result.write_text(json.dumps(out))
     return out
+
+
+def run_command(root: Path, cmd: str, log: Path, role: str) -> int:
+    with open(log, 'w') as out:
+        return subprocess.run(['bash', '-c', cmd], cwd=root, stdout=out, stderr=subprocess.STDOUT,
+                              env={**os.environ, ROLE: role}, check=False).returncode
+
+
+def overloaded() -> float | None:
+    """The one-minute load when it is over PSTACK_KITCHEN_RETRY_LOAD per core
+    (default 1.0; `off` never retries), else None."""
+    limit = os.environ.get('PSTACK_KITCHEN_RETRY_LOAD', '1.0')
+    if limit == 'off':
+        return None
+    try:
+        load = os.getloadavg()[0]
+    except OSError:
+        return None
+    return round(load, 1) if load > float(limit) * (os.cpu_count() or 1) else None
 
 
 ALLOW = re.compile(r'kitchen-allow:\s*([a-z0-9,\s-]+)')
@@ -901,7 +927,12 @@ def main(argv: list[str] | None = None) -> int:
                      + ('' if r['commands'] else ' (no commands)')]
             for x in r['commands']:
                 lines.append(f'  exit {x["exit"]} {x["seconds"]}s {x["command"]}  log: {x["log"]}')
+                if x.get('retried'):
+                    t = x['retried']
+                    lines.append(f'  retried at load {t["load"]} after exit {t["first_exit"]} (log: {t["first_log"]}): '
+                                 + ('passed' if x['flaky'] else 'failed again'))
                 lines += [f'    | {t}' for t in x.get('tail', [])]
+            lines += [f'flaky under load: {args.profile} {args.stage}' for x in r['commands'] if x.get('flaky')][:1]
             emit(r, args.json, '\n'.join(lines))
             return 0 if r['passed'] else 2
         if args.cmd == 'policy':

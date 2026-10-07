@@ -683,6 +683,22 @@ finish_wait() {
 
 provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up'
 
+# The error a pi agent stopped on, from its own session log: $1 the log herdr
+# reported, else the newest log in pi's session directory for cwd $2. Printed
+# only when the session's last assistant turn ended in an error, so a limit
+# pi recovered from is not reported. A pane that is gone still says why.
+agent_session_error() {
+	local f="$1" dir
+	if [ -z "$f" ] || [ ! -f "$f" ]; then
+		[ -n "${2:-}" ] || return 0
+		dir="$HOME/.pi/agent/sessions/--$(printf '%s' "${2#/}" | tr '/' '-')--"
+		f="$(ls -t "$dir"/*.jsonl 2>/dev/null | head -1 || true)"
+	fi
+	[ -n "$f" ] && [ -f "$f" ] || return 0
+	tail -n 200 "$f" | jq -r 'select(.message.role? == "assistant") | [.message.stopReason // "", .message.errorMessage // ""] | @tsv' 2>/dev/null |
+		tail -1 | awk -F '\t' '$1 == "error" && $2 != "" {print substr($2, 1, 240)}' || true
+}
+
 # A sidekick that settles without a report may have hit its model provider,
 # not the task: a capacity or auth error on screen, or an agent that exited.
 # Prints the evidence and the way out, failover when a fallback is recorded.
@@ -692,12 +708,19 @@ provider_hint() {
 	kind="$(field "$store" .sidekick.kind)"
 	fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
 	[ -n "$fallback" ] && [ "$fallback" != "$kind" ] || fallback=""
+	local logged=""
+	[ "$kind" != pi ] || logged="$(agent_session_error "" "$(field "$store" .cwd)")"
 	if [ "$(agent_status "$name")" = absent ]; then
-		printf 'provider_error: the %s sidekick exited\n' "$kind"
+		if [ -n "$logged" ]; then
+			printf 'provider_error: the %s sidekick exited on: %s\n' "$kind" "$logged"
+		else
+			printf 'provider_error: the %s sidekick exited\n' "$kind"
+		fi
 		[ -z "$fallback" ] || printf 'next: pair.sh failover %s --reason exited\n' "$store"
 		return 0
 	fi
 	line="$(grep -oiE ".{0,60}($provider_error_re).{0,60}" <<<"$(pane_text "$name")" | tail -1 || true)"
+	[ -n "$line" ] || line="$logged"
 	[ -n "$line" ] || return 0
 	printf 'provider_error: %s\n' "$line"
 	[ -z "$fallback" ] || printf 'next: prompt the sidekick once to continue; on a second provider error, pair.sh failover %s --reason provider-error\n' "$store"

@@ -82,6 +82,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      the verifier's kind yourself. `verify:missing` now means the verifier
      ended without a verdict and without a provider error: read the packet
      and the pane.
+   - A unit is measured from its dispatch head, but never from before where
+     its branch leaves trunk: a unit dispatched before a landing and then
+     rebased onto the new trunk is measured from there (`verify` and
+     `review` print a `note:` when they move the base). `--base REV` sets it
+     by hand on either.
    - `kitchen.sh review <store> <NNN>`. For each blocking finding, read it in
      context (`joo connected review context --artifact <artifact> --finding
      <id> --json`) and decide: `kitchen.sh resolve <store> <id> fixed "<commit
@@ -91,7 +96,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      you see otherwise. To read an artifact yourself, read `.findings[]`
      only: the blocking ones are `.findings[] | select((.severity ==
      "critical" or .severity == "high") and .status == "actionable")`, the
-     filter `review` uses. `notes[].comments[]` holds the reviewers' raw
+     filter `review` uses. A re-review of the same unit (`-r2`) replaces the
+     round before it: land-check counts only the latest round's findings. `notes[].comments[]` holds the reviewers' raw
      comments before triage, including ones triage dropped, so a recursive
      `jq '..'` over the file reports findings that are not there.
 7. **Review and accept.** With a clean verdict and no open blocking finding,
@@ -105,7 +111,12 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `kitchen.sh review <store> --landing` for the walkthrough and anything
    between units, then the landing brief. The landing review covers the stack
    from where it leaves trunk (origin's default branch, else main or master),
-   so a rebase never pulls trunk's commits into it; `--base <rev>` overrides. Its playbook (`opening-a-pr` or
+   so a rebase never pulls trunk's commits into it; `--base <rev>` overrides.
+   A squash or rebase step touches no profile, so before the landing brief,
+   `kitchen.sh verify <store> --landing` gives the stack tip a fresh verifier
+   of your kind: every behavioral gate the stack touches, from where it
+   leaves trunk, and the main flows its briefs describe. land-check reports
+   its result without requiring it. Its playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and
    lands.
 9. **Retro and close.** `kitchen.sh retro <store>`. For each class repeated
