@@ -24,7 +24,10 @@ is yours alone.
    arguments after `--` only when the human asked for them. The command splits
    a pane beside yours (with `--tab`, or `PSTACK_PLACEMENT=tab`, it opens a tab
    of its own instead), starts the agent, sends the bootstrap prompt, and
-   prints the ready report path. Read `reports/000-ready.md` and confirm branch
+   prints the ready report path. If the bootstrap prompt stalls, `spawn`
+   presses Enter when the text is typed in an idle agent's input and sends the
+   bootstrap once more when nothing was typed; it never sends keys to a blocked
+   agent, which is waiting on a dialog for the human. Read `reports/000-ready.md` and confirm branch
    and head match your framing before the first brief.
 4. **Design and plan together.** You drive the implementation design, the
    architecture, and the system design. Before any implementation brief, run
@@ -59,7 +62,10 @@ is yours alone.
    plan's path on the `plan:` line; dispatch refuses implementation playbooks
    without one. Put prior review findings in Context by path. A field you
    cannot fill is a unit you have not scoped, so scope it before dispatch.
-   Dispatch refuses a brief with unfilled placeholders.
+   Dispatch refuses a brief with unfilled placeholders. Scope takes one
+   repo-relative path or glob per line, written in full (never relative to the
+   line above); dispatch and queue refuse `a, b` on one line, and warn on an
+   entry that matches nothing. Put a path that contains a comma in backquotes.
 6. **Dispatch and check in.** `pair.sh dispatch <store> <brief> [--every MIN]`
    (`--send-only` returns once the brief is delivered; never wrap dispatch in
    a short `timeout`).

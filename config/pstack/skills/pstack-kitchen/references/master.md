@@ -24,8 +24,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `PSTACK_PLACEMENT=tab`) gives the sidekick, the consultant, and each
    verifier a tab of their own instead of a split. Read
    `reports/000-ready.md`.
-4. **Classify before you plan.** Draft the brief's Scope first and run
-   `kitchen.sh classify <store> <brief>`.
+4. **Classify before you plan.** Draft the brief's Scope first (one
+   repo-relative path or glob per line, in full; dispatch refuses `a, b` on
+   one line) and run `kitchen.sh classify <store> <brief>`.
    - **Routine:** no plan round. The brief is the plan, so make it precise:
      Steps of fifteen to thirty minutes that name the files and functions,
      Acceptance a script or command can check. The sidekick may run a cheaper
