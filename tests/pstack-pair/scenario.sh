@@ -278,7 +278,7 @@ status "demo-sidekick" idle devin
 run rotate "$store"
 # annotated may-write lines: paths with notes, comma lists, and a directory
 qa="$("$P" new-brief "$store" qscope)"; fill "$qa"; set_hdr "$qa" playbook investigation; set_hdr "$qa" plan none
-printf -- '\n## Scope\n\nmay write:\n- `b.txt` — the fixture, next to a.txt and docs/a.txt (new file)\n- docs/, notes.md (only a link)\n\nmust not write:\n- x\n' >>"$qa"
+printf -- '\n## Scope\n\nmay write:\n- `b.txt` — the fixture, next to a.txt and docs/a.txt (new file)\n- docs/ — only a link\n- notes.md — only a link\n\nmust not write:\n- x\n' >>"$qa"
 status "demo-sidekick" idle devin; : >"$FAKE/brief-working"
 run dispatch "$store" "$qa" --timeout 1000
 rm -f "$FAKE/brief-working"; status "demo-sidekick" idle devin

@@ -14,7 +14,7 @@ report: {{STORE}}/reports/{{SEQ}}-{{SLUG}}.md
 ## Scope
 
 may write:
-- {{path or glob, one per line; a note may follow after " — "}}
+- {{one repo-relative path or glob per line, in full (never relative to the line above); `quote` a path that contains a comma; a note may follow after " — "}}
 
 must not write:
 - {{path or glob}}

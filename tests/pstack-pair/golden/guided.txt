@@ -768,6 +768,7 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
 
 $ pair.sh dispatch <T>/state/pstack/pair-guided/demo <T>/state/pstack/pair-guided/demo/briefs/015-qglob.md --timeout 1000
+warning: Scope entry "**/*.nix" matches no file or directory in <T>/repo; is it relative to a neighbouring entry?
 state: working
 report: missing
 check-in: 015-qglob.md  elapsed <N>m of ?m
@@ -1919,7 +1920,8 @@ with the REPORT line it gives.
 
 may write:
 - `b.txt` — the fixture, next to a.txt and docs/a.txt (new file)
-- docs/, notes.md (only a link)
+- docs/ — only a link
+- notes.md — only a link
 
 must not write:
 - x

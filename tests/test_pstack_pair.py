@@ -491,6 +491,41 @@ class ReadinessTests(unittest.TestCase):
         out = self.wait(4)
         self.assertIn('touched: 2 files, 2 commits since dispatch', out)
 
+    def scoped_brief(self, name, *entries):
+        b = self.store / f'briefs/{name}.md'
+        b.write_text('playbook: investigation\nplan: none\ntimebox: 30\n\n## Scope\n\nmay write:\n'
+                     + ''.join(f'- {e}\n' for e in entries) + '\nmust not write:\n- x\n')
+        return b
+
+    def test_a_scope_line_listing_several_paths_is_refused_at_dispatch_and_queue(self):
+        b = self.scoped_brief('002-second', 'src/a.py, src/b.py', 'docs/ — fine, with a comma in its note')
+        for cmd in ('dispatch', 'queue'):
+            out = self.run_command(cmd, str(self.store), str(b), code=1)
+            self.assertIn('Scope takes one path or glob per line', out)
+            self.assertIn('- src/a.py, src/b.py', out)
+            self.assertNotIn('docs/', out.split('split these', 1)[1])
+
+    def test_quoted_paths_with_commas_or_spaces_stay_in_scope_in_the_digest(self):
+        self.scoped_brief('001-first', '`docs/a, b.toml` — note, with commas', 'my dir/file one.txt — a path with spaces',
+                          'src/ — the tree')
+        for f in ('docs/a, b.toml', 'my dir/file one.txt', 'src/x.py', 'other.txt'):
+            (self.cwd / f).parent.mkdir(parents=True, exist_ok=True)
+            (self.cwd / f).write_text('x')
+        out = self.wait(4)
+        self.assertIn('outside scope: 1\n  other.txt', out)
+
+    def test_an_entry_that_matches_nothing_warns_without_refusing(self):
+        (self.cwd / 'services/x').mkdir(parents=True)
+        (self.cwd / 'services/x/state.rs').write_text('x')
+        self.git('add', '-A')
+        self.git('commit', '-q', '-m', 'tree')
+        b = self.scoped_brief('002-second', 'services/x/state.rs', 'state/first_window.rs', 'services/x/new_file.rs',
+                              'services/x/*.rs', 'nowhere/*.rs')
+        out = self.run_command('queue', str(self.store), str(b))
+        self.assertIn('warning: Scope entry "state/first_window.rs" matches no file or directory', out)
+        self.assertIn('warning: Scope entry "nowhere/*.rs" matches no file or directory', out)
+        self.assertEqual(out.count('warning:'), 2)
+
     def test_a_future_mtime_does_not_keep_it_active(self):
         self.quiet_log()
         (self.cwd / 'f.txt').write_text('changed')

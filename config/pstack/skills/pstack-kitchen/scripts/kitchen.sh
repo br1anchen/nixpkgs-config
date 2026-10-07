@@ -120,9 +120,8 @@ set_header() {
 }
 
 scope_globs() {
-	# The brief's may-write lines, without their notes.
-	awk '/^## Scope/{s=1; next} /^## /{s=0} s && /^may write:/{m=1; next} s && /^must not write:/{m=0}
-		s && m && /^- /{sub(/^- /, ""); sub(/ — .*/, ""); gsub(/`/, ""); if ($0 != "") print}' "$1"
+	# The brief's may-write entries, without their notes.
+	scope_entries "$1" may
 }
 
 unit_brief() {

@@ -314,6 +314,75 @@ busy_command() {
 	[ -z "$best" ] || printf '%s for %dm' "$best" $((best_et / 60))
 }
 
+# A brief's Scope entries, one path or glob per line, for `may` (the
+# may write: list) or `mustnot` (must not write:). An entry is the text after
+# "- ", without a " — " annotation or a trailing "(...)" note; one pair of
+# surrounding backquotes is removed and what is inside is kept whole, commas and
+# spaces included. Braces are literal, as in kitchen.py's glob language. Every
+# consumer (the digest, the kitchen's classifier) reads Scope through this.
+scope_entries() {
+	awk -v want="$2" '
+		/^may write:/ { f = (want == "may"); next }
+		/^must not write:/ { f = (want == "mustnot"); next }
+		/^## / { f = 0 }
+		f && /^- / {
+			sub(/^- /, "")
+			if (substr($0, 1, 1) == "`") {
+				e = substr($0, 2); i = index(e, "`")
+				if (i > 0) e = substr(e, 1, i - 1)
+			} else {
+				e = $0; sub(/ +(—|–|--) .*$/, "", e); sub(/ +\(.*\)$/, "", e)
+			}
+			if (e != "") print e
+		}' "$1"
+}
+
+# Refuses a brief whose Scope has an unquoted entry listing several paths
+# ("a, b"): a guessed split could widen the Scope silently. Warns, without
+# refusing, on an entry that matches nothing in the repo, the usual sign of
+# a path written relative to its neighbour. $1 the brief, $2 the repo root.
+check_scope() {
+	local brief="$1" root="$2" bad e tracked
+	bad="$(awk '
+		/^may write:|^must not write:/ { f = 1; next }
+		/^## / { f = 0 }
+		f && /^- / {
+			sub(/^- /, "")
+			if (substr($0, 1, 1) == "`") next
+			e = $0; sub(/ +(—|–|--) .*$/, "", e); sub(/ +\(.*\)$/, "", e)
+			if (e ~ /, /) print "- " e
+		}' "$brief")"
+	[ -z "$bad" ] || die "$(basename "$brief"): Scope takes one path or glob per line; split these (a path with a comma goes in backquotes):
+$bad"
+	tracked="$(git -C "$root" ls-files -co --exclude-standard 2>/dev/null || true)"
+	while IFS= read -r e; do
+		[ -n "$e" ] || continue
+		scope_entry_exists "$root" "$e" "$tracked" ||
+			printf 'warning: Scope entry "%s" matches no file or directory in %s; is it relative to a neighbouring entry?\n' "$e" "$root" >&2
+	done < <(scope_entries "$brief" may)
+}
+
+# Whether a may-write entry names something that exists, or a new file in a
+# directory that does. A glob matches when a file does or its fixed directory
+# prefix exists.
+scope_entry_exists() {
+	local root="$1" e="$2" tracked="$3" prefix dir f
+	case "$e" in
+	*[*?[]*)
+		prefix="${e%%[*?[]*}"
+		dir="${prefix%/*}"
+		[ "$dir" != "$prefix" ] || dir=""
+		[ -z "$dir" ] || [ -d "$root/$dir" ] || return 1
+		while IFS= read -r f; do
+			# shellcheck disable=SC2254
+			case "$f" in $e) return 0 ;; esac
+		done <<<"$tracked"
+		[ -n "$dir" ] ;;
+	*/) [ -d "$root/$e" ] || [ -d "$root/$(dirname "${e%/}")" ] ;;
+	*) [ -e "$root/$e" ] || [ -d "$root/$(dirname "$e")" ] ;;
+	esac
+}
+
 # The repo's trunk: origin's default branch, else main or master; never the
 # checked-out branch itself. Prints the ref, or nothing.
 trunk_ref() {
@@ -350,6 +419,17 @@ range_floor() {
 	git -C "$root" merge-base --is-ancestor "$mb" "$tmb" 2>/dev/null || return 0
 	range_floor_note="recorded base ${base:0:9} is behind where its branch leaves ${trunk#refs/}; measuring from ${tmb:0:9}"
 	range_floor_rev="$tmb"
+}
+
+# Paths git status lists, one per line, unquoted (NUL-delimited, so a name
+# with a space or comma is a real path); a rename counts at its new path.
+status_paths() {
+	local entry skip=0
+	while IFS= read -r -d '' entry; do
+		if [ "$skip" -eq 1 ]; then skip=0; continue; fi
+		case "${entry:0:2}" in R* | C*) skip=1 ;; esac
+		printf '%s\n' "${entry:3}"
+	done < <(git -C "$1" status --porcelain=v1 -z --untracked-files=all 2>/dev/null)
 }
 
 # The newest sign of work in the sidekick's tree, as an epoch: the mtime of
@@ -433,7 +513,7 @@ checkin() {
 	fi
 	local -a touched=() may=() outside=()
 	mapfile -t touched < <({
-		git -C "$cwd" status --porcelain=v1 --untracked-files=all 2>/dev/null | cut -c4- | sed 's/.* -> //'
+		status_paths "$cwd"
 		[ -n "$head" ] && git -C "$cwd" diff --name-only "$head"..HEAD 2>/dev/null
 	} | sort -u)
 	local commits=0
@@ -441,20 +521,7 @@ checkin() {
 	[ -z "$floor_note" ] || printf 'note: %s\n' "$floor_note"
 	printf 'touched: %d files, %d commits since dispatch\n' "${#touched[@]}" "$commits"
 	[ "${#touched[@]}" -gt 0 ] && printf '  %s\n' "${touched[@]:0:30}"
-	# A may-write line is often annotated ("path — why", "path (new)", several
-	# paths separated by commas), so keep only its path-like tokens; a path
-	# ending in / covers everything under it.
-	mapfile -t may < <(awk '/^may write:/{f=1;next} /^must not write:|^## /{f=0}
-		f && /^- / {
-			sub(/^- /, ""); gsub(/`/, "")
-			# The note after " — " or " (" is prose, not paths.
-			sub(/ +(—|–|--) .*$/, ""); sub(/ +\(.*$/, "")
-			n = split($0, w, /[ ,]+/)
-			for (i = 1; i <= n; i++) {
-				t = w[i]; gsub(/[):;.]+$/, "", t)
-				if (t ~ /\// || t ~ /\*/ || t ~ /^[A-Za-z0-9_.-]+\.[A-Za-z0-9]+$/) { if (t ~ /\/$/) t = t "*"; print t }
-			}
-		}' "$brief")
+	mapfile -t may < <(scope_entries "$brief" may | sed 's#/$#/*#')
 	local f p ok
 	for f in "${touched[@]}"; do
 		ok=0
@@ -1477,6 +1544,7 @@ send_and_wait() {
 	# $1 store, $2 file, $3 message kind (PLAN|BRIEF|ANSWER), $4 timeout
 	local store="$1" file="$2" kind="$3" timeout="$4" name status out err code=0
 	require_filled "$file"
+	[ "$kind" != BRIEF ] || check_scope "$file" "$(field "$store" '.git_root // .cwd')"
 	require_fresh_session "$store"
 	name="$(field "$store" .sidekick.name)"
 	status="$(agent_status "$name")"
@@ -1699,6 +1767,7 @@ cmd_queue() {
 	brief="$(readlink -f "$brief")"
 	require_not_paused "$store"
 	require_filled "$brief"
+	check_scope "$brief" "$(field "$store" '.git_root // .cwd')"
 	require_agreed_plan "$store" "$brief"
 	queued="$(queued_brief "$store")"
 	[ -z "$queued" ] || [ "$queued" = "$brief" ] || [ "$replace" -eq 1 ] || die "the queue holds $queued; pass --replace to swap it" 5

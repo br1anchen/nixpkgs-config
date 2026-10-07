@@ -741,7 +741,7 @@ esac
                 line = 'timebox: 30'
             lines.append(line)
         text = '\n'.join(lines) + '\n'
-        text = text.replace('- {{path or glob, one per line; a note may follow after " — ". The kitchen classifies the unit from these lines.}}',
+        text = text.replace('- {{one repo-relative path or glob per line, in full (never relative to the line above); `quote` a path that contains a comma; a note may follow after " — ". The kitchen classifies the unit from these lines.}}',
                             '\n'.join(f'- {g} — scope' for g in scope))
         text = re.sub(r'\{\{[^}]*\}\}', 'x', text, flags=re.DOTALL)
         path.write_text(text)
