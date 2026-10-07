@@ -70,7 +70,12 @@ is yours alone.
    Check-ins and steers), draft the next unit's brief and queue it (see
    Queueing), then `pair.sh wait <store> [--every MIN]` again. Exit 0 with
    `running:` means the sidekick already took the queued brief; review the
-   finished unit while it works. Exit 0 with `steps:` means steps landed that
+   finished unit while it works. A `done` report is shown only when it is
+   ready: no open blocking notes on its unit, and its `head:` contains the
+   unit's last recorded step. A report written earlier than that stays
+   withheld, and a wait that ends on it prints `report: <path> written but not
+   ready: <reason>` (wake reason `report:unready`); the sidekick is still
+   fixing, so read nothing yet and wait again. Exit 0 with `steps:` means steps landed that
    no note covers: read the range it prints (`git diff`), run `pair.sh new-note
    <store> <NNN>`, fill Blocking and Follow-ups, publish it with `pair.sh note
    <store> <draft>`, and wait again. The sidekick picks the note up at its next
@@ -133,9 +138,12 @@ Read a digest for direction only, in this order:
 3. `elapsed` past the timebox: decide now and log it. Either stop the unit so
    it reports `partial` with its verified steps committed, or extend the
    timebox once, with the reason. Never let it run on unexamined.
-4. `STALE`, no progress line for a whole interval: read the pane once with
-   `herdr agent read <name> --source visible --lines 40` to tell stuck from
-   quiet.
+4. `STALE`, no progress line for a whole interval and a quiet tree: read the
+   pane once with `herdr agent read <name> --source visible --lines 40` to tell
+   stuck from quiet. `editing: last change Nm ago` in its place means files or
+   HEAD changed within the interval: that is activity, not advancement, so the
+   timebox check above still applies, and a formatter or watcher can keep it
+   alive. `running: <command>` still comes first.
 
 Steer when the answer to "if the sidekick finishes as it is going, would my
 review say revise?" is yes and one sentence now saves a unit later. Do not

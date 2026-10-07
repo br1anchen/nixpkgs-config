@@ -54,7 +54,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    separate `rotate` call; after partial or blocked work it keeps its
    session. A log that has gone quiet is not flagged stale while a command
    the sidekick started since its last line still runs in its tree; the
-   digest shows `running: <command> for Nm` instead.
+   digest shows `running: <command> for Nm` instead, or `editing: last change
+   Nm ago` while files or HEAD changed within the interval (activity, not
+   advancement; the timebox still applies). A done report that `finish` would
+   refuse (open blocking notes, or a head older than the last recorded step)
+   does not wake you; a wait that ends on one says `written but not ready`.
 6. **On a done report:** verify, then review.
    - `kitchen.sh verify <store> <NNN>`. It returns every nine minutes with
      the verifier's progress (exit 4) while the verifier works on: do other
