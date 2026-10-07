@@ -4,3 +4,4 @@
 
 # nix build out-link
 result
+__pycache__/

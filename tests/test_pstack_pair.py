@@ -21,7 +21,8 @@ skills = root / 'config/pstack/skills'
 
 class PairScriptTests(unittest.TestCase):
     def check(self, variant):
-        out = subprocess.run([here / 'scenario.sh', skills, variant], capture_output=True, text=True, check=True).stdout
+        env = {k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}
+        out = subprocess.run([here / 'scenario.sh', skills, variant], env=env, capture_output=True, text=True, check=True).stdout
         golden = here / 'golden' / f'{variant}.txt'
         if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
             golden.write_text(out)
@@ -46,7 +47,7 @@ class DevinSessionTests(unittest.TestCase):
         self.fake.mkdir()
         self.repo = self.path / 'repo'
         self.repo.mkdir()
-        self.env = {**os.environ, 'FAKE': str(self.fake),
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake),
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0'}
@@ -223,7 +224,7 @@ class PiSidekickTests(unittest.TestCase):
         repo = self.path / 'repo'
         repo.mkdir()
         self.cwd = repo
-        self.env = {**os.environ, 'FAKE': str(self.fake),
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake),
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0',

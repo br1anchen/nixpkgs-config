@@ -85,9 +85,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      `[verifier]` (routine, default the current sidekick) or
      `[verifier.escalated]` (default Claude Opus); the repo no longer
      chooses. `--kind KIND` picks the verifier's kind yourself, with the
-     matching entry's arguments when its class names that kind. `verify:missing` now means the verifier
-     ended without a verdict and without a provider error: read the packet
-     and the pane.
+     matching entry's arguments when its class names that kind.
+     `verify:missing` now means the verifier ended without a verdict and
+     without a provider error: read the packet and the pane.
    - A unit is measured from its dispatch head, but never from before where
      its branch leaves trunk: a unit dispatched before a landing and then
      rebased onto the new trunk is measured from there (`verify` and
