@@ -48,8 +48,7 @@ silently doing nothing.
 | `.max_batch_diff` | `800` | a batch over this many diff lines verifies per unit instead |
 | `.routine` / `.escalated` / `.landing` | `standard`/4, `thorough`/8, `quick`/4 | `style` (quick, standard, thorough), `budget` (joo execution budget), `second_reviewer`, `walkthrough` (default only for landing) |
 | `[verify]` | | |
-| `.routine_kind` | `"sidekick"` | who verifies a routine unit: a fresh pane of the sidekick's kind or the master's |
-| `.escalated_kind` | `"master"` | the same for an escalated unit |
+| `.routine_kind`, `.escalated_kind` | unset | moved to the host roster's `[verifier]` and `[verifier.escalated]`; still parsed, ignored, and `validate` and `doctor` warn on stderr while the file sets them |
 | `[landing].mode` | `"commit"` | how far the kitchen goes: `commit`, `branch` (push), `stack` (a linear stack of PRs), `pr`. It never merges. A stack landed by a push that rewrites its commits (a squash; `jj checked-push` of an spr stack, whose PRs sit on synthetic merge heads) leaves its PRs open: the landing brief closes each with a pointer to its landed commit |
 | `[coverage].ignore` | `[]` | globs `doctor` and `classify` treat as covered without a gate |
 | `[resources].max_parallel_heavy` | `1` | heavy gates running at once on this machine |

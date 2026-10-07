@@ -78,8 +78,14 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    - A verifier that hits its provider (a rate limit, an outage) writes no
      verdict. `verify` reports `inconclusive` with the provider's error,
      including when the limit resets, and a routine unit verifies again on
-     the roster's sidekick fallback in the same call. `--kind KIND` picks
-     the verifier's kind yourself. `verify:missing` now means the verifier
+     the verifier's fallback in the same call (the roster's
+     `[verifier.fallback]`, else the sidekick's), once, and only when the
+     fallback is a different kind from the one that failed. Escalated units
+     have no fallback by default. The verifier comes from the host roster's
+     `[verifier]` (routine, default the current sidekick) or
+     `[verifier.escalated]` (default Claude Opus); the repo no longer
+     chooses. `--kind KIND` picks the verifier's kind yourself, with the
+     matching entry's arguments when its class names that kind. `verify:missing` now means the verifier
      ended without a verdict and without a provider error: read the packet
      and the pane.
    - A unit is measured from its dispatch head, but never from before where
@@ -114,7 +120,7 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    so a rebase never pulls trunk's commits into it; `--base <rev>` overrides.
    A squash or rebase step touches no profile, so before the landing brief,
    `kitchen.sh verify <store> --landing` gives the stack tip a fresh verifier
-   of your kind: every behavioral gate the stack touches, from where it
+   of the escalated class: every behavioral gate the stack touches, from where it
    leaves trunk, and the main flows its briefs describe. land-check reports
    its result without requiring it. Its playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and

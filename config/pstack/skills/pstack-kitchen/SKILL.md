@@ -40,9 +40,24 @@ differs.
    kind = "devin"
    [consultant]
    kind = "codex"
+   [verifier]            # routine units; default: the run's current sidekick
+   kind = "pi"
+   args = ["--model", "devin/swe-2", "--thinking", "high"]
+   [verifier.fallback]   # a verifier stopped by its provider retries once here
+   kind = "claude"
+   args = ["--model", "claude-sonnet-5-5"]
+   [verifier.escalated]  # escalated units and --landing; default: claude opus
+   kind = "claude"
+   args = ["--model", "claude-opus-5-5"]
    [machine]
    gate_slots = 1   # gates running at once across every kitchen on this host
    ```
+
+   Without `[verifier]`, a routine unit is verified by the sidekick now
+   implementing the run (its kind and arguments from `pair.json`, so after a
+   failover it is the fallback), and an escalated unit or `verify --landing`
+   by `claude --model claude-opus-5-5` with no fallback. `kind = "master"`
+   in either entry means the master's own kind.
 
    Every gate takes one of the machine's slots, so parallel kitchens queue
    their test suites instead of overloading the machine. The default is one
@@ -55,7 +70,7 @@ worth most.
 
 | | Master | Sidekick | Consultant | Verifier |
 | --- | --- | --- | --- | --- |
-| Agent | the strongest model | the largest, cheapest pool | a different strong model, the scarcest | the sidekick's kind (routine) or the master's (escalated) |
+| Agent | the strongest model | the largest, cheapest pool | a different strong model, the scarcest | the host roster's `[verifier]`: the sidekick's kind (routine) or Claude Opus (escalated) |
 | Lives | the whole run | the whole run, rotated or failed over | from the first escalation | one verification, then its pane closes |
 | Owns | plans, briefs, review triage, decisions, the human | the working tree, steps, fixes | design critique | the verdict |
 | Writes | the store | the brief's Scope | advice, scratch | its verdict, in a scratch worktree |
