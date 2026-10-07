@@ -291,12 +291,34 @@ progress_path() {
 	printf '%s/progress/%s.md\n' "$1" "$(basename "$brief" .md)"
 }
 
+# A quiet progress log is not stale while a command the sidekick started
+# after its last line still runs (a ten-minute test suite). The sidekick's
+# processes are the ones carrying its pane's HERDR_PANE_ID, which a detached
+# gate inherits too; the master's own commands carry the master's. Prints the
+# longest-running one, preferring a command over the shell that runs it, and
+# its age; or nothing. Linux only.
+busy_command() {
+	local pane="$1" since="$2" now pid et comm best="" best_et=0 shell="" shell_et=0
+	[ -n "$pane" ] && [ -d /proc ] || return 0
+	now="$(date +%s)"
+	while read -r pid et comm; do
+		[ $((now - et)) -gt "$since" ] || continue
+		grep -qxF "HERDR_PANE_ID=$pane" < <(tr '\0' '\n' 2>/dev/null <"/proc/$pid/environ") || continue
+		case "$comm" in
+		bash | sh | zsh | dash | fish) [ "$et" -le "$shell_et" ] || { shell_et="$et"; shell="$comm"; } ;;
+		*) [ "$et" -le "$best_et" ] || { best_et="$et"; best="$comm"; } ;;
+		esac
+	done < <(ps -u "$(id -u)" -o pid=,etimes=,comm= 2>/dev/null)
+	[ -n "$best" ] || { best="$shell"; best_et="$shell_et"; }
+	[ -z "$best" ] || printf '%s for %dm' "$best" $((best_et / 60))
+}
+
 # Check-in digest for a sidekick still working at the interval: elapsed against
 # the timebox, progress lines not yet shown, files touched against the brief's
 # Scope, commits since dispatch, and steer counts. Bounded, so the master can
 # poll it cheaply instead of reading the pane. $2 is the interval in minutes.
 checkin() {
-	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale timebox elapsed_m now
+	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale busy timebox elapsed_m now
 	brief="$(field "$store" '.dispatch.brief // empty')"
 	[ -n "$brief" ] && [ -f "$brief" ] || return 0
 	at="$(field "$store" '.dispatch.at // empty')"
@@ -316,7 +338,10 @@ checkin() {
 		new=$((total - seen))
 		age_m=$(( (now - $(stat -c %Y "$prog")) / 60 ))
 		stale=""
-		[ "$age_m" -ge "$interval" ] && stale="  STALE"
+		if [ "$age_m" -ge "$interval" ]; then
+			busy="$(busy_command "$(field "$store" '.sidekick.pane_id // empty')" "$(stat -c %Y "$prog")")"
+			if [ -n "$busy" ]; then stale="  running: $busy"; else stale="  STALE"; fi
+		fi
 		printf 'progress: +%d lines (last %dm ago)%s\n' "$new" "$age_m" "$stale"
 		tail -n "+$((seen + 1))" "$prog" | tail -n 20 | sed 's/^/  /'
 		printf '%s\n' "$total" >"$prog.seen"
@@ -594,8 +619,14 @@ finish_wait() {
 	local store="$1" code="$2" out="$3" err="$4" mode="$5" report="${6:-}" state
 	if [ "$code" -ne 0 ]; then
 		state="$(printf '%s' "$err" | jq -r '.error.code // .error // "herdr_error"' 2>/dev/null || printf 'herdr_error')"
+		# A wait that ran out its interval is not an error: report the
+		# sidekick's state, without herdr's timeout payload.
+		if [ "$state" = timeout ]; then
+			state="$(agent_status "$(field "$store" .sidekick.name)")"
+		else
+			printf '%s\n' "$err" >&2
+		fi
 		printf 'state: %s\n' "$state"
-		printf '%s\n' "$err" >&2
 	else
 		state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
 		printf 'state: %s\n' "$state"

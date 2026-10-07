@@ -134,8 +134,7 @@ report_status: done
   herdr agent get demo-sidekick
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/003-build.md --timeout 1500
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 003-build.md  elapsed <N>m of 30m
 progress: none yet
@@ -155,8 +154,7 @@ $ pair.sh progress <T>/state/pstack/pair/demo step one done; next: two
 [exit 0]
 
 $ pair.sh wait <T>/state/pstack/pair/demo --timeout 1500
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 003-build.md  elapsed <N>m of 30m
 progress: +1 lines (last <N>m ago)  STALE
@@ -172,8 +170,7 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
 
 $ pair.sh wait <T>/state/pstack/pair/demo --timeout 1500
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 003-build.md  elapsed <N>m of 30m
 progress: +0 lines (last <N>m ago)  STALE
@@ -280,8 +277,7 @@ pair.sh: sidekick demo-sidekick is idle; dispatch instead: pair.sh dispatch <T>/
   herdr agent read demo-sidekick --source visible --lines 40
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/004-qone.md --timeout 1000
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 004-qone.md  elapsed <N>m of ?m
 progress: none yet
@@ -447,8 +443,7 @@ queue cleared
 [exit 0]
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/009-qseven.md --timeout 1000
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 009-qseven.md  elapsed <N>m of ?m
 progress: none yet
@@ -469,8 +464,7 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
 
 $ pair.sh wait <T>/state/pstack/pair/demo --timeout 1500
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 009-qseven.md  elapsed <N>m of ?m
 progress: none yet
@@ -486,8 +480,7 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/010-qeight.md --timeout 1000
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 010-qeight.md  elapsed <N>m of ?m
 progress: none yet
@@ -547,8 +540,7 @@ next: review the range, then pair.sh new-note <T>/state/pstack/pair/demo 012
   herdr agent get demo-sidekick
 
 $ pair.sh wait <T>/state/pstack/pair/demo --timeout 1500
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 012-qsteps.md  elapsed <N>m of ?m
 progress: +1 lines (last <N>m ago)  STALE
@@ -706,8 +698,7 @@ ready: <T>/state/pstack/pair/demo/reports/000-ready.md
   herdr agent prompt demo-sidekick Load the pstack-pair skill from ~/.agents/skills/pstack-pair/SKILL.md and take the sidekick role (generation 2, pane p1). Pair store: <T>/state/pstack/pair/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/013-qscope.md --timeout 1000
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 013-qscope.md  elapsed <N>m of ?m
 progress: none yet
@@ -727,8 +718,7 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/014-qglob.md --timeout 1000
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: missing
 check-in: 014-qglob.md  elapsed <N>m of ?m
 progress: none yet
@@ -863,8 +853,7 @@ report_status: partial
 
 $ pair.sh stop <T>/state/pstack/pair/demo --timeout 3000
 sidekick: STOP never showed in the pane; sent one Enter as a fallback
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: <T>/state/pstack/pair/demo/reports/015-same-second.md
 report_status: partial
 [exit 0]
@@ -885,8 +874,7 @@ report_status: partial
 
 $ pair.sh stop <T>/state/pstack/pair/demo --timeout 3000
 sidekick: STOP never showed in the pane; sent one Enter as a fallback
-state: timeout
-{"error":{"code":"timeout"}}
+state: working
 report: <T>/state/pstack/pair/demo/reports/015-bus-stop.md
 report_status: partial
 [exit 0]

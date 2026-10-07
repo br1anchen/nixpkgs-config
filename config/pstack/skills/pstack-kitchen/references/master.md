@@ -49,7 +49,12 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `dispatch` in a short `timeout`: when you need the call back at once, pass
    `--send-only`, which returns as soon as the brief is delivered, then wait.
    Delivery itself ignores TERM, so a killed dispatch never leaves a brief
-   recorded but unsent.
+   recorded but unsent. A pi or Devin sidekick whose last unit is done is
+   rotated by `dispatch` itself (`rotated:` in its output), so there is no
+   separate `rotate` call; after partial or blocked work it keeps its
+   session. A log that has gone quiet is not flagged stale while a command
+   the sidekick started since its last line still runs in its tree; the
+   digest shows `running: <command> for Nm` instead.
 6. **On a done report:** verify, then review.
    - `kitchen.sh verify <store> <NNN>`. It returns every nine minutes with
      the verifier's progress (exit 4) while the verifier works on: do other
@@ -67,13 +72,28 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      re-verify the rejected unit at its own head. A second rejection, an
      `inconclusive`, or an `invalid` verdict is yours: read the verdict and
      the unit before anything else.
+   - The verifier's deadline defaults to three times the slowest recent
+     passing run of the unit's behavioral gates (`kitchen.py timing`), and
+     never less than 45 minutes; `--timeout MIN` overrides it.
+   - A verifier that hits its provider (a rate limit, an outage) writes no
+     verdict. `verify` reports `inconclusive` with the provider's error,
+     including when the limit resets, and a routine unit verifies again on
+     the roster's sidekick fallback in the same call. `--kind KIND` picks
+     the verifier's kind yourself. `verify:missing` now means the verifier
+     ended without a verdict and without a provider error: read the packet
+     and the pane.
    - `kitchen.sh review <store> <NNN>`. For each blocking finding, read it in
      context (`joo connected review context --artifact <artifact> --finding
      <id> --json`) and decide: `kitchen.sh resolve <store> <id> fixed "<commit
      or brief>"`, `followup "<why it can wait>"`, or `dismissed "<why it is
      wrong>"`. Fixes go to the sidekick as a brief, queued behind its running
      unit when it is busy. Medium and lower findings are follow-ups unless
-     you see otherwise.
+     you see otherwise. To read an artifact yourself, read `.findings[]`
+     only: the blocking ones are `.findings[] | select((.severity ==
+     "critical" or .severity == "high") and .status == "actionable")`, the
+     filter `review` uses. `notes[].comments[]` holds the reviewers' raw
+     comments before triage, including ones triage dropped, so a recursive
+     `jq '..'` over the file reports findings that are not there.
 7. **Review and accept.** With a clean verdict and no open blocking finding,
    write `reviews/NNN-<slug>.md` from the pair's review template, reading the
    report's `review-delta` and the verdict, not the whole diff. When

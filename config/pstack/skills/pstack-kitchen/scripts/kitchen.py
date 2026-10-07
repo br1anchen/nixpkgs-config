@@ -542,11 +542,43 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
         tmp = tempfile.mkdtemp(prefix=f'kg-{os.getpid()}-', dir=base)
         os.environ['TMPDIR'] = tmp
     try:
-        return _run_gate(root, kitchen, p, profile, stage, commands, log_dir, keep_going, only, result, role,
-                         inside, wrap)
+        out = _run_gate(root, kitchen, p, profile, stage, commands, log_dir, keep_going, only, result, role,
+                        inside, wrap)
     finally:
         if tmp:
             shutil.rmtree(tmp, ignore_errors=True)
+    if commands and not inside and only is None:
+        record_timing(root, profile, stage, role, out)
+    return out
+
+
+TIMINGS = 'timings.tsv'
+
+
+def record_timing(root: Path, profile: str, stage: str, role: str, g: dict) -> None:
+    """One row per whole gate run, so verify can size its timeout."""
+    secs = round(sum(c['seconds'] for c in g['commands']), 1)
+    row = [str(int(time.time())), profile, stage, role, 'pass' if g['passed'] else 'fail', str(secs)]
+    try:
+        with open(state_dir(root) / TIMINGS, 'a') as f:
+            f.write('\t'.join(row) + '\n')
+    except OSError:
+        pass
+
+
+def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> dict:
+    """The slowest of each profile's last passing runs of a stage, and their sum:
+    a verifier runs the profiles one after another."""
+    runs: dict[str, list[float]] = {p: [] for p in profiles}
+    path = state_dir(root) / TIMINGS
+    if path.exists():
+        for line in path.read_text().splitlines():
+            f = line.split('\t')
+            if len(f) == 6 and f[1] in runs and f[2] == stage and f[4] == 'pass':
+                runs[f[1]].append(float(f[5]))
+    slowest = {p: max(r[-last:]) for p, r in runs.items() if r}
+    return {'stage': stage, 'profiles': slowest, 'seconds': round(sum(slowest.values()), 1),
+            'unmeasured': [p for p in profiles if p not in slowest]}
 
 
 def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str, commands: list, log_dir: Path,
@@ -818,6 +850,9 @@ def main(argv: list[str] | None = None) -> int:
     rs.add_argument('cls', choices=('routine', 'escalated', 'landing'))
     sub.add_parser('roster', help='the host roster: which agents fill the roles (no repo needed)')
     sub.add_parser('statedir', help="this repo's kitchen state directory")
+    t = sub.add_parser('timing', help="the slowest recent passing run of each profile's stage, and their sum")
+    t.add_argument('profiles', nargs='*')
+    t.add_argument('--stage', choices=STAGES, default='behavioral')
     args = ap.parse_args(argv)
 
     if args.cmd == 'roster':
@@ -827,6 +862,12 @@ def main(argv: list[str] | None = None) -> int:
             print(state_dir(repo_root(args.repo)))
             return 0
         root = repo_root(args.repo)
+        if args.cmd == 'timing':
+            r = gate_timing(root, args.profiles, args.stage)
+            emit(r, args.json, f'{args.stage}: {r["seconds"]}s'
+                 + ''.join(f'\n  {p} {s}s' for p, s in r['profiles'].items())
+                 + (f'\n  unmeasured: {", ".join(r["unmeasured"])}' if r['unmeasured'] else ''))
+            return 0
         kitchen = load(root, args.at, args.config)
         INVOCATION[:] = ['--repo', str(root)] + (['--config', args.config] if args.config else []) \
             + (['--at', args.at] if args.at else [])

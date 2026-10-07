@@ -116,4 +116,5 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `resolutions.tsv` | master via `kitchen.sh resolve` | one decision per finding |
 | `pair.json` `.escalations` | `kitchen.sh consultant` | why the consultant was started |
 
-The repo's ledger, across runs, is `ledger.tsv` in `kitchen.py statedir`.
+The repo's ledger, across runs, is `ledger.tsv` in `kitchen.py statedir`; `timings.tsv` beside it
+records each gate's run time, which `kitchen.py timing` reads.

@@ -7,6 +7,7 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import time
 import unittest
 from pathlib import Path
 
@@ -488,7 +489,12 @@ Load*VERIFY*)
   units="$(sed -n 's/^units: //p' "$packet")"
   mode="$(cat "$FAKE/verdict-mode" 2>/dev/null || echo clean)"
   [ "$mode" = slow ] && exit 0
-  status=clean; [ "$mode" = clean ] || status=reject
+  # ratelimit: a pi verifier stops on its provider and exits; another kind works.
+  if [ "$mode" = ratelimit ] && [ "$(cut -d' ' -f2 "$FAKE/agents/$1")" = pi ]; then
+    printf '{{"type":"message","message":{{"role":"assistant","stopReason":"error","errorMessage":"Reached free model rate limit. Your limit will reset in 50 minutes (at 11:26 UTC)."}}}}\n' >>"$(cat "$FAKE/sessions/$1")"
+    rm -f "$FAKE/agents/$1"; exit 0
+  fi
+  case "$mode" in clean | ratelimit) status=clean ;; *) status=reject ;; esac
   {{ printf '# Verdict\\n\\nstatus: %s\\nunits: %s\\n\\n## Findings\\n\\n' "$status" "$units"
      [ "$status" = reject ] && printf '1. Acceptance broke: add returns 0\\n'
      printf '\\n## Evidence\\n\\n'
@@ -816,6 +822,82 @@ esac
         self.assertNotIn('verifying', json.loads((self.store / 'pair.json').read_text()))
         self.assertEqual(list((self.store / 'scratch').iterdir()), [])
         self.assertIn('no verification is open', self.run_sh('verify', str(self.store), '--wait', code=5))
+
+    def rate_limited_verifier(self):
+        session = Path(self.tmp.name) / 'pi-session.jsonl'
+        session.write_text('{"type":"session"}\n')
+        (self.fake / 'sessions').mkdir()
+        (self.fake / 'sessions/demo-verifier').write_text(str(session))
+
+    def test_a_rate_limited_verifier_says_so_and_retries_on_the_fallback(self):
+        self.rate_limited_verifier()
+        _, out = self.verify_app_unit('ratelimit', 0)
+        self.assertIn('status: inconclusive (the verifier hit its provider', out)
+        self.assertIn('provider_error: Reached free model rate limit. Your limit will reset in 50 minutes', out)
+        self.assertIn('retry: verifying again on the fallback, devin', out)
+        self.assertIn('verifier demo-verifier (devin)', out)
+        self.assertIn('status: clean\n', out)
+        starts = [line for line in (self.fake / 'calls.log').read_text().splitlines()
+                  if line.startswith('agent start demo-verifier')]
+        self.assertEqual(len(starts), 2)
+        self.assertIn('--kind devin', starts[1])
+        self.assertNotIn('devin/swe-2', starts[1])
+        self.assertIn('verify:provider', (self.store / 'events.tsv').read_text())
+
+    def test_a_rate_limited_verifier_without_a_fallback_is_inconclusive(self):
+        state = self.state()
+        del state['sidekick']['fallback']
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.rate_limited_verifier()
+        _, out = self.verify_app_unit('ratelimit', 2)
+        self.assertIn('provider_error: Reached free model rate limit', out)
+        self.assertIn(f'next: wait for the limit, or kitchen.sh verify {self.store} 001 --kind <another kind>', out)
+        self.assertNotIn('verify:missing', (self.store / 'events.tsv').read_text())
+
+    def test_verify_deadline_scales_with_measured_gate_time(self):
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
+                                        env=self.env, capture_output=True, text=True, check=True).stdout.strip())
+        (state_dir / 'timings.tsv').write_text('1\tapp\tbehavioral\tverifier\tpass\t1190.5\n'
+                                               '2\tapp\tbehavioral\tverifier\tfail\t9000\n')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 7\n')
+        self.write('tests/test_app.py', 'x = 7\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        v = self.state()['verifying']
+        self.assertEqual(v['deadline'] - v['started'], 60 * 60)
+
+    def test_dispatch_rotates_a_pi_sidekick_after_a_done_unit(self):
+        state = self.state()
+        state['sidekick']['rotation_required'] = True
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        out = self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.assertIn('rotated: the pi sidekick starts this brief in a fresh session', out)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertIn('agent prompt demo-sidekick /quit', calls)
+        self.assertFalse(self.state()['sidekick'].get('rotation_required'))
+
+    def test_a_running_command_is_not_a_stale_log(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        prog = self.store / 'progress' / b.name
+        prog.parent.mkdir(exist_ok=True)
+        prog.write_text('- started\n')
+        old = time.time() - 600
+        os.utime(prog, (old, old))
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', '--max', '0', code=4)
+        self.assertIn('STALE', out)
+        self.assertNotIn('"error"', out)
+        pane = self.state()['sidekick']['pane_id']
+        test = subprocess.Popen(['sleep', '30'], cwd=self.repo, env={**self.env, 'HERDR_PANE_ID': pane})
+        self.addCleanup(lambda: (test.kill(), test.wait()))
+        time.sleep(1.1)
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', '--max', '0', code=4)
+        self.assertIn('running: sleep for 0m', out)
+        self.assertNotIn('STALE', out)
 
     def test_rejected_verdict_drafts_the_fix_brief(self):
         _, out = self.verify_app_unit('reject', 2)

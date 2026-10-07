@@ -17,7 +17,10 @@ case "$1 $2" in
 	printf 'idle claude\n' >"$FAKE/agents/$4"; printf '%s' "$4" >"$FAKE/panes/$3"; ok idle claude ;;
 "agent get")
 	n="$(resolve "$3")"; s="$(status_of "$n")" || { printf '{"error":{"code":"not_found"}}\n' >&2; exit 1; }
-	ok "$s" "$(kind_of "$n")" ;;
+	# $FAKE/sessions/<name>: the agent's session log path, as herdr reports pi's.
+	if [ -s "$FAKE/sessions/$n" ]; then
+		printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","agent_session":{"kind":"path","value":"%s"}}}}\n' "$s" "$(kind_of "$n")" "$(cat "$FAKE/sessions/$n")"
+	else ok "$s" "$(kind_of "$n")"; fi ;;
 "agent start")
 	name="$3"; kind=""; shift 3
 	while [ $# -gt 0 ]; do case "$1" in --kind) kind="$2"; shift 2 ;; --pane) printf '%s' "$name" >"$FAKE/panes/$2"; shift 2 ;; --) break ;; *) shift ;; esac; done

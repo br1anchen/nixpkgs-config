@@ -48,11 +48,13 @@ consult, advice. These differ or are new:
                                             sidekick: run the touched profiles' fast gates and policy on the
                                             step's commits, then record it; exit 2 when they fail. The checks run
                                             detached: exit 4 "still running" after ~2 minutes, run it again to wait
-  verify <store> <NNN>... [--covers NNN]... [--every MIN] [--timeout MIN]
+  verify <store> <NNN>... [--covers NNN]... [--every MIN] [--timeout MIN] [--kind KIND]
                                             verify one unit, or several as a batch, or a fix with the unit it
                                             fixes (--covers): gates only, or a fresh verifier in a scratch
                                             worktree at the head; returns at the interval with its progress
-                                            (exit 4), and with the verdict and whether to audit when it lands
+                                            (exit 4), and with the verdict and whether to audit when it lands.
+                                            A verifier stopped by its provider is retried on the sidekick's
+                                            fallback; the deadline defaults to 3x the measured gate time
   verify <store> --wait [--every MIN]       wait again for the open verification: exit 4 while it runs, 5 when none
                                             is open
   revise <store> <verdict-path>             draft the fix brief for a rejected verdict
@@ -335,6 +337,17 @@ cmd_dispatch() {
 	fi
 	local -a waitargs=() sendargs=()
 	local a rc=0 out
+	# A sidekick that starts fresh per brief (pi, devin) is rotated here once
+	# its last unit is done, so the rotation costs the master no extra wake.
+	# Partial or blocked work never sets rotation_required and keeps its session.
+	if fresh_per_brief "$(field "$1" .sidekick.kind)" && [ "$(field "$1" '.sidekick.rotation_required // false')" = true ]; then
+		# The report lands a moment before the sidekick's turn ends.
+		herdr agent wait "$(field "$1" .sidekick.name)" --until idle --until "done" --timeout 60000 >/dev/null 2>&1 || true
+		out="$(cmd_rotate "$1" 2>&1)" || rc=$?
+		[ "$rc" -eq 0 ] || die "rotating the sidekick before this brief failed:
+$out" "$rc"
+		printf 'rotated: the %s sidekick starts this brief in a fresh session\n' "$(field "$1" .sidekick.kind)"
+	fi
 	for a in "${@:3}"; do waitargs+=("$a"); done
 	# --max belongs to the quiet wait, not to the pair's dispatch.
 	set -- "$1" "$2"
@@ -488,13 +501,15 @@ audit_due() {
 # open verification lives in pair.json .verifying, one at a time.
 cmd_verify() {
 	in_herdr
-	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--every MIN] [--timeout MIN] | kitchen.sh verify <store> --wait [--every MIN]"
-	local store="$1" timeout_m=45 every_m=9 wait=0 units=()
+	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--every MIN] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --wait [--every MIN]"
+	local store="$1" timeout_m="" every_m=9 wait=0 units=() kind_override=""
+	local -a argv=("${@:2}")
 	covered=()
 	shift
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--timeout) timeout_m="$2"; shift 2 ;;
+		--kind) kind_override="$2"; shift 2 ;;
 		--every) every_m="$2"; shift 2 ;;
 		--covers) covered+=("$2"); shift 2 ;;
 		--wait) wait=1; shift ;;
@@ -542,9 +557,21 @@ cmd_verify() {
 		printf 'verdict: %s\nstatus: clean (gates only; mode gates)\n' "$verdict"
 		exit 0
 	fi
+	# The default deadline is three times the slowest recent passing run of
+	# the profiles' behavioral gates, and never under 45 minutes.
+	if [ -z "$timeout_m" ]; then
+		local measured
+		# shellcheck disable=SC2046
+		measured="$(kpy "$store" --json timing --stage behavioral $(jq -r '.behavioral[]' <<<"$json") | jq '.seconds | ceil')"
+		timeout_m=$(( (measured * 3 + 59) / 60 ))
+		[ "$timeout_m" -ge 45 ] || timeout_m=45
+	fi
 	local kind name pane anchor scratch_id scratch new_pane_id
 	local -a args=()
-	if [ "$role" = sidekick ]; then
+	if [ -n "$kind_override" ]; then
+		kind="$kind_override"
+		mapfile -t args < <(verifier_args "$store" "$kind")
+	elif [ "$role" = sidekick ]; then
 		kind="$(field "$store" .sidekick.kind)"
 		mapfile -t args < <(jq -r '.sidekick.start_args[]?' "$store/pair.json")
 	else
@@ -591,10 +618,13 @@ cmd_verify() {
 		--arg brief "$brief" --arg scratch "$scratch_id" --arg units "${all[*]}" --arg risk "$risk" \
 		--argjson sample "$(jq .sample <<<"$json")" --arg unit "$last-$slug" \
 		--argjson started "$(date +%s)" --argjson deadline "$(( $(date +%s) + timeout_m * 60 ))" \
+		--arg role "$role" --argjson argv "$(jq -cn '$ARGS.positional' --args -- "${argv[@]}")" \
 		'.verifier.pane_id = $pane | .verifier.kind = $kind
 		 | .verifying = {verdict: $verdict, packet: $packet, brief: $brief, scratch: $scratch, units: $units,
-		                 risk: $risk, sample: $sample, unit: $unit, started: $started, deadline: $deadline}'
+		                 risk: $risk, sample: $sample, unit: $unit, started: $started, deadline: $deadline,
+		                 role: $role, argv: $argv}'
 	event "$store" master send-verify "$brief" "$kind:${all[*]}"
+	record_verifier_session "$store" "$name"
 	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$kind" "$pane" "${base:0:9}" "${head:0:9}"
 	# A just-started agent can take the text before it takes the Enter (pi
 	# drawing its startup screen), so the prompt must be seen working; an
@@ -602,7 +632,45 @@ cmd_verify() {
 	herdr agent prompt "$name" "Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the verifier role. $PAIR_SKILL VERIFY $packet" \
 		--wait --until working --timeout 30000 >/dev/null 2>&1 || true
 	submit_typed "$name" "$(basename "$packet")"
+	record_verifier_session "$store" "$name"
 	verify_wait "$store" "$every_m"
+}
+
+# A verifier of the fallback kind (or of any kind named with --kind) starts
+# with the fallback's recorded arguments, its kind's permission default, and
+# the trust flag; never with the sidekick's own model arguments.
+verifier_args() {
+	local store="$1" kind="$2" permission
+	local -a args=()
+	[ "$kind" != "$(field "$store" '.sidekick.fallback.kind // empty')" ] ||
+		mapfile -t args < <(jq -r '.sidekick.fallback.args[]?' "$store/pair.json")
+	if ! has_permission_arg "${args[@]}"; then
+		case "$kind" in devin) permission=bypassPermissions ;; *) permission="$(detect_permission_mode)" ;; esac
+		permission_args "$kind" "$permission"
+	fi
+	has_trust_arg "${args[@]}" || trust_args "$kind"
+	[ "${#args[@]}" -eq 0 ] || printf '%s\n' "${args[@]}"
+}
+
+# The agent's own session log (pi writes one per session), so a verifier that
+# died on its provider can still say why after its pane is gone.
+record_verifier_session() {
+	local session
+	session="$(herdr agent get "$2" 2>/dev/null | jq -r '.result.agent.agent_session | select(.kind == "path") | .value' 2>/dev/null || true)"
+	[ -z "$session" ] || json_update "$1" --arg s "$session" '.verifying.session = $s'
+}
+
+# The verifier's latest provider error: from its screen while it is up, else
+# from the error stop its session log recorded. Empty when there is none.
+verifier_provider_error() {
+	local store="$1" name="$2" line="" session
+	[ "$(agent_status "$name")" = absent ] ||
+		line="$(grep -oiE ".{0,60}($provider_error_re).{0,100}" <<<"$(pane_text "$name")" | tail -1 || true)"
+	session="$(field "$store" '.verifying.session // empty')"
+	if [ -z "$line" ] && [ -n "$session" ] && [ -f "$session" ]; then
+		line="$(tail -n 200 "$session" | jq -r 'select(.message.stopReason? == "error") | .message.errorMessage // empty' 2>/dev/null | tail -1 || true)"
+	fi
+	printf '%s' "${line:0:240}"
 }
 
 # Waits up to $2 minutes for the open verification's verdict. A verifier
@@ -626,6 +694,10 @@ verify_wait() {
 			printf 'next: other work, then kitchen.sh verify %s --wait\n' "$store"
 			exit 4
 		fi
+		# A verifier that ended its turn on a provider error will not write.
+		case "$state" in
+		idle | "done") [ -z "$(verifier_provider_error "$store" "$name")" ] || break ;;
+		esac
 		sleep 10
 	done
 	[ -f "$verdict" ] && sleep 3
@@ -635,12 +707,29 @@ verify_wait() {
 	sample="$(field "$store" .verifying.sample)"
 	unit="$(field "$store" .verifying.unit)"
 	pane="$(field "$store" .verifier.pane_id)"
+	local provider="" role
+	local -a argv=()
+	[ -f "$verdict" ] || provider="$(verifier_provider_error "$store" "$name")"
+	role="$(field "$store" '.verifying.role // empty')"
+	mapfile -t argv < <(jq -r '.verifying.argv[]?' "$store/pair.json")
 	herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
 	local gone=$(( $(date +%s) + 15 ))
 	while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
 	herdr pane close "$pane" >/dev/null 2>&1 || true
 	cmd_scratch "$store" "$(field "$store" .verifying.scratch)" --remove >/dev/null
 	json_update "$store" 'del(.verifying)'
+	if [ ! -f "$verdict" ] && [ -n "$provider" ]; then
+		event "$store" master wake "$brief" "verify:provider"
+		printf 'verdict: none\nstatus: inconclusive (the verifier hit its provider, not the work)\nprovider_error: %s\n' "$provider"
+		local fallback
+		fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
+		if [ "$role" = sidekick ] && [ -n "$fallback" ] && [ "$fallback" != "$kind" ] && [ "${#argv[@]}" -gt 0 ]; then
+			printf 'retry: verifying again on the fallback, %s\n' "$fallback"
+			exec "$here/kitchen.sh" verify "$store" "${argv[@]}" --kind "$fallback"
+		fi
+		printf 'next: wait for the limit, or kitchen.sh verify %s %s --kind <another kind>\n' "$store" "${argv[*]}"
+		exit 2
+	fi
 	if [ ! -f "$verdict" ]; then
 		event "$store" master wake "$brief" "verify:missing"
 		die "no verdict at $verdict (verifier ${state:-gone}); read the packet and verify by hand, or rerun" 4
