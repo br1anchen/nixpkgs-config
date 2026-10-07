@@ -160,7 +160,7 @@ $ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 1500
 state: working
 report: missing
 check-in: 003-build.md  elapsed <N>m of 30m
-progress: +1 lines (last <N>m ago)  STALE
+progress: +1 lines (last <N>m ago)  editing: last change <N>m ago
   <HM> step one done; next: two
 touched: 2 files, 0 commits since dispatch
   a.txt
@@ -176,7 +176,7 @@ $ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 1500
 state: working
 report: missing
 check-in: 003-build.md  elapsed <N>m of 30m
-progress: +0 lines (last <N>m ago)  STALE
+progress: +0 lines (last <N>m ago)  editing: last change <N>m ago
 touched: 2 files, 0 commits since dispatch
   a.txt
   b.txt
@@ -593,7 +593,7 @@ $ pair.sh wait <T>/state/pstack/pair-guided/demo --timeout 1500
 state: working
 report: missing
 check-in: 013-qsteps.md  elapsed <N>m of ?m
-progress: +1 lines (last <N>m ago)  STALE
+progress: +1 lines (last <N>m ago)  editing: last change <N>m ago
   <HM> step 1 <SHA>: parser reads v2
 touched: 2 files, 1 commits since dispatch
   a.txt

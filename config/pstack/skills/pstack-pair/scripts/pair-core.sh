@@ -318,8 +318,35 @@ busy_command() {
 # the timebox, progress lines not yet shown, files touched against the brief's
 # Scope, commits since dispatch, and steer counts. Bounded, so the master can
 # poll it cheaply instead of reading the pane. $2 is the interval in minutes.
+# The newest sign of work in the sidekick's tree, as an epoch: the mtime of
+# each file git status lists (NUL-delimited, so names are real paths; a rename
+# counts at its new path, a deleted file is skipped) and the committer time of
+# HEAD when it moved since dispatch. Nothing when the tree is quiet. A
+# future mtime within a minute counts as now; a later one is ignored.
+tree_activity() {
+	local cwd="$1" head="$2" now newest=0 entry path t skip=0 commits=0
+	now="$(date +%s)"
+	while IFS= read -r -d '' entry; do
+		if [ "$skip" -eq 1 ]; then skip=0; continue; fi
+		case "${entry:0:2}" in R* | C*) skip=1 ;; esac
+		path="${entry:3}"
+		t="$(stat -c %Y "$cwd/$path" 2>/dev/null)" || continue
+		# A clock skew of a minute counts as now; a stamp further ahead is no evidence.
+		[ "$t" -le $(( now + 60 )) ] || continue
+		[ "$t" -le "$now" ] || t="$now"
+		[ "$t" -le "$newest" ] || newest="$t"
+	done < <(git -C "$cwd" status --porcelain=v1 -z --untracked-files=all 2>/dev/null)
+	[ -z "$head" ] || commits="$(git -C "$cwd" rev-list --count "$head"..HEAD 2>/dev/null || printf 0)"
+	if [ "$commits" -gt 0 ]; then
+		t="$(git -C "$cwd" log -1 --format=%ct 2>/dev/null || printf 0)"
+		[ "$t" -le "$now" ] || t="$now"
+		[ "$t" -le "$newest" ] || newest="$t"
+	fi
+	[ "$newest" -eq 0 ] || printf '%s\n' "$newest"
+}
+
 checkin() {
-	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale busy timebox elapsed_m now
+	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale busy active timebox elapsed_m now
 	brief="$(field "$store" '.dispatch.brief // empty')"
 	[ -n "$brief" ] && [ -f "$brief" ] || return 0
 	at="$(field "$store" '.dispatch.at // empty')"
@@ -341,7 +368,17 @@ checkin() {
 		stale=""
 		if [ "$age_m" -ge "$interval" ]; then
 			busy="$(busy_command "$(field "$store" '.sidekick.pane_id // empty')" "$(stat -c %Y "$prog")")"
-			if [ -n "$busy" ]; then stale="  running: $busy"; else stale="  STALE"; fi
+			if [ -n "$busy" ]; then
+				stale="  running: $busy"
+			else
+				# Edits and commits are activity, not advancement: the timebox still fires.
+				active="$(tree_activity "$cwd" "$head")"
+				if [ -n "$active" ] && [ $(( now - active )) -lt $(( (interval > 0 ? interval : 1) * 60 )) ]; then
+					stale="  editing: last change $(( (now - active) / 60 ))m ago"
+				else
+					stale="  STALE"
+				fi
+			fi
 		fi
 		printf 'progress: +%d lines (last %dm ago)%s\n' "$new" "$age_m" "$stale"
 		tail -n "+$((seen + 1))" "$prog" | tail -n 20 | sed 's/^/  /'

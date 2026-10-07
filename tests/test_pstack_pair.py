@@ -12,6 +12,7 @@ import os
 import json
 import subprocess
 import tempfile
+import time
 import unittest
 
 root = Path(__file__).resolve().parents[1]
@@ -344,6 +345,67 @@ class ReadinessTests(unittest.TestCase):
         self.assertNotIn('report_status', self.wait(4))
         (self.store / 'notes/001-first-n1.md').write_text('# Note\n\nstatus: resolved\n')
         self.assertIn(f'report: {self.report}', self.wait(0))
+
+    def quiet_log(self, minutes=20):
+        prog = self.store / 'progress/001-first.md'
+        prog.parent.mkdir(exist_ok=True)
+        prog.write_text('- started\n')
+        old = time.time() - minutes * 60
+        os.utime(prog, (old, old))
+
+    def age(self, name, seconds):
+        t = time.time() - seconds
+        os.utime(self.cwd / name, (t, t))
+
+    def test_a_recent_edit_is_editing_not_stale(self):
+        self.quiet_log()
+        (self.cwd / 'f.txt').write_text('changed')
+        out = self.wait(4)
+        self.assertRegex(out, r'progress: \+1 lines \(last 20m ago\)  editing: last change 0m ago')
+        self.assertNotIn('STALE', out)
+
+    def test_old_files_and_no_command_is_stale(self):
+        self.quiet_log()
+        (self.cwd / 'f.txt').write_text('changed')
+        self.age('f.txt', 3600)
+        self.assertIn('STALE', self.wait(4))
+
+    def test_a_recent_commit_counts_as_editing(self):
+        self.quiet_log()
+        self.commit('two')
+        self.age('f.txt', 3600)
+        self.assertIn('editing: last change', self.wait(4))
+
+    def test_a_running_command_wins_over_editing(self):
+        self.quiet_log()
+        (self.cwd / 'f.txt').write_text('changed')
+        pane = json.loads((self.store / 'pair.json').read_text())['sidekick']['pane_id']
+        proc = subprocess.Popen(['sleep', '30'], cwd=self.cwd, env={**self.env, 'HERDR_PANE_ID': pane})
+        self.addCleanup(lambda: (proc.kill(), proc.wait()))
+        time.sleep(1.1)
+        out = self.wait(4)
+        self.assertIn('running: sleep for 0m', out)
+        self.assertNotIn('editing:', out)
+
+    def test_deleted_renamed_and_oddly_named_files_do_not_break_checkin(self):
+        (self.cwd / 'a b.txt').write_text('x')
+        self.git('add', 'a b.txt')
+        self.env['GIT_COMMITTER_DATE'] = '2020-01-01T00:00:00'
+        self.git('commit', '-q', '-m', 'add')
+        del self.env['GIT_COMMITTER_DATE']
+        self.git('mv', 'a b.txt', 'c d.txt')
+        (self.cwd / 'f.txt').unlink()
+        self.age('c d.txt', 3600)
+        self.quiet_log()
+        self.assertIn('STALE', self.wait(4))
+        (self.cwd / 'c d.txt').write_text('edit')
+        self.assertIn('editing: last change', self.wait(4))
+
+    def test_a_future_mtime_does_not_keep_it_active(self):
+        self.quiet_log()
+        (self.cwd / 'f.txt').write_text('changed')
+        self.age('f.txt', -7200)
+        self.assertIn('STALE', self.wait(4))
 
     def test_partial_blocked_and_old_style_reports_are_unaffected(self):
         c1 = self.commit('one')
