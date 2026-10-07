@@ -285,9 +285,9 @@ classify_brief() {
 	risk="$(jq -r .risk <<<"$json")"
 	set_header "$brief" risk "$risk"
 	set_header "$brief" profiles "$(jq -r '.profiles | join(", ") | if . == "" then "none" else . end' <<<"$json")"
-	set_header "$brief" verify "$(jq -r '"\(.verify.mode) by \(.verify.kind)"' <<<"$json")"
+	set_header "$brief" verify "$(jq -r '"\(.verify.mode) by \(.verify.kind) verifier"' <<<"$json")"
 	printf 'risk: %s\n' "$risk"
-	jq -r '"profiles: \(.profiles | join(", "))", "verify: \(.verify.mode) by \(.verify.kind)", (.escalate[] | "escalate: \(.)"),
+	jq -r '"profiles: \(.profiles | join(", "))", "verify: \(.verify.mode) by \(.verify.kind) verifier", (.escalate[] | "escalate: \(.)"),
 		(if .bookkeeping then "bookkeeping: the Scope is outside the repo; gates only, nothing to escalate" else empty end)' <<<"$json"
 	if [ "$risk" = escalated ] && [ "$(agent_status "$(field "$store" .consultant.name)")" = absent ]; then
 		printf 'next: kitchen.sh consultant %s --reason "%s", then a plan round with it\n' "$store" "$(jq -r '.escalate[0]' <<<"$json")"
@@ -602,7 +602,7 @@ cmd_verify() {
 		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
 		risk="$(jq -r .risk <<<"$json")"
 		mode="$(jq -r .verify.mode <<<"$json")"
-		role="$(jq -r .verify.kind <<<"$json")"
+		role="$(jq -r 'if .verify.kind == "routine" then "sidekick" else "master" end' <<<"$json")"
 	fi
 	# A batch of independent units has a size cap; a fix verified with the
 	# unit it fixes does not, since splitting it would re-reject the first.

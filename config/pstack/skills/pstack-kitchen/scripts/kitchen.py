@@ -224,10 +224,8 @@ def parse(data: dict) -> Kitchen:
 
     verify = data.get('verify', {})
     _check_keys(verify, 'verify', {'routine_kind', 'escalated_kind'})
-    ver = {
-        'routine_kind': _choice(verify.get('routine_kind', 'sidekick'), 'verify.routine_kind', VERIFY_KINDS),
-        'escalated_kind': _choice(verify.get('escalated_kind', 'master'), 'verify.escalated_kind', VERIFY_KINDS),
-    }
+    # Who verifies moved to the host roster; the keys still parse so older repos validate.
+    ver = {k: _choice(v, f'verify.{k}', VERIFY_KINDS) for k, v in verify.items()}
 
     landing = data.get('landing', {})
     _check_keys(landing, 'landing', {'mode'})
@@ -381,11 +379,11 @@ def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: lis
     risk = 'escalated' if reasons else 'routine'
     profiles = [kitchen.profiles[n] for n in sorted(touched)]
     if risk == 'escalated':
-        verify = {'mode': 'unit', 'kind': kitchen.verify['escalated_kind']}
+        verify = {'mode': 'unit', 'kind': 'escalated'}
         sample = 1.0
     else:
         mode = max((p.verify for p in profiles), key=VERIFY_MODES.index, default='gates')
-        verify = {'mode': mode, 'kind': kitchen.verify['routine_kind']}
+        verify = {'mode': mode, 'kind': 'routine'}
         sample = max((p.sample for p in profiles), default=0.0)
     return {
         'risk': risk, 'escalate': reasons, 'profiles': sorted(touched), 'unmapped': unmapped,
@@ -825,6 +823,13 @@ def history(root: Path, kitchen: Kitchen, last: int) -> list[dict]:
 
 # Which agents fill the roles is the host's choice, not the repo's, so it
 # lives beside the other host preferences, outside every repo.
+def _entry(t: dict, source: str) -> dict:
+    fb = t.get('fallback')
+    return {'kind': t.get('kind', ''), 'args': [str(a) for a in t.get('args', [])],
+            'fallback': {'kind': fb.get('kind', ''), 'args': [str(a) for a in fb.get('args', [])]} if fb else None,
+            'source': source}
+
+
 def roster(as_json: bool) -> int:
     path = Path(os.environ.get('PSTACK_KITCHEN_ROSTER') or Path.home() / '.config/pstack/kitchen.toml')
     data = tomllib.loads(path.read_text()) if path.exists() else {}
@@ -835,7 +840,17 @@ def roster(as_json: bool) -> int:
         if role == 'sidekick':
             fb = t.get('fallback', {})
             out[role]['fallback'] = {'kind': fb.get('kind', ''), 'args': [str(a) for a in fb.get('args', [])]}
-    emit(out, as_json, f'{path}: ' + ', '.join(f'{r} {v["kind"] or "unset"}' for r, v in out.items()))
+    # A routine verifier without an entry is the run's current sidekick, which only
+    # the store knows, so the entry is a marker that cmd_verify resolves.
+    v = data.get('verifier', {})
+    esc = v.get('escalated')
+    out['verifier'] = {
+        'routine': _entry(v, 'roster') if v.get('kind') else {'kind': 'sidekick', 'args': [], 'fallback': None, 'source': 'sidekick'},
+        'escalated': _entry(esc, 'roster') if esc and esc.get('kind') else
+        {'kind': 'claude', 'args': ['--model', 'claude-opus-5-5'], 'fallback': None, 'source': 'default'},
+    }
+    emit(out, as_json, f'{path}: ' + ', '.join(f'{r} {v["kind"] or "unset"}' for r, v in out.items() if 'kind' in v)
+         + f', verifier {out["verifier"]["routine"]["kind"]}/{out["verifier"]["escalated"]["kind"]}')
     return 0
 
 
@@ -897,6 +912,9 @@ def main(argv: list[str] | None = None) -> int:
         kitchen = load(root, args.at, args.config)
         INVOCATION[:] = ['--repo', str(root)] + (['--config', args.config] if args.config else []) \
             + (['--at', args.at] if args.at else [])
+        if kitchen.verify and args.cmd in ('validate', 'doctor'):
+            print(f'kitchen: warning: [verify] {", ".join(sorted(kitchen.verify))} moved to the host roster\'s '
+                  '[verifier]; remove it from kitchen.toml', file=sys.stderr)
         if args.cmd == 'review-settings':
             r = kitchen.review[args.cls]
             print(r['style'], r['budget'], str(r['second_reviewer']).lower(), str(r['walkthrough']).lower())
@@ -913,7 +931,7 @@ def main(argv: list[str] | None = None) -> int:
             r = classify(kitchen, changed, getattr(args, 'outside', []))
             text = [f'risk: {r["risk"]}', f'profiles: {", ".join(r["profiles"]) or "none"}',
                     f'diff_lines: {r["diff_lines"]}',
-                    f'verify: {r["verify"]["mode"]} by {r["verify"]["kind"]}', f'sample: {r["sample"]}',
+                    f'verify: {r["verify"]["mode"]} by {r["verify"]["kind"]} verifier', f'sample: {r["sample"]}',
                     f'review: {r["review"]["engine"]} {r["review"]["style"]} budget {r["review"]["budget"]}']
             text += [f'escalate: {x}' for x in r['escalate']]
             text += [f'unmapped: {x}' for x in r['unmapped']]

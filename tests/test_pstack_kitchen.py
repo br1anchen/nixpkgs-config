@@ -165,7 +165,7 @@ class ClassifyTests(KitchenTests):
     def test_routine_change_takes_its_profile_settings(self):
         r = self.classify({'src/util.py': 'X = 2\n', 'tests/test_app.py': 'def test_main():\n    assert 1\n'})
         self.assertEqual((r['risk'], r['profiles'], r['escalate']), ('routine', ['app'], []))
-        self.assertEqual(r['verify'], {'mode': 'batch', 'kind': 'sidekick'})
+        self.assertEqual(r['verify'], {'mode': 'batch', 'kind': 'routine'})
         self.assertEqual(r['sample'], 0.2)
         self.assertEqual((r['review']['engine'], r['review']['style'], r['review']['budget']), ('none', 'standard', 4))
 
@@ -186,7 +186,7 @@ class ClassifyTests(KitchenTests):
                 r = self.classify(files)
                 self.assertEqual(r['risk'], 'escalated')
                 self.assertIn(reason, r['escalate'])
-                self.assertEqual(r['verify'], {'mode': 'unit', 'kind': 'master'})
+                self.assertEqual(r['verify'], {'mode': 'unit', 'kind': 'escalated'})
                 self.assertEqual((r['sample'], r['review']['style']), (1.0, 'thorough'))
                 self.base = self.git('rev-parse', 'HEAD')
 
@@ -232,6 +232,32 @@ class ClassifyTests(KitchenTests):
                                          'fallback': {'kind': 'devin', 'args': []}})
         self.assertEqual(r['consultant']['kind'], 'codex')
         self.assertIn('pstack/kitchen/repos/repo-', self.run_kitchen('statedir'))
+
+    def test_roster_verifier_defaults(self):
+        roster = Path(self.tmp.name) / 'roster.toml'
+        roster.write_text('[sidekick]\nkind = "pi"\n')
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        v = self.data('roster')['verifier']
+        self.assertEqual(v['routine'], {'kind': 'sidekick', 'args': [], 'fallback': None, 'source': 'sidekick'})
+        self.assertEqual(v['escalated'], {'kind': 'claude', 'args': ['--model', 'claude-opus-5-5'],
+                                          'fallback': None, 'source': 'default'})
+
+    def test_roster_verifier_entries_and_master_sentinel(self):
+        roster = Path(self.tmp.name) / 'roster.toml'
+        roster.write_text('[verifier]\nkind = "pi"\nargs = ["--model", "m"]\n'
+                          '[verifier.fallback]\nkind = "claude"\nargs = ["--model", "s"]\n'
+                          '[verifier.escalated]\nkind = "master"\n')
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        v = self.data('roster')['verifier']
+        self.assertEqual(v['routine'], {'kind': 'pi', 'args': ['--model', 'm'],
+                                        'fallback': {'kind': 'claude', 'args': ['--model', 's']}, 'source': 'roster'})
+        self.assertEqual(v['escalated'], {'kind': 'master', 'args': [], 'fallback': None, 'source': 'roster'})
+
+    def test_repo_verify_kinds_warn_only_when_set(self):
+        self.assertNotIn('moved to the host roster', self.run_kitchen('validate'))
+        self.write('.agents/kitchen.toml', KITCHEN + '\n[verify]\nescalated_kind = "master"\n')
+        self.assertIn('moved to the host roster', self.run_kitchen('validate'))
+        self.assertTrue(self.data('validate')['ok'])
 
     def test_working_tree_counts_untracked_files(self):
         self.write('docs/new.md', 'a\nb\n')
@@ -592,7 +618,7 @@ esac
         out = self.run_sh('classify', str(self.store), str(b))
         self.assertIn('risk: routine', out)
         text = b.read_text()
-        self.assertIn('risk: routine\nprofiles: app\nverify: batch by sidekick\n', text)
+        self.assertIn('risk: routine\nprofiles: app\nverify: batch by routine verifier\n', text)
         e = self.brief('002', 'api', ['contracts/**'])
         out = self.run_sh('classify', str(self.store), str(e))
         self.assertIn('escalate: escalate path: contracts/api.json', out)
