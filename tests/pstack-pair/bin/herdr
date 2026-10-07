@@ -36,6 +36,14 @@ case "$1 $2" in
 	if [ -e "$FAKE/devin-input" ] && [ "$s" = working ]; then
 		mkdir -p "$FAKE/typing"; printf '%s' "$text" >"$FAKE/typing/$name"; ok "$s"; exit 0
 	fi
+	# $FAKE/prompt-delay: delivery takes that many seconds.
+	[ -s "$FAKE/prompt-delay" ] && sleep "$(cat "$FAKE/prompt-delay")"
+	# $FAKE/typed-ok: the prompt is typed but not submitted, yet herdr reports
+	# success (a fresh Claude pane); one Enter submits it.
+	if [ -e "$FAKE/typed-ok" ] && [ "$wait" = 1 ]; then
+		rm -f "$FAKE/typed-ok"; mkdir -p "$FAKE/stalled"; printf '%s' "$text" >"$FAKE/stalled/$name"
+		ok "$s"; exit 0
+	fi
 	# $FAKE/stall: the prompt is typed but not submitted (a first-run screen
 	# took the Enter); herdr reports a stall and one Enter submits it.
 	if [ -e "$FAKE/stall" ] && [ "$wait" = 1 ]; then

@@ -45,12 +45,19 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    (a stale log, a write outside Scope, an objection, an open blocking note,
    a timebox overrun, a pause), or after `--max` minutes (an hour) with the
    latest digest. Read a digest for direction only, as the pair master does;
-   steer only when your review would otherwise say revise.
+   steer only when your review would otherwise say revise. Never wrap
+   `dispatch` in a short `timeout`: when you need the call back at once, pass
+   `--send-only`, which returns as soon as the brief is delivered, then wait.
+   Delivery itself ignores TERM, so a killed dispatch never leaves a brief
+   recorded but unsent.
 6. **On a done report:** verify, then review.
    - `kitchen.sh verify <store> <NNN>`. It returns every nine minutes with
      the verifier's progress (exit 4) while the verifier works on: do other
      work, such as `kitchen.sh wait` on the sidekick, then
-     `kitchen.sh verify <store> --wait`. One verification is open at a time.
+     `kitchen.sh verify <store> --wait` (exit 4 while it runs, 5 when none is
+     open). One verification is open at a time. A partial or blocked unit can
+     be verified or reviewed at the head its report names; the command notes
+     it, and land-check still needs a clean verdict and an accepted review.
      A `batch` unit may wait for the next done unit and verify together
      (`kitchen.sh verify <store> 004 005`); verify a batch before landing at
      the latest. Exit 2 with `reject`: run the `revise` command it prints,
@@ -76,7 +83,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    have caught it.
 8. **Land.** `kitchen.sh land-check <store>`, then
    `kitchen.sh review <store> --landing` for the walkthrough and anything
-   between units, then the landing brief. Its playbook (`opening-a-pr` or
+   between units, then the landing brief. The landing review covers the stack
+   from where it leaves trunk (origin's default branch, else main or master),
+   so a rebase never pulls trunk's commits into it; `--base <rev>` overrides. Its playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and
    lands.
 9. **Retro and close.** `kitchen.sh retro <store>`. For each class repeated

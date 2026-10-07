@@ -28,7 +28,7 @@ usage: pair.sh <command> [args]
                                             the sidekick works, reading committed state or a scratch snapshot
   advice <store> [NNN]                      print the latest (or NNN) advice path
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
-  dispatch <store> <brief-path> [--timeout MS | --every MIN]
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan
   wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
@@ -172,6 +172,8 @@ report_status: done
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/002-early.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
+  herdr agent get demo-sidekick
 
 $ pair.sh dispatch <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/003-build.md --timeout 1500
 state: timeout
@@ -185,6 +187,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/003-build.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -263,6 +267,8 @@ report_status: done
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio STEER <T>/state/pstack/trio/demo/steers/003-build-s3.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent get demo-sidekick
 
 $ pair.sh report <T>/state/pstack/trio/demo
@@ -402,6 +408,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/004-qone.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -522,6 +530,8 @@ report_status: done
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/006-qthree.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
@@ -535,6 +545,8 @@ report_status: done
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/007-qfive.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
@@ -571,6 +583,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/009-qseven.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -608,6 +622,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/010-qeight.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -825,6 +841,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/013-qscope.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -842,6 +860,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio BRIEF <T>/state/pstack/trio/demo/briefs/014-qglob.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -1173,7 +1193,7 @@ usage: pair.sh <command> [args]
                                             the sidekick works, reading committed state or a scratch snapshot
   advice <store> [NNN]                      print the latest (or NNN) advice path
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
-  dispatch <store> <brief-path> [--timeout MS | --every MIN]
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan
   wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path

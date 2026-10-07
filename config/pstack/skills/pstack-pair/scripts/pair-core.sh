@@ -998,6 +998,10 @@ spawn_role() {
 	out="$(herdr agent prompt "$name" "$bootstrap" --wait --timeout 240000 2>"$errfile")" || code=$?
 	err="$(cat "$errfile")"
 	rm -f "$errfile"
+	if [ ! -f "$store/$ready" ]; then
+		submit_typed "$name" "$(basename "$ready")"
+		[ "$submitted" -eq 0 ] || [ "$code" -ne 0 ] || await_file "$store/$ready" 240000 || true
+	fi
 	if [ "$code" -ne 0 ] && grep -q agent_prompt_stalled <<<"$err"; then
 		# A first-run screen (pi's changelog after an update, a trust prompt)
 		# can take the Enter that submits the bootstrap, leaving it typed in
@@ -1282,6 +1286,11 @@ send_and_wait() {
 	blocked) die "sidekick $name is blocked; inspect: herdr agent read $name --source visible --lines 60" 3 ;;
 	*) die "sidekick $name is $status; run: pair.sh wait $store" 5 ;;
 	esac
+	# Delivery is not interruptible: a dispatch wrapped in a short timeout was
+	# killed after recording a brief and before sending it, and the store
+	# waited on a sidekick that never got it. TERM, INT and HUP wait until the
+	# message is in; the wait that follows may be cut short safely.
+	trap '' TERM INT HUP
 	if [ "$kind" = BRIEF ]; then
 		[ "$(queued_brief "$store")" = "$file" ] && rm -f "$store/queue"
 		prune_pending "$store"
@@ -1291,6 +1300,11 @@ send_and_wait() {
 	fi
 	event "$store" master "send-${kind,,}" "$file"
 	prompt_sidekick "$name" "$PAIR_SKILL $kind $file"
+	trap - TERM INT HUP
+	if [ "${send_only:-0}" = 1 ]; then
+		printf 'sent: %s %s; follow it with the wait command\n' "$kind" "$file"
+		exit 0
+	fi
 	local ready
 	wait_for_reply "$store" "$name" "$timeout"
 	finish_wait "$store" "$code" "$out" "$err" "$(reply_mode)" "$ready"
@@ -1304,6 +1318,7 @@ wait_opts() {
 		case "$1" in
 		--timeout) timeout="$2"; shift 2 ;;
 		--every) timeout=$(($2 * 60000)); shift 2 ;;
+		--send-only) send_only=1; shift ;;
 		*) rest+=("$1"); shift ;;
 		esac
 	done
@@ -1414,6 +1429,27 @@ reply_mode() {
 	if [ -z "$ready" ] && [ "${steps_due:-0}" = 1 ]; then printf 'steps\n'; else printf 'reply\n'; fi
 }
 
+# Herdr can report a fresh agent working while a prompt still sits typed in
+# its input (a new Claude pane; pi after an update), so the pane is read too:
+# while its last lines still show the message's marker, Enter submits it, up
+# to three times. An Enter on an empty input does nothing; a working Devin is
+# left alone, since there Enter cancels the running command. $1 agent name,
+# $2 marker (a word of the message with no spaces, such as a file's name).
+# Sets submitted to the number of Enters it sent.
+submit_typed() {
+	local name="$1" marker="$2" kind tries=0
+	submitted=0
+	kind="$(agent_kind "$name")"
+	while [ "$tries" -lt 3 ]; do
+		sleep "${PAIR_SUBMIT_CHECK_S:-5}"
+		grep -qF "$marker" <<<"$(herdr agent read "$name" --source visible --lines 12 2>/dev/null | tr -d '\n │')" || return 0
+		[ "$kind" != devin ] || [ "$(agent_status "$name")" != working ] || return 0
+		herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+		tries=$((tries + 1))
+		submitted="$tries"
+	done
+}
+
 # Sends one message and confirms the sidekick took it. A narrow pane can hide
 # the working state, so a timeout or stall here is not an error; the wait that
 # follows looks for the reply file either way.
@@ -1428,6 +1464,7 @@ prompt_sidekick() {
 		esac
 	fi
 	rm -f "$errfile"
+	submit_typed "$name" "$(basename "${text##* }")"
 }
 
 cmd_wait() {

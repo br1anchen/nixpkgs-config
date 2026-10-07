@@ -49,7 +49,7 @@ class DevinSessionTests(unittest.TestCase):
         self.env = {**os.environ, 'FAKE': str(self.fake),
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
-                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0'}
+                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
         self.store = self.path / 'state/pstack/pair/demo'
@@ -226,7 +226,7 @@ class PiSidekickTests(unittest.TestCase):
         self.env = {**os.environ, 'FAKE': str(self.fake),
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
-                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0',
+                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0',
                     'PAIR_PREFLIGHT_RETRY_S': '0'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
@@ -362,6 +362,35 @@ esac
         self.run_command('init', 'other', '--pane', 'p0')
         master = json.loads((self.path / 'state/pstack/pair/other/pair.json').read_text())['master']
         self.assertEqual(master['pane_id'], 'p0')
+
+    def test_prompts_typed_but_reported_sent_are_submitted(self):
+        (self.fake / 'typed-ok').touch()
+        self.spawn_pi()
+        self.assertFalse(self.state()['sidekick']['bootstrap_pending'])
+        (self.fake / 'typed-ok').touch()
+        self.dispatch()
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertEqual(calls.count('send-keys demo-sidekick enter'), 2)
+
+    def test_send_only_returns_once_the_brief_is_delivered(self):
+        self.spawn_pi()
+        brief = self.store / 'briefs/001-first.md'
+        brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
+        out = self.run_command('dispatch', str(self.store), str(brief), '--send-only')
+        self.assertIn(f'sent: BRIEF {brief}', out)
+        self.assertEqual(self.state()['dispatch']['brief'], str(brief))
+
+    def test_a_timeout_cannot_cut_a_delivery_short(self):
+        self.spawn_pi()
+        brief = self.store / 'briefs/001-first.md'
+        brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
+        (self.fake / 'prompt-delay').write_text('3')
+        result = subprocess.run(['timeout', '1', str(self.script), 'dispatch', str(self.store), str(brief), '--send-only'],
+                                cwd=self.cwd, env=self.env, capture_output=True, text=True, check=False)
+        # timeout reports 124 once its limit passes, however the command ends;
+        # what matters is that the TERM did not stop the delivery.
+        self.assertIn(f'sent: BRIEF {brief}', result.stdout, result.stderr)
+        self.assertIn(f'agent prompt demo-sidekick pstack-pair BRIEF {brief}', (self.fake / 'calls.log').read_text())
 
     def test_live_pi_skips_the_preflight(self):
         self.spawn_pi()

@@ -38,9 +38,10 @@ consult, advice. These differ or are new:
   classify <store> <brief-path>             map the brief's may-write Scope to profiles and a risk class and
                                             stamp risk:, profiles:, verify: into its header
   discuss <store> <plan-path>               a routine plan goes to the sidekick; risk: escalated to both
-  dispatch <store> <brief-path> [...] [--max MIN]
+  dispatch <store> <brief-path> [...] [--max MIN] [--send-only]
                                             classify, then the pair's dispatch; escalated units need an agreed
-                                            plan with advice, landing units need land-check to pass; waits quietly
+                                            plan with advice, landing units need land-check to pass; waits quietly,
+                                            or returns once the brief is delivered with --send-only
   wait <store> [...] [--max MIN]            the pair's wait, quiet through check-ins with nothing flagged; returns
                                             for a report, steps, a block, a flagged check-in, or after --max (60)
   step <store> <sha> <summary> [--resolves n1,n2]
@@ -52,10 +53,12 @@ consult, advice. These differ or are new:
                                             fixes (--covers): gates only, or a fresh verifier in a scratch
                                             worktree at the head; returns at the interval with its progress
                                             (exit 4), and with the verdict and whether to audit when it lands
-  verify <store> --wait [--every MIN]       wait again for the open verification
+  verify <store> --wait [--every MIN]       wait again for the open verification: exit 4 while it runs, 5 when none
+                                            is open
   revise <store> <verdict-path>             draft the fix brief for a rejected verdict
-  review <store> <NNN>... | --landing       Judge of Owls on the units' range (or the whole run for landing);
-                                            prints blocking findings without a resolution
+  review <store> <NNN>... | --landing [--base REV]
+                                            Judge of Owls on the units' range, or for landing on the stack from
+                                            where it leaves trunk (or --base); prints blocking findings unresolved
   resolve <store> <finding-id> fixed|followup|dismissed <note>
                                             record the master's decision on a finding
   land-check <store>                        every accepted unit verified and every blocking finding resolved
@@ -123,11 +126,17 @@ unit_range() {
 	brief="$(unit_brief "$store" "$first")"
 	base="$(jq -r --arg u "$(basename "$brief" .md)" '.heads[$u] // empty' "$store/pair.json")"
 	[ -n "$base" ] || die "unit $first was never dispatched"
+	# A partial or blocked unit can still be verified or reviewed at the head
+	# its report names; the master is told it is not a done unit.
 	for unit in "${@:2}"; do
 		[[ " ${covered[*]:-} " != *" $unit "* ]] || continue
 		report="$(expected_report "$store" "$(unit_brief "$store" "$unit")")"
 		[ -f "$report" ] || die "unit $unit has no report"
-		[ "$(header_field "$report" status)" = "done" ] || die "unit $unit's report is $(header_field "$report" status), not done"
+		case "$(header_field "$report" status)" in
+		"done") ;;
+		partial | blocked | failed) printf 'note: unit %s'"'"'s report is %s; checking the head it names\n' "$unit" "$(header_field "$report" status)" >&2 ;;
+		*) die "unit $unit's report is $(header_field "$report" status), not done, partial, or blocked" ;;
+		esac
 	done
 	head="$(header_field "$(expected_report "$store" "$(unit_brief "$store" "$last")")" head)"
 	[ -n "$head" ] || die "unit $last's report has no head:"
@@ -392,6 +401,9 @@ cmd_step() {
 	if [ "$(git -C "$root" rev-list --count "$base..$full" 2>/dev/null || printf 0)" -eq 0 ]; then
 		base="$(git -C "$root" rev-parse --verify --quiet "$full~1")" || die "$sha has no parent to check it against"
 	fi
+	# A rewritten base (a squash, an amend) is measured from where the
+	# histories fork, so the step covers every change it carries.
+	base="$(git -C "$root" merge-base "$base" "$full" 2>/dev/null || printf '%s' "$base")"
 	job="$store/steps/jobs/$unit-${full:0:12}"
 	if [ ! -d "$job" ] || [ -f "$job/consumed" ]; then
 		rm -rf "$job"
@@ -406,7 +418,7 @@ cmd_step() {
 			rc=0
 			while IFS= read -r p; do
 				[ -n "$p" ] || continue
-				python3 "$2" --repo "$1" gate "$p" fast --role sidekick || rc=2
+				python3 "$2" --repo "$1" gate "$p" fast --role sidekick --base "$4" || rc=2
 			done <"$3/profiles"
 			python3 "$2" --repo "$1" policy --base "$4" --head "$5" || rc=2
 			printf "%s\n" "$rc" >"$3/rc"
@@ -492,7 +504,7 @@ cmd_verify() {
 	done
 	pair_file "$store" >/dev/null
 	if [ "$wait" -eq 1 ]; then
-		[ -n "$(field "$store" '.verifying.verdict // empty')" ] || die "no verification is open; start one with kitchen.sh verify $store <NNN>" 4
+		[ -n "$(field "$store" '.verifying.verdict // empty')" ] || die "no verification is open; start one with kitchen.sh verify $store <NNN>" 5
 		verify_wait "$store" "$every_m"
 	fi
 	[ "${#units[@]}" -gt 0 ] || die "name at least one unit NNN"
@@ -553,9 +565,10 @@ cmd_verify() {
 			awk '/^## (Goal|Acceptance)/{p=1; print; next} /^## /{p=0} p' "$b"
 			printf '\n'
 		done
-		printf '## Changed\n\n```\n%s\n```\n\n' "$(git -C "$root" diff --stat "$base" "$head" | tail -40)"
+		printf '## Changed\n\n```\n%s\n```\n\n' "$(git -C "$root" diff --stat "$base...$head" | tail -40)"
 		printf '## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo'"'"'s scripts give you\nyour own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n```bash\nexport PSTACK_KITCHEN_ROLE=verifier\n'
-		jq -r --arg k "$here/kitchen.py" --arg s "$scratch" '.behavioral[] | "python3 \($k) --repo \($s) gate \(.) behavioral --role verifier"' <<<"$json"
+		jq -r --arg k "$here/kitchen.py" --arg s "$scratch" --arg b "$(git -C "$root" merge-base "$base" "$head" 2>/dev/null || printf '%s' "$base")" \
+			'.behavioral[] | "python3 \($k) --repo \($s) gate \(.) behavioral --role verifier --base \($b)"' <<<"$json"
 		printf '```\n\nfeature map: %s\n' "$(jq -r '.features | if length == 0 then "none listed" else join(", ") end' <<<"$json")"
 		printf 'verification skill: %s\n' "$(ls -d "$root"/.agents/skills/verify-*/ 2>/dev/null | tr '\n' ' ' || true)"
 	} >"$packet"
@@ -588,21 +601,7 @@ cmd_verify() {
 	# idle agent gets one more Enter, which submits the typed text.
 	herdr agent prompt "$name" "Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the verifier role. $PAIR_SKILL VERIFY $packet" \
 		--wait --until working --timeout 30000 >/dev/null 2>&1 || true
-	# Herdr can report a just-started agent working while the prompt still
-	# sits typed in its input (a Claude verifier waited 25 minutes so), so
-	# the pane is read: while its last lines still show the packet's name,
-	# Enter submits it. An Enter on an empty input does nothing; a working
-	# Devin is left alone, since there Enter cancels the running command.
-	local tries=0 marker
-	marker="$(basename "$packet")"
-	while [ "$tries" -lt 3 ]; do
-		sleep "${KITCHEN_SUBMIT_CHECK_S:-5}"
-		[ ! -f "$verdict" ] || break
-		grep -qF "$marker" <<<"$(herdr agent read "$name" --source visible --lines 12 2>/dev/null | tr -d '\n │')" || break
-		[ "$kind" != devin ] || [ "$(agent_status "$name")" != working ] || break
-		herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
-		tries=$((tries + 1))
-	done
+	submit_typed "$name" "$(basename "$packet")"
 	verify_wait "$store" "$every_m"
 }
 
@@ -729,21 +728,38 @@ blocking_findings() {
 
 cmd_review() {
 	[ $# -ge 2 ] || die "usage: kitchen.sh review <store> <NNN>... | kitchen.sh review <store> --landing"
-	local store="$1" landing=0 units=() root base head json cls engine joo out k label tmp
+	local store="$1" landing=0 units=() root base="" head json cls engine joo out k label tmp
 	shift
-	for a in "$@"; do
-		case "$a" in
-		--landing) landing=1 ;;
-		[0-9][0-9][0-9]) units+=("$a") ;;
-		*) die "unknown option $a" ;;
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--landing) landing=1; shift ;;
+		--base) base="$2"; shift 2 ;;
+		[0-9][0-9][0-9]) units+=("$1"); shift ;;
+		*) die "unknown option $1" ;;
 		esac
 	done
 	pair_file "$store" >/dev/null
 	root="$(field "$store" .git_root)"
 	if [ "$landing" -eq 1 ]; then
-		base="$(jq -r '[.heads | to_entries[] | .value][0] // empty' "$store/pair.json")"
-		[ -n "$base" ] || die "nothing was dispatched in this run"
 		head="$(git -C "$root" rev-parse HEAD)"
+		# The stack is reviewed from where it leaves trunk. The run's first
+		# dispatch head is stale once the stack is rebased, and reviewing from
+		# it took trunk's own commits into the landing review.
+		if [ -z "$base" ]; then
+			# The checked-out branch is never its own trunk.
+			local trunk="" ref current candidates
+			current="$(git -C "$root" symbolic-ref --quiet HEAD 2>/dev/null || true)"
+			candidates="$(git -C "$root" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
+			for ref in $candidates refs/remotes/origin/main refs/remotes/origin/master refs/heads/main refs/heads/master; do
+				[ "$ref" != "$current" ] || continue
+				git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null && { trunk="$ref"; break; }
+			done
+			[ -n "$trunk" ] || die "cannot tell this repo's trunk; pass --base <trunk ref or commit>"
+			base="$(git -C "$root" merge-base "$trunk" "$head")" || die "no merge-base between $trunk and HEAD; pass --base"
+			[ "$base" != "$head" ] || die "HEAD is already on ${trunk#refs/}, so the landing range is empty; pass --base <where the stack starts>"
+			printf 'landing base: merge-base of %s and HEAD (%s)\n' "${trunk#refs/}" "${base:0:9}"
+		fi
+		base="$(git -C "$root" rev-parse --verify --quiet "$base^{commit}")" || die "--base is not a commit"
 		label=landing
 	else
 		[ "${#units[@]}" -gt 0 ] || die "name the units, or --landing"

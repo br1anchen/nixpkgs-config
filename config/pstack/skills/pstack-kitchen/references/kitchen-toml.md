@@ -66,7 +66,13 @@ one. A pattern never matches a basename alone: `*.md` is top-level only,
 Each command runs with `bash -c` from the repo root; its output goes to a log
 under `${XDG_STATE_HOME:-~/.local/state}/pstack/kitchen/repos/<repo>/logs/`,
 and a failure prints the log's last 20 lines. A gate stops at its first
-failure. Every command sees `PSTACK_KITCHEN_ROLE` (`sidekick` or `verifier`):
+failure. Every command sees `PSTACK_KITCHEN_STEP_BASE`, the commit the step or unit
+is checked against, so an affected-only command covers every commit of a
+multi-commit step (`turbo run test --filter=...[$PSTACK_KITCHEN_STEP_BASE]`;
+give a fallback such as `${PSTACK_KITCHEN_STEP_BASE:-HEAD^1}` for runs
+outside a step). Ranges are measured from the merge-base, so a squash or a
+rebased step still covers everything it carries. Every command also sees
+`PSTACK_KITCHEN_ROLE` (`sidekick` or `verifier`):
 the verifier runs at the same time as the sidekick, so a repo's scripts that
 start servers, emulators, or databases should pick their ports and data from
 it. State (logs, the baseline, the ledger) is kept per repository, shared by

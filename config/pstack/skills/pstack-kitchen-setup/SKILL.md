@@ -63,7 +63,7 @@ One profile per area with its own proof. For each:
   lint, typecheck, the area's unit tests. This runs at every committed step,
   so a slow command here costs every step; move it to `landing`. Prefer the
   repo's affected-only entry point (changed-files test mode, a workspace
-  filter from the base, a per-package test) over the whole suite: steps queue
+  filter from `$PSTACK_KITCHEN_STEP_BASE`, a per-package test) over the whole suite: steps queue
   for the machine's gate slots, and a five-minute gate that takes thirteen
   under load stalls the sidekick.
 - `behavioral`: e2e, journey, or app-driving commands the verifier runs at

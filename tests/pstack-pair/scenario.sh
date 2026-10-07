@@ -11,7 +11,7 @@ guided) skill=pstack-pair-guided prefix=pstack-pair-guided ;;
 trio) skill=pstack-trio prefix=pstack-trio ;;
 esac
 T="$(mktemp -d)"
-export PAIR_SETTLE_HOLD=10 PAIR_BUSY_POLL=1 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
+export PAIR_SETTLE_HOLD=10 PAIR_SUBMIT_CHECK_S=0 PAIR_BUSY_POLL=1 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
 unset CLAUDE_CODE_SESSION_ID
 mkdir -p "$FAKE" "$T/repo" "$T/home"
 git -C "$T/repo" init -q -b main && git -C "$T/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init

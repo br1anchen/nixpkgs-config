@@ -39,7 +39,7 @@ usage: pair.sh <command> [args]
   answer <store> <answer-path> [--timeout MS | --every MIN]
                                             send ANSWER to the sidekick and wait for it to settle
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
-  dispatch <store> <brief-path> [--timeout MS | --every MIN]
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan whose
                                             review approval matches the plan's scale

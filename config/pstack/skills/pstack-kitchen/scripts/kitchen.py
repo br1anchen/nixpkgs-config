@@ -339,7 +339,10 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
     else:
         if not args.base:
             raise ConfigError('give --base REV [--head REV], --working-tree, or --paths GLOB...')
-        numstat = git(root, 'diff', *DIFF_OPTS, '--numstat', args.base, args.head or 'HEAD')
+        # From the merge-base: a range whose base was rewritten (a squash, a
+        # rebase) still covers every change since the histories forked, not
+        # only the difference between two trees.
+        numstat = git(root, 'diff', *DIFF_OPTS, '--numstat', f"{args.base}...{args.head or 'HEAD'}")
         extra = []
     out = []
     for line in numstat.splitlines():
@@ -473,12 +476,20 @@ def run_wrapped(root: Path, wrap: str, profile: str, stage: str, log_dir: Path,
 # and the sidekick run at the same time on one machine.
 ROLE = 'PSTACK_KITCHEN_ROLE'
 ROLES = ('sidekick', 'verifier')
+# The commit a step or unit is checked against, so an affected-only command
+# covers every commit of a multi-commit step (turbo --filter=...[$BASE]).
+BASE = 'PSTACK_KITCHEN_STEP_BASE'
 
 
 def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Path | None,
              keep_going: bool = False, only: int | None = None, result: Path | None = None,
-             role: str | None = None) -> dict:
+             role: str | None = None, base: str | None = None) -> dict:
     role = role or os.environ.get(ROLE) or 'sidekick'
+    if base:
+        sha = git(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}', check=False).strip()
+        if not sha:
+            raise ConfigError(f'--base {base} is not a commit')
+        os.environ[BASE] = sha
     if role not in ROLES:
         raise ConfigError(f'role must be sidekick or verifier, not {role}')
     if profile not in kitchen.profiles:
@@ -548,7 +559,7 @@ def check_policy(root: Path, kitchen: Kitchen, args) -> list[dict]:
     else:
         if not args.base:
             raise ConfigError('give --base REV [--head REV] or --working-tree')
-        diff = git(root, 'diff', *DIFF_OPTS, '-U0', args.base, args.head or 'HEAD')
+        diff = git(root, 'diff', *DIFF_OPTS, '-U0', f"{args.base}...{args.head or 'HEAD'}")
     findings, path, line_no = [], None, 0
     for line in diff.splitlines():
         if line.startswith('+++ '):
@@ -749,6 +760,7 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument('--keep-going', action='store_true', help='run every command after a failure')
     g.add_argument('--only', type=int, metavar='N', help='run only command N, counted from 0')
     g.add_argument('--result', type=Path, help=argparse.SUPPRESS)
+    g.add_argument('--base', metavar='REV', help=f'exported as {BASE}: the commit the change is checked against')
     g.add_argument('--role', choices=('sidekick', 'verifier'),
                    help='exported as PSTACK_KITCHEN_ROLE (default: that variable, else sidekick)')
     h = sub.add_parser('history', help='classify and policy-check each of the last commits')
@@ -796,7 +808,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == 'gate':
             r = run_gate(root, kitchen, args.profile, args.stage, args.log_dir, args.keep_going, args.only, args.result,
-                         args.role)
+                         args.role, args.base)
             lines = [f'{args.profile} {args.stage}: {"pass" if r["passed"] else "FAIL"}'
                      + ('' if r['commands'] else ' (no commands)')]
             for x in r['commands']:

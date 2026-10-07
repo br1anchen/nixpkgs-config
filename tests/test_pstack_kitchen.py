@@ -442,7 +442,7 @@ class KitchenScriptTests(unittest.TestCase):
                     'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
                     'HOME': str(t / 'home'), 'XDG_STATE_HOME': str(t / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0',
-                    'KITCHEN_SUBMIT_CHECK_S': '0', 'KITCHEN_QUIET_MAX_S': '20',
+                    'PAIR_SUBMIT_CHECK_S': '0', 'KITCHEN_QUIET_MAX_S': '20',
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
@@ -621,6 +621,64 @@ esac
         self.assertIn('outside scope: 1', out)
         self.assertNotIn('quiet:', out)
 
+    def test_gates_see_the_step_base(self):
+        self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
+                   .replace('fast = ["test ! -e FAIL"]', 'fast = ["git cat-file -e \\"$PSTACK_KITCHEN_STEP_BASE^{commit}\\""]'))
+        base = self.commit('kitchen sees the base')
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.write('src/util.py', 'X = 11\n')
+        self.commit('one')
+        self.write('tests/test_app.py', 'x = 11\n')
+        sha = self.commit('two')
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'two commits'))
+        job = next((self.store / 'steps/jobs').iterdir())
+        self.assertEqual((job / 'base').read_text().strip(), base)
+
+    def test_a_squash_is_verified_against_what_it_carries(self):
+        self.write('src/util.py', 'X = 21\n')
+        self.write('tests/test_app.py', 'x = 21\n')
+        self.commit('step one')
+        self.write('src/util.py', 'X = 22\n')
+        tip = self.commit('step two')
+        squash = self.brief('001', 'squash', ['src/**', 'tests/**'], playbook='refactoring')
+        self.dispatch(squash)
+        self.git('reset', '--soft', 'HEAD~2')
+        self.done(squash, self.commit('squashed'))
+        self.assertEqual(self.git('rev-parse', 'HEAD^{tree}'), self.git('rev-parse', f'{tip}^{{tree}}'))
+        out = self.run_sh('verify', str(self.store), '001')
+        self.assertNotIn('gates only', out)
+        self.assertIn('verifier demo-verifier', out)
+
+    def test_a_blocked_unit_can_still_be_verified(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 31\n')
+        self.write('tests/test_app.py', 'x = 31\n')
+        head = self.commit('util')
+        (self.store / 'reports' / b.name).write_text(f'# Report\n\nstatus: blocked\nhead: {head}\n')
+        out = self.run_sh('verify', str(self.store), '001')
+        self.assertIn("note: unit 001's report is blocked; checking the head it names", out)
+        self.assertIn('status: clean', out)
+
+    def test_landing_review_starts_where_the_stack_leaves_trunk(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        old_base = self.git('rev-parse', 'HEAD')
+        self.write('docs/trunk.md', '# moved on\n')
+        trunk = self.commit('trunk moved')
+        self.git('update-ref', 'refs/remotes/origin/main', trunk)
+        self.write('src/util.py', 'X = 41\n')
+        self.write('tests/test_app.py', 'x = 41\n')
+        self.done(b, self.commit('stacked on the new trunk'))
+        (self.fake / 'joo-artifact.json').write_text(json.dumps({'kind': 'review-artifact', 'findings': []}))
+        out = self.run_sh('review', str(self.store), '--landing')
+        self.assertIn('landing base: merge-base of remotes/origin/main and HEAD', out)
+        log = (self.fake / 'joo.log').read_text()
+        self.assertIn(f'--range {trunk}..', log)
+        self.assertNotIn(f'--range {old_base}..', log)
+        self.run_sh('review', str(self.store), '--landing', '--base', old_base)
+        self.assertIn(f'--range {old_base}..', (self.fake / 'joo.log').read_text())
+
     def test_gates_mode_verifies_without_a_verifier(self):
         b = self.brief('001', 'docs', ['docs/**'])
         self.dispatch(b)
@@ -733,7 +791,7 @@ esac
         self.assertIn('status: clean', out)
         self.assertNotIn('verifying', json.loads((self.store / 'pair.json').read_text()))
         self.assertEqual(list((self.store / 'scratch').iterdir()), [])
-        self.assertIn('no verification is open', self.run_sh('verify', str(self.store), '--wait', code=4))
+        self.assertIn('no verification is open', self.run_sh('verify', str(self.store), '--wait', code=5))
 
     def test_rejected_verdict_drafts_the_fix_brief(self):
         _, out = self.verify_app_unit('reject', 2)

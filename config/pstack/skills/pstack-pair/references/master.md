@@ -60,7 +60,9 @@ is yours alone.
    without one. Put prior review findings in Context by path. A field you
    cannot fill is a unit you have not scoped, so scope it before dispatch.
    Dispatch refuses a brief with unfilled placeholders.
-6. **Dispatch and check in.** `pair.sh dispatch <store> <brief> [--every MIN]`.
+6. **Dispatch and check in.** `pair.sh dispatch <store> <brief> [--every MIN]`
+   (`--send-only` returns once the brief is delivered; never wrap dispatch in
+   a short `timeout`).
    Exit 0 prints the report path. Exit 3 means blocked: read the pane with
    `herdr agent read <name> --source visible --lines 60`, then follow the
    approval rule below. Exit 4 with a check-in digest means the interval passed

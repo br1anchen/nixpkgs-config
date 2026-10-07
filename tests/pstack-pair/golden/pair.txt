@@ -19,7 +19,7 @@ usage: pair.sh <command> [args]
   discuss <store> <plan-path> [--timeout MS]
                                             send PLAN to the sidekick and wait for its agree/object response
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
-  dispatch <store> <brief-path> [--timeout MS | --every MIN]
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan
   wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
@@ -118,6 +118,8 @@ report_status: agree
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair PLAN <T>/state/pstack/pair/demo/plans/001-design.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
+  herdr agent get demo-sidekick
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/002-early.md
 state: idle
@@ -127,6 +129,8 @@ report_status: done
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/002-early.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent get demo-sidekick
 
 $ pair.sh dispatch <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/003-build.md --timeout 1500
@@ -141,6 +145,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/003-build.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -220,6 +226,8 @@ report_status: done
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair STEER <T>/state/pstack/pair/demo/steers/003-build-s3.md --wait --until working --timeout 30000
   herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
+  herdr agent get demo-sidekick
 
 $ pair.sh report <T>/state/pstack/pair/demo
 <T>/state/pstack/pair/demo/reports/003-build.md
@@ -288,6 +296,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/004-qone.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -400,6 +410,8 @@ report_status: done
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/006-qthree.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
@@ -413,6 +425,8 @@ report_status: done
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/007-qfive.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
@@ -449,6 +463,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/009-qseven.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -486,6 +502,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/010-qeight.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -703,6 +721,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/013-qscope.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -720,6 +740,8 @@ steers: 0 sent, 0 applied, 0 objected
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair BRIEF <T>/state/pstack/pair/demo/briefs/014-qglob.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
@@ -978,7 +1000,7 @@ usage: pair.sh <command> [args]
   discuss <store> <plan-path> [--timeout MS]
                                             send PLAN to the sidekick and wait for its agree/object response
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
-  dispatch <store> <brief-path> [--timeout MS | --every MIN]
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan
   wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path

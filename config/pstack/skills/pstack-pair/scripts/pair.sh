@@ -35,7 +35,7 @@ usage: pair.sh <command> [args]
   discuss <store> <plan-path> [--timeout MS]
                                             send PLAN to the sidekick and wait for its agree/object response
   new-brief <store> <slug>                  create briefs/NNN-<slug>.md from the template; prints its path
-  dispatch <store> <brief-path> [--timeout MS | --every MIN]
+  dispatch <store> <brief-path> [--timeout MS | --every MIN] [--send-only]
                                             send BRIEF to the sidekick and wait for it to settle;
                                             implementation playbooks require an agreed plan
   wait <store> [--timeout MS | --every MIN] wait for the report of the unit the sidekick is on; prints its path
