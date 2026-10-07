@@ -131,6 +131,13 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    pstack-kitchen-setup's maintain path. Reply as the pair master does, with
    the retro's summary line and the land-check result.
 
+   Gaps in the kitchen itself (a command, message, default or document of
+   pstack-kitchen that cost the run time or a wake) are not repo classes.
+   Write them from [the feedback template](feedback-template.md) and file
+   them: `kitchen.sh feedback <store> <file>`. It prints where the report
+   landed and whether a maintainer session or the human was told. Repo
+   classes stay with pstack-kitchen-setup's maintain path.
+
 ## Briefs for a cheaper sidekick
 
 The sidekick is the largest pool and often not the strongest model. A

@@ -1,6 +1,6 @@
 ---
 name: pstack-kitchen
-description: "Run coding work as a kitchen in one Herdr session: a master that plans, briefs, triages code review, and decides; a sidekick on the cheapest capable model that implements under the repo's own deterministic gates; a consultant started only when a unit escalates; and a fresh verifier pane that proves each unit on the real surface. The master is woken by exceptions, not by every step. Needs the repo's .agents/kitchen.toml (pstack-kitchen-setup writes it). Use for /pstack-kitchen, 'kitchen mode', 'run the kitchen', a `pstack-kitchen PLAN|BRIEF|STEER|CONSULT|VERIFY|REPORT|ADVICE|STOP` message, 'be the sidekick/consultant/verifier' in a kitchen, or sustained delegated work that should not need the master on every step. Requires HERDR_ENV=1."
+description: "Run coding work as a kitchen in one Herdr session: a master that plans, briefs, triages code review, and decides; a sidekick on the cheapest capable model that implements under the repo's own deterministic gates; a consultant started only when a unit escalates; and a fresh verifier pane that proves each unit on the real surface. The master is woken by exceptions, not by every step. Needs the repo's .agents/kitchen.toml (pstack-kitchen-setup writes it). Use for /pstack-kitchen, 'kitchen mode', 'run the kitchen', a `pstack-kitchen PLAN|BRIEF|STEER|CONSULT|VERIFY|REPORT|ADVICE|FEEDBACK|STOP` message, 'be the sidekick/consultant/verifier' in a kitchen, or sustained delegated work that should not need the master on every step. Requires HERDR_ENV=1."
 ---
 
 Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. Its runtime mappings apply to all referenced playbooks and scripts.
@@ -109,7 +109,17 @@ Verifier: [references/verifier.md](references/verifier.md).
    as `[landing].mode` allows and never merges.
 7. **Learn.** `kitchen.sh retro` shows where the master was needed and what
    repeated; each repeated class becomes a rule, a lint, a profile command, or
-   a standing order.
+   a standing order. A gap in the kitchen itself goes to `kitchen.sh feedback`.
+
+## Feedback
+
+`kitchen.sh feedback <store> <file>` files the master's gaps (from [the
+template](references/feedback-template.md)) into the host inbox,
+`${XDG_STATE_HOME:-$HOME/.local/state}/pstack/feedback/`, behind a header it
+writes. A maintainer session registered with `kitchen.sh maintainer on` gets
+`pstack-kitchen FEEDBACK <path>` and works as [references/maintainer.md](references/maintainer.md)
+says; with none live, the human gets a notification. `feedback --inbox` lists
+open reports and `feedback --close` retires one.
 
 ## When the master wakes
 
@@ -131,6 +141,10 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `joo/<unit or landing>-r<k>.json` | `kitchen.sh review` | the Judge of Owls review artifact |
 | `resolutions.tsv` | master via `kitchen.sh resolve` | one decision per finding |
 | `pair.json` `.escalations` | `kitchen.sh consultant` | why the consultant was started |
+
+Beside the runs, on the host: `pstack/feedback/inbox/<date>-<repo>-<run>[-k].md` (open reports),
+`feedback/done/` (closed ones, with a Closed block) and `feedback/maintainer.json` (the registered
+maintainer), all written by `kitchen.sh feedback` and `maintainer`.
 
 The repo's ledger, across runs, is `ledger.tsv` in `kitchen.py statedir`; `timings.tsv` beside it
 records each gate's run time, which `kitchen.py timing` reads.
