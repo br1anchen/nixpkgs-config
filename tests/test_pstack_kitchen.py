@@ -75,6 +75,7 @@ class KitchenTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name) / 'repo'
         self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'XDG_STATE_HOME': str(Path(self.tmp.name) / 'state'),
+                    'PSTACK_KITCHEN_ROSTER': str(Path(self.tmp.name) / 'no-roster.toml'),
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.repo.mkdir()
@@ -531,7 +532,28 @@ class DoctorTests(KitchenTests):
         c = self.checks()
         self.assertEqual({k: v['status'] for k, v in c.items()}, {
             'coverage': 'ok', 'profiles': 'ok', 'commands': 'ok', 'fast gates': 'ok',
-            'features': 'ok', 'verification skill': 'warn', 'scratch setup': 'ok'})
+            'features': 'ok', 'verification skill': 'warn', 'scratch setup': 'ok',
+            'verifier routine': 'ok', 'verifier fallback': 'ok', 'verifier escalated': 'ok'})
+
+    def test_doctor_names_the_resolved_verifier_for_each_class(self):
+        c = self.checks()
+        self.assertIn("the run's current sidekick (source sidekick", c['verifier routine']['detail'])
+        self.assertEqual(c['verifier fallback']['detail'], 'none')
+        self.assertEqual(c['verifier escalated']['detail'],
+                         'claude --model claude-opus-5-5 (source default); also used by verify --landing')
+        roster = Path(self.tmp.name) / 'roster.toml'
+        roster.write_text('[verifier]\nkind = "pi"\nargs = ["--model", "devin/swe-2", "--thinking", "high"]\n'
+                          '[verifier.fallback]\nkind = "claude"\nargs = ["--model", "claude-haiku-5-5"]\n'
+                          '[verifier.escalated]\nkind = "claude"\nargs = ["--model", "claude-sonnet-5-5"]\n')
+        self.env['PSTACK_KITCHEN_ROSTER'] = str(roster)
+        c = self.checks()
+        self.assertEqual(c['verifier routine']['detail'], 'pi --model devin/swe-2 --thinking high (source roster)')
+        self.assertEqual(c['verifier fallback']['detail'], 'claude --model claude-haiku-5-5 (source roster)')
+        self.assertIn('claude --model claude-sonnet-5-5 (source roster)', c['verifier escalated']['detail'])
+        roster.write_text('[verifier.escalated]\nkind = "master"\n[verifier]\nkind = "devin"\n')
+        c = self.checks()
+        self.assertEqual(c['verifier routine']['detail'], 'devin (model unspecified) (source roster)')
+        self.assertIn("the master's own kind (source roster)", c['verifier escalated']['detail'])
 
     def test_problems_fail(self):
         self.change({'tools/gen.py': 'pass\n'})
@@ -634,6 +656,42 @@ class FleetTests(unittest.TestCase):
         e = runs['empty']
         self.assertEqual((e['done_units'], e['verified_units'], e['wakes'], e['wakes_per_verified'], e['failovers'], e['started']),
                          (0, 0, 0, None, 0, None))
+
+    def packet(self, run, name, agent=None, cls=None, outcome=None):
+        lines = ['# Verify x', '', 'verdict: v']
+        lines += [f'verifier-agent: {agent}'] if agent else []
+        lines += [f'verifier-class: {cls}'] if cls else []
+        lines += [f'verifier-outcome: {outcome}'] if outcome else []
+        (self.runs / run / 'verdicts' / f'{name}-packet.md').write_text('\n'.join(lines) + '\n')
+
+    def fleet_verifiers(self):
+        r = subprocess.run([sys.executable, str(script), '--json', 'fleet', '--runs', str(self.runs)],
+                           env=self.env, capture_output=True, text=True, check=True)
+        return {(v['agent'], v['class']): v for v in json.loads(r.stdout)['verifiers']}, r.stdout
+
+    def test_fleet_counts_verifier_attempts_by_agent_class_and_outcome(self):
+        self.store('a', pair={}, events=[(10, 'master', 'init', '')])
+        for n, o in [(1, 'provider'), (2, 'clean'), (3, 'reject'), (4, 'invalid'), (5, 'missing'), (6, 'start-failed'),
+                     (7, 'running'), (8, 'prepared'), (9, 'inconclusive')]:
+            self.packet('a', f'00{n}-x-v1', 'pi --model devin/swe-2', 'routine', o)
+        self.packet('a', '010-x-v1', 'claude --model claude-sonnet-5-5', 'landing', 'clean')
+        self.packet('a', '011-x-v1')
+        self.store('b', pair={}, events=[(20, 'master', 'init', '')])
+        self.packet('b', '001-x-v1', 'pi --model devin/swe-2', 'routine', 'clean')
+        v, _ = self.fleet_verifiers()
+        pi = v[('pi --model devin/swe-2', 'routine')]
+        self.assertEqual((pi['started'], pi['clean'], pi['reject'], pi['inconclusive'], pi['invalid']), (10, 2, 1, 1, 1))
+        self.assertEqual((pi['provider'], pi['missing'], pi['start-failed'], pi['running'], pi['unknown']), (1, 1, 1, 2, 0))
+        self.assertEqual(v[('claude --model claude-sonnet-5-5', 'landing')]['clean'], 1)
+        self.assertEqual(v[('unknown', 'unknown')]['unknown'], 1)
+
+    def test_fleet_text_carries_the_caveat_and_gates_only_verdicts_make_no_attempt(self):
+        self.store('a', pair={}, events=[(10, 'master', 'init', '')], verdicts=[('001-a-v1', 'clean (gates only; mode gates)', '001')])
+        r = subprocess.run([sys.executable, str(script), 'fleet', '--runs', str(self.runs)], env=self.env,
+                           capture_output=True, text=True, check=True)
+        self.assertIn('reported outcomes on different workloads, not model accuracy', r.stdout)
+        v, _ = self.fleet_verifiers()
+        self.assertEqual(v, {})
 
     def test_since_filters_by_the_first_event_and_fleet_writes_nothing(self):
         self.store('old', pair={}, events=[(1_000_000_000, 'master', 'init', '')])

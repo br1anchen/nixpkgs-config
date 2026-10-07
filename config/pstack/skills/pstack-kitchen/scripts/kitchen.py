@@ -806,6 +806,11 @@ def doctor(root: Path, kitchen: Kitchen, run: bool) -> list[dict]:
             'worktree may need [scratch].setup (the install command, without the wrap)')
     else:
         add('scratch setup', 'ok', 'none')
+    _, vr = roster_data()
+    routine = vr['verifier']['routine']
+    add('verifier routine', 'ok', describe_verifier(routine))
+    add('verifier fallback', 'ok', describe_verifier({**routine['fallback'], 'source': routine['source']}) if routine['fallback'] else 'none')
+    add('verifier escalated', 'ok', describe_verifier(vr['verifier']['escalated']) + '; also used by verify --landing')
     if kitchen.review['engine'] == 'joo':
         joo = shutil.which('joo-dev') or shutil.which('joo')
         add('review engine', 'ok' if joo else 'warn', joo or 'joo-dev and joo are not on PATH')
@@ -862,7 +867,7 @@ def _entry(t: dict, source: str) -> dict:
             'source': source}
 
 
-def roster(as_json: bool) -> int:
+def roster_data() -> tuple[Path, dict]:
     path = Path(os.environ.get('PSTACK_KITCHEN_ROSTER') or Path.home() / '.config/pstack/kitchen.toml')
     data = tomllib.loads(path.read_text()) if path.exists() else {}
     out = {}
@@ -881,9 +886,26 @@ def roster(as_json: bool) -> int:
         'escalated': _entry(esc, 'roster') if esc and esc.get('kind') else
         {'kind': 'claude', 'args': ['--model', 'claude-opus-5-5'], 'fallback': None, 'source': 'default'},
     }
+    return path, out
+
+
+def roster(as_json: bool) -> int:
+    path, out = roster_data()
     emit(out, as_json, f'{path}: ' + ', '.join(f'{r} {v["kind"] or "unset"}' for r, v in out.items() if 'kind' in v)
          + f', verifier {out["verifier"]["routine"]["kind"]}/{out["verifier"]["escalated"]["kind"]}')
     return 0
+
+
+def describe_verifier(e: dict | None) -> str:
+    """One resolved verifier entry as doctor prints it: the kind, its model arguments, and where it came from."""
+    if not e:
+        return 'none'
+    if e['kind'] == 'sidekick':
+        return "the run's current sidekick (source sidekick: its kind and arguments are read from the run)"
+    if e['kind'] == 'master':
+        return f"the master's own kind (source {e['source']})"
+    args = ' '.join(shlex.quote(a) for a in e['args']) or '(model unspecified)'
+    return f"{e['kind']} {args} (source {e['source']})"
 
 
 def _header(path: Path, key: str) -> str:
@@ -969,6 +991,9 @@ def run_counters(store: Path) -> dict:
     for e in events:
         if e[3] == 'catch':
             catches[e[5]] = catches.get(e[5], 0) + 1
+    attempts = [{'agent': _header(v, 'verifier-agent') or 'unknown', 'class': _header(v, 'verifier-class') or 'unknown',
+                 'outcome': _header(v, 'verifier-outcome') or 'unknown'}
+                for v in sorted((store / 'verdicts').glob('*-packet.md'))]
     paths = [b.get('path') for b in pair.get('skill_builds') or [] if isinstance(b, dict) and b.get('path')]
     revs = build_revs()
     if len(set(paths)) > 1:
@@ -991,6 +1016,7 @@ def run_counters(store: Path) -> dict:
         'verify_provider': sum(e[5] == 'verify:provider' for e in events),
         'gate_flaky': sum(e[3] == 'gate-flaky' for e in events),
         'catches': catches, 'steers': len(list((store / 'steers').glob('*-s[0-9]*.md'))),
+        'verifier_attempts': attempts,
     }
 
 
@@ -1034,6 +1060,17 @@ def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
         b['provider_stops_per_run'] = round(b['provider_stops'] / b['runs'], 1)
         brows.append(b)
 
+    OUTCOMES = ('clean', 'reject', 'inconclusive', 'invalid', 'provider', 'missing', 'start-failed')
+    vrows: dict[tuple[str, str], dict] = {}
+    for r in rows:
+        for a in r['verifier_attempts']:
+            v = vrows.setdefault((a['agent'], a['class']), {'agent': a['agent'], 'class': a['class'], 'started': 0,
+                                                            **{o: 0 for o in OUTCOMES}, 'running': 0, 'unknown': 0})
+            v['started'] += 1
+            key = a['outcome'] if a['outcome'] in OUTCOMES else 'running' if a['outcome'] in ('prepared', 'running') else 'unknown'
+            v[key] += 1
+    vlist = sorted(vrows.values(), key=lambda v: (v['agent'] == 'unknown', v['agent'], v['class']))
+
     def when(t):
         return time.strftime('%Y-%m-%d %H:%M', time.gmtime(t)) if t else '-'
 
@@ -1052,7 +1089,14 @@ def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
     for b in brows:
         lines.append(f'{b["build"][:9]:9} {b["runs"]:>4} {b["eligible_runs"]:>8} {num(b["mean_wakes_per_verified"]):>10} '
                      f'{b["failovers_per_run"]:>6} {b["provider_stops_per_run"]:>8}')
-    emit({'runs': rows, 'builds': brows}, as_json, '\n'.join(lines))
+    lines.append('')
+    lines.append('verifier attempts by configured agent and class (reported outcomes on different workloads, not model accuracy;')
+    lines.append('the agent is what the CLI was asked for; attempts from before the packet fields count as unknown)')
+    lines.append(f'{"agent":38} {"class":9} {"start":>5} {"clean":>5} {"rej":>3} {"incon":>5} {"inval":>5} {"prov":>4} {"miss":>4} {"sfail":>5} {"run":>3} {"unk":>3}')
+    for v in vlist:
+        lines.append(f'{v["agent"][:38]:38} {v["class"]:9} {v["started"]:>5} {v["clean"]:>5} {v["reject"]:>3} {v["inconclusive"]:>5} '
+                     f'{v["invalid"]:>5} {v["provider"]:>4} {v["missing"]:>4} {v["start-failed"]:>5} {v["running"]:>3} {v["unknown"]:>3}')
+    emit({'runs': rows, 'builds': brows, 'verifiers': vlist}, as_json, '\n'.join(lines))
     return 0
 
 
