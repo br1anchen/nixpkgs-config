@@ -294,14 +294,29 @@ class GateTests(KitchenTests):
         self.env['PSTACK_KITCHEN_ROLE'] = 'verifier'
         self.assertEqual(self.data('gate', 'app', 'fast', code=2)['role'], 'verifier')
 
-    def test_each_gate_gets_its_own_tmpdir_removed_after(self):
+    def test_each_gate_gets_its_own_short_tmpdir_removed_after(self):
         seen = Path(self.tmp.name) / 'seen-tmpdir'
+        base = Path(self.tmp.name) / 'gt'
+        base.mkdir()
+        dead, live = base / 'kg-999999999-dead', base / f'kg-{os.getpid()}-live'
+        dead.mkdir(), live.mkdir()
+        self.env['PSTACK_KITCHEN_GATE_TMP'] = str(base)
         self.write('.agents/kitchen.toml', KITCHEN.replace(
             'fast = ["test -f src/app.py"]', f'fast = ["echo \\"$TMPDIR\\" > {seen} && touch \\"$TMPDIR/leftover\\""]'))
         self.assertTrue(self.data('gate', 'app', 'fast')['passed'])
         used = Path(seen.read_text().strip())
-        self.assertIn('pstack/kitchen/repos', str(used))
+        self.assertEqual(used.parent, base)
+        self.assertTrue(used.name.startswith('kg-'))
         self.assertFalse(used.exists())
+        self.assertFalse(dead.exists())
+        self.assertTrue(live.exists())
+
+    def test_gate_tmpdirs_default_to_slash_tmp(self):
+        os.environ.pop('PSTACK_KITCHEN_GATE_TMP', None)
+        self.assertEqual(kitchen.gate_tmp_base(), Path('/tmp'))
+        # mbx nests nix-shell.XXXXXX/mbx-session-XXXXXX/cache-agent.sock (52 bytes)
+        # under it; a socket path must fit in 104 bytes on macOS.
+        self.assertLess(len('/tmp/kg-4194304-abcdefgh/') + 52, 104)
 
     def test_gates_share_the_machine_slots(self):
         self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["sleep 2"]'))

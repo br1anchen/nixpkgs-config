@@ -482,6 +482,30 @@ ROLES = ('sidekick', 'verifier')
 BASE = 'PSTACK_KITCHEN_STEP_BASE'
 
 
+
+def gate_tmp_base() -> Path:
+    """Where gate TMPDIRs go: short, so sockets nested under them fit."""
+    env = os.environ.get('PSTACK_KITCHEN_GATE_TMP')
+    if env:
+        return Path(env)
+    # macOS's own $TMPDIR (/var/folders/...) is already ~50 bytes deep.
+    return Path('/tmp') if os.access('/tmp', os.W_OK) else Path(tempfile.gettempdir())
+
+
+def sweep_gate_tmp(base: Path) -> None:
+    """Remove TMPDIRs of gates that died without cleaning up (kill -9)."""
+    for d in base.glob('kg-*-*'):
+        try:
+            pid = int(d.name.split('-')[1])
+            if d.stat().st_uid != os.getuid():
+                continue
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            shutil.rmtree(d, ignore_errors=True)
+        except (ValueError, OSError):
+            continue
+
+
 def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Path | None,
              keep_going: bool = False, only: int | None = None, result: Path | None = None,
              role: str | None = None, base: str | None = None) -> dict:
@@ -505,15 +529,17 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
     log_dir.mkdir(parents=True, exist_ok=True)
     inside = os.environ.get(WRAPPED) == '1'
     wrap = wrap_of(kitchen, p)
-    # Each gate gets its own TMPDIR on disk, removed when it ends. Tools and
-    # `nix develop` (which makes a nix-shell.* directory there and never
-    # removes it after --command) otherwise left hundreds of directories in
-    # a RAM-backed /tmp: 6 GB in two days of one kitchen.
+    # Each gate gets its own TMPDIR, removed when it ends. Tools and `nix
+    # develop` (which makes a nix-shell.* directory there and never removes it
+    # after --command) otherwise left hundreds of directories in /tmp: 6 GB in
+    # two days of one kitchen. The path stays short: tools nest unix sockets
+    # under it (mbx: nix-shell.*/mbx-session-*/cache-agent.sock), and a socket
+    # path has 104-108 bytes.
     tmp = None
     if commands and not inside:
-        base = state_dir(root) / 'tmp'
-        base.mkdir(parents=True, exist_ok=True)
-        tmp = tempfile.mkdtemp(prefix=f'{profile}-{stage}-', dir=base)
+        base = gate_tmp_base()
+        sweep_gate_tmp(base)
+        tmp = tempfile.mkdtemp(prefix=f'kg-{os.getpid()}-', dir=base)
         os.environ['TMPDIR'] = tmp
     try:
         return _run_gate(root, kitchen, p, profile, stage, commands, log_dir, keep_going, only, result, role,
