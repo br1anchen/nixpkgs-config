@@ -10,6 +10,7 @@ so run this from a plain shell or a default-mode agent session.
 from pathlib import Path
 import os
 import json
+import re
 import subprocess
 import tempfile
 import time
@@ -213,6 +214,70 @@ esac
                          ['-a', 'on-request', '-s', 'read-only'])
 
 
+class RangeFloorTests(unittest.TestCase):
+    """range_floor and the digest it feeds: a unit is never measured from before its branch leaves trunk."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / 'repo'
+        self.repo.mkdir()
+        self.env = {**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
+                    'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+        self.git('init', '-q', '-b', 'work')
+        self.c0 = self.commit('a.txt')
+
+    def git(self, *args):
+        return subprocess.run(['git', *args], cwd=self.repo, env=self.env, check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, name):
+        (self.repo / name).write_text(name)
+        self.git('add', name)
+        self.git('commit', '-q', '-m', name)
+        return self.git('rev-parse', 'HEAD')
+
+    def floor(self, base, tip, *flags):
+        core = (skills / 'pstack-pair/scripts/pair-core.sh').read_text()
+        fns = '\n'.join(re.search(rf'^{name}\(\) \{{.*?^\}}$', core, re.MULTILINE | re.DOTALL).group(0)
+                        for name in ('trunk_ref', 'range_floor'))
+        script = f'{fns}\nrange_floor "$1" "$2" "$3" "$4"\nprintf "%s|%s\\n" "$range_floor_rev" "$range_floor_note"'
+        out = subprocess.run(['bash', '-c', script, 'x', str(self.repo), base, tip, *flags], capture_output=True, text=True, check=True).stdout.strip()
+        rev, note = out.split('|', 1)
+        return rev, note
+
+    def test_with_no_trunk_ref_the_base_stays(self):
+        c1 = self.commit('b.txt')
+        self.assertEqual(self.floor(self.c0, c1), (self.c0, ''))
+
+    def test_a_detached_head_still_finds_trunk(self):
+        trunk = self.commit('t.txt')
+        self.git('update-ref', 'refs/remotes/origin/main', trunk)
+        own = self.commit('own.txt')
+        self.git('checkout', '-q', '--detach')
+        self.assertEqual(self.floor(self.c0, own)[0], trunk)
+
+    def test_a_moved_trunk_with_own_commits_moves_the_floor_to_the_fork(self):
+        trunk = self.commit('t.txt')
+        self.git('update-ref', 'refs/remotes/origin/main', trunk)
+        own = self.commit('own.txt')
+        rev, note = self.floor(self.c0, own)
+        self.assertEqual(rev, trunk)
+        self.assertIn('behind where its branch leaves remotes/origin/main', note)
+
+    def test_a_step_zero_rebase_equal_to_trunk_floors_a_digest_but_not_a_verification(self):
+        trunk = self.commit('t.txt')
+        self.git('update-ref', 'refs/remotes/origin/main', trunk)
+        self.assertEqual(self.floor(self.c0, trunk, '--allow-head')[0], trunk)
+        self.assertEqual(self.floor(self.c0, trunk), (self.c0, ''))
+
+    def test_a_base_already_past_the_fork_does_not_move(self):
+        trunk = self.commit('t.txt')
+        self.git('update-ref', 'refs/remotes/origin/main', trunk)
+        own = self.commit('own.txt')
+        own2 = self.commit('own2.txt')
+        self.assertEqual(self.floor(own, own2), (own, ''))
+
+
 class ReadinessTests(unittest.TestCase):
     """A done report is a reply only when finish would accept it: no open notes, head at the last step."""
 
@@ -400,6 +465,31 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('STALE', self.wait(4))
         (self.cwd / 'c d.txt').write_text('edit')
         self.assertIn('editing: last change', self.wait(4))
+
+    def commit_file(self, name):
+        (self.cwd / name).write_text(name)
+        self.git('add', name)
+        self.git('commit', '-q', '-m', name)
+        return self.git('rev-parse', 'HEAD')
+
+    def test_a_step_zero_rebase_does_not_pull_trunk_into_the_digest(self):
+        self.commit_file('trunk1.txt')
+        self.commit_file('trunk2.txt')
+        self.git('update-ref', 'refs/remotes/origin/main', 'HEAD')
+        out = self.wait(4)
+        self.assertIn('touched: 0 files, 0 commits since dispatch', out)
+        self.assertNotIn('trunk1.txt', out)
+        self.assertIn("note: recorded base", out)
+        self.commit_file('own.txt')
+        out = self.wait(4)
+        self.assertIn('touched: 1 files, 1 commits since dispatch\n  own.txt', out)
+        self.assertNotIn('trunk', out)
+
+    def test_without_a_trunk_ref_the_digest_counts_from_the_dispatch_head(self):
+        self.commit_file('one.txt')
+        self.commit_file('two.txt')
+        out = self.wait(4)
+        self.assertIn('touched: 2 files, 2 commits since dispatch', out)
 
     def test_a_future_mtime_does_not_keep_it_active(self):
         self.quiet_log()

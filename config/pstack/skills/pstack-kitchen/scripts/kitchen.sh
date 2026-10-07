@@ -133,18 +133,6 @@ unit_brief() {
 	printf '%s\n' "$f"
 }
 
-# The repo's trunk: origin's default branch, else main or master; never the
-# checked-out branch itself. Prints the ref, or nothing.
-trunk_ref() {
-	local root="$1" ref current candidates
-	current="$(git -C "$root" symbolic-ref --quiet HEAD 2>/dev/null || true)"
-	candidates="$(git -C "$root" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
-	for ref in $candidates refs/remotes/origin/main refs/remotes/origin/master refs/heads/main refs/heads/master; do
-		[ "$ref" != "$current" ] || continue
-		git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null && { printf '%s\n' "$ref"; return 0; }
-	done
-}
-
 # Where a stack at $2 leaves trunk, in $landing_base_rev; call it directly,
 # not in a command substitution, so its refusals end the command.
 landing_base() {
@@ -178,24 +166,15 @@ unit_range() {
 	done
 	head="$(header_field "$(expected_report "$store" "$(unit_brief "$store" "$last")")" head)"
 	[ -n "$head" ] || die "unit $last's report has no head:"
-	local root mb tmb trunk
+	local root
 	root="$(field "$store" .git_root)"
 	head="$(git -C "$root" rev-parse --verify --quiet "$head^{commit}")" || die "unit $last's head is not a commit"
 	if [ -n "${range_base:-}" ]; then
 		base="$(git -C "$root" rev-parse --verify --quiet "$range_base^{commit}")" || die "--base $range_base is not a commit"
 	else
-		# A unit is never measured from before where its branch leaves trunk:
-		# one dispatched before a landing (a squash, a rebase) keeps a base
-		# that trunk has since replaced, and its merge-base with the head is
-		# the old trunk, which would take the whole landed stack in.
-		mb="$(git -C "$root" merge-base "$base" "$head" 2>/dev/null || printf '%s' "$base")"
-		trunk="$(trunk_ref "$root")"
-		if [ -n "$trunk" ] && tmb="$(git -C "$root" merge-base "$trunk" "$head" 2>/dev/null)" &&
-			[ "$tmb" != "$head" ] && [ "$tmb" != "$mb" ] && git -C "$root" merge-base --is-ancestor "$mb" "$tmb"; then
-			printf 'note: unit %s'"'"'s recorded base %s is behind where its branch leaves %s; measuring from %s\n' \
-				"$first" "${base:0:9}" "${trunk#refs/}" "${tmb:0:9}" >&2
-			base="$tmb"
-		fi
+		range_floor "$root" "$base" "$head"
+		[ -z "$range_floor_note" ] || printf 'note: unit %s'"'"'s %s\n' "$first" "$range_floor_note" >&2
+		base="$range_floor_rev"
 	fi
 	printf '%s %s\n' "$base" "$head"
 }
@@ -488,6 +467,10 @@ cmd_step() {
 	# A rewritten base (a squash, an amend) is measured from where the
 	# histories fork, so the step covers every change it carries.
 	base="$(git -C "$root" merge-base "$base" "$full" 2>/dev/null || printf '%s' "$base")"
+	# And never from before where the branch leaves trunk (a unit rebased onto
+	# a moved trunk, with no step recorded yet).
+	range_floor "$root" "$base" "$full"
+	base="$range_floor_rev"
 	job="$store/steps/jobs/$unit-${full:0:12}"
 	if [ ! -d "$job" ] || [ -f "$job/consumed" ]; then
 		rm -rf "$job"

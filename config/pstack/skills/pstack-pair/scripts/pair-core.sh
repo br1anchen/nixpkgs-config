@@ -314,6 +314,44 @@ busy_command() {
 	[ -z "$best" ] || printf '%s for %dm' "$best" $((best_et / 60))
 }
 
+# The repo's trunk: origin's default branch, else main or master; never the
+# checked-out branch itself. Prints the ref, or nothing.
+trunk_ref() {
+	local root="$1" ref current candidates
+	current="$(git -C "$root" symbolic-ref --quiet HEAD 2>/dev/null || true)"
+	candidates="$(git -C "$root" symbolic-ref --quiet refs/remotes/origin/HEAD 2>/dev/null || true)"
+	for ref in $candidates refs/remotes/origin/main refs/remotes/origin/master refs/heads/main refs/heads/master; do
+		[ "$ref" != "$current" ] || continue
+		git -C "$root" rev-parse --verify --quiet "$ref" >/dev/null && { printf '%s\n' "$ref"; return 0; }
+	done
+	return 0
+}
+
+# Where a unit's range should start: never from before the point its branch
+# leaves trunk. A unit dispatched before a landing, or rebased onto a moved
+# trunk, keeps a recorded base that trunk has since replaced, and measuring
+# from it takes trunk's commits in. $2 is the recorded base, $3 the range's
+# tip. Sets range_floor_rev (the base to use) and range_floor_note (why it
+# moved, or empty); call it directly, not in a command substitution. The floor
+# moves only when merge-base(base, tip) is an ancestor of merge-base(trunk,
+# tip), and, for a verification range that must not be empty, never to the tip
+# itself. A digest passes --allow-head: zero own commits after a rebase is a
+# real state there. With no trunk ref the base stays as it was.
+range_floor() {
+	local root="$1" base="$2" tip="$3" allow="${4:-}" mb trunk tmb
+	range_floor_rev="$base"
+	range_floor_note=""
+	trunk="$(trunk_ref "$root")"
+	[ -n "$trunk" ] || return 0
+	mb="$(git -C "$root" merge-base "$base" "$tip" 2>/dev/null || printf '%s' "$base")"
+	tmb="$(git -C "$root" merge-base "$trunk" "$tip" 2>/dev/null)" || return 0
+	[ "$tmb" != "$mb" ] || return 0
+	[ "$tmb" != "$tip" ] || [ "$allow" = --allow-head ] || return 0
+	git -C "$root" merge-base --is-ancestor "$mb" "$tmb" 2>/dev/null || return 0
+	range_floor_note="recorded base ${base:0:9} is behind where its branch leaves ${trunk#refs/}; measuring from ${tmb:0:9}"
+	range_floor_rev="$tmb"
+}
+
 # The newest sign of work in the sidekick's tree, as an epoch: the mtime of
 # each file git status lists (NUL-delimited, so names are real paths; a rename
 # counts at its new path, a deleted file is skipped) and the committer time of
@@ -352,6 +390,13 @@ checkin() {
 	at="$(field "$store" '.dispatch.at // empty')"
 	head="$(field "$store" '.dispatch.head // empty')"
 	cwd="$(field "$store" .cwd)"
+	local floor_note="" tip
+	tip="$(git -C "$cwd" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
+	if [ -n "$head" ] && [ -n "$tip" ]; then
+		range_floor "$cwd" "$head" "$tip" --allow-head
+		head="$range_floor_rev"
+		floor_note="$range_floor_note"
+	fi
 	seq="$(basename "$brief" | cut -c1-3)"
 	now="$(date +%s)"
 	timebox="$(header_field "$brief" timebox | grep -oE '^[0-9]+' || true)"
@@ -393,6 +438,7 @@ checkin() {
 	} | sort -u)
 	local commits=0
 	[ -n "$head" ] && commits="$(git -C "$cwd" rev-list --count "$head"..HEAD 2>/dev/null || printf 0)"
+	[ -z "$floor_note" ] || printf 'note: %s\n' "$floor_note"
 	printf 'touched: %d files, %d commits since dispatch\n' "${#touched[@]}" "$commits"
 	[ "${#touched[@]}" -gt 0 ] && printf '  %s\n' "${touched[@]:0:30}"
 	# A may-write line is often annotated ("path — why", "path (new)", several
@@ -587,7 +633,15 @@ review_base() {
 	if [ "$through" -gt 0 ] && [ -f "$file" ]; then
 		awk -F '\t' -v k="$through" '$1 == k {print $2}' "$file"
 	else
-		jq -r --arg u "$unit" '.heads[$u] // .dispatch.head // empty' "$(pair_file "$1")"
+		local base tip root
+		base="$(jq -r --arg u "$unit" '.heads[$u] // .dispatch.head // empty' "$(pair_file "$1")")"
+		root="$(field "$1" '.git_root // .cwd')"
+		tip="$( { [ -s "$file" ] && tail -1 "$file" | cut -f2; } || git -C "$root" rev-parse --verify --quiet HEAD 2>/dev/null || true)"
+		if [ -n "$base" ] && [ -n "$tip" ]; then
+			range_floor "$root" "$base" "$tip"
+			base="$range_floor_rev"
+		fi
+		printf '%s\n' "$base"
 	fi
 }
 
