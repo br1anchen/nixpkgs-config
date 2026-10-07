@@ -294,6 +294,15 @@ class GateTests(KitchenTests):
         self.env['PSTACK_KITCHEN_ROLE'] = 'verifier'
         self.assertEqual(self.data('gate', 'app', 'fast', code=2)['role'], 'verifier')
 
+    def test_each_gate_gets_its_own_tmpdir_removed_after(self):
+        seen = Path(self.tmp.name) / 'seen-tmpdir'
+        self.write('.agents/kitchen.toml', KITCHEN.replace(
+            'fast = ["test -f src/app.py"]', f'fast = ["echo \\"$TMPDIR\\" > {seen} && touch \\"$TMPDIR/leftover\\""]'))
+        self.assertTrue(self.data('gate', 'app', 'fast')['passed'])
+        used = Path(seen.read_text().strip())
+        self.assertIn('pstack/kitchen/repos', str(used))
+        self.assertFalse(used.exists())
+
     def test_gates_share_the_machine_slots(self):
         self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["sleep 2"]'))
         env = {**self.env, 'PSTACK_KITCHEN_GATE_SLOTS': '1'}

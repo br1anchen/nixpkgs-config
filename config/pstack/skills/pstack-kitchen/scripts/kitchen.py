@@ -19,6 +19,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -504,6 +505,26 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
     log_dir.mkdir(parents=True, exist_ok=True)
     inside = os.environ.get(WRAPPED) == '1'
     wrap = wrap_of(kitchen, p)
+    # Each gate gets its own TMPDIR on disk, removed when it ends. Tools and
+    # `nix develop` (which makes a nix-shell.* directory there and never
+    # removes it after --command) otherwise left hundreds of directories in
+    # a RAM-backed /tmp: 6 GB in two days of one kitchen.
+    tmp = None
+    if commands and not inside:
+        base = state_dir(root) / 'tmp'
+        base.mkdir(parents=True, exist_ok=True)
+        tmp = tempfile.mkdtemp(prefix=f'{profile}-{stage}-', dir=base)
+        os.environ['TMPDIR'] = tmp
+    try:
+        return _run_gate(root, kitchen, p, profile, stage, commands, log_dir, keep_going, only, result, role,
+                         inside, wrap)
+    finally:
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str, commands: list, log_dir: Path,
+              keep_going: bool, only: int | None, result: Path | None, role: str, inside: bool, wrap: str) -> dict:
     pool, waited = (None, 0.0)
     if commands and not inside:
         slots = machine_gate_slots()
