@@ -953,6 +953,135 @@ esac
         self.verify_app_unit('ratelimit', 2)
         self.assertEqual(len(self.verifier_starts()), 1)
 
+    GAP = '## Gaps\n\n### 1. dispatch hid the rotation\n\nWhat happened: x\nWorkaround: none\nSuggestion: say so\nEvidence: events.tsv\n\n## What worked\n\n- gates\n'
+
+    def feedback_dir(self):
+        return Path(self.env['XDG_STATE_HOME']) / 'pstack/feedback'
+
+    def gap_file(self, text=None, name='gaps.md'):
+        f = Path(self.tmp.name) / name
+        f.write_text(self.GAP if text is None else text)
+        return f
+
+    def file_feedback(self, text=None):
+        out = self.run_sh('feedback', str(self.store), str(self.gap_file(text)))
+        return out, Path(re.search(r'^filed: (.+)$', out, re.MULTILINE).group(1))
+
+    def calls(self):
+        return (self.fake / 'calls.log').read_text()
+
+    def test_feedback_files_the_report_behind_a_header(self):
+        out, path = self.file_feedback()
+        self.assertEqual(path.parent, self.feedback_dir() / 'inbox')
+        text = path.read_text()
+        self.assertRegex(text, r'^# Kitchen feedback: demo \(repo\)\nid: \d{8}-repo-demo\nrun: demo   store: ')
+        self.assertIn(f'master: demo-master (p0)\nbuild: unknown ({skill}', text)
+        self.assertRegex(text, r'retro: run demo: 0 unit reports, 0 clean verdicts')
+        self.assertRegex(text, r'filed: \d{4}-\d\d-\d\dT[\d:]+Z\nstatus: open\n\n## Gaps\n\n### 1\. dispatch hid the rotation')
+        self.assertIn('feedback\t', (self.store / 'events.tsv').read_text())
+        self.assertIn('delivered: notification for the human (no maintainer is registered)', out)
+        self.assertEqual(list(self.feedback_dir().glob('.filing-*')), [])
+
+    def test_a_file_without_a_gap_files_nothing(self):
+        out = self.run_sh('feedback', str(self.store), str(self.gap_file('## Gaps\n\nnothing\n')), code=1)
+        self.assertIn('has no gap', out)
+        self.assertFalse((self.feedback_dir() / 'inbox').exists() and list((self.feedback_dir() / 'inbox').iterdir()))
+
+    def test_simultaneous_filings_get_distinct_ids(self):
+        f = self.gap_file()
+        procs = [subprocess.Popen([str(self.script), 'feedback', str(self.store), str(f)], cwd=self.repo, env=self.env,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) for _ in range(4)]
+        outs = [p.communicate()[0] for p in procs]
+        self.assertEqual([p.returncode for p in procs], [0] * 4, outs)
+        ids = sorted(p.stem for p in (self.feedback_dir() / 'inbox').glob('*.md'))
+        self.assertEqual(len(ids), 4)
+        self.assertEqual(len(set(ids)), 4)
+        for p in (self.feedback_dir() / 'inbox').glob('*.md'):
+            self.assertIn(f'id: {p.stem}\n', p.read_text())
+
+    def register_maintainer(self):
+        out = self.run_sh('maintainer', 'on', '--pane', 'p0')
+        self.assertIn('maintainer: demo-master on p0', out)
+
+    def test_a_live_maintainer_gets_the_pointer(self):
+        self.register_maintainer()
+        out, path = self.file_feedback()
+        self.assertIn('delivered: to maintainer demo-master', out)
+        self.assertIn(f'agent prompt demo-master pstack-kitchen FEEDBACK {path}', self.calls())
+        self.assertNotIn('notification show', self.calls())
+        self.assertIn('live', self.run_sh('maintainer', 'status'))
+
+    def test_every_broken_maintainer_falls_back_to_the_notification_with_the_report_filed(self):
+        self.register_maintainer()
+        reg = self.feedback_dir() / 'maintainer.json'
+        good = reg.read_text()
+
+        def stale_pane():
+            reg.write_text(json.dumps({**json.loads(good), 'pane': 'p9'}))
+
+        def replaced():
+            reg.write_text(json.dumps({**json.loads(good), 'session': 'older-session'}))
+
+        def blocked():
+            (self.fake / 'agents/demo-master').write_text('blocked claude\n')
+
+        def absent():
+            (self.fake / 'agents/demo-master').unlink()
+
+        def failed_prompt():
+            (self.fake / 'prompt-fail').touch()
+
+        for name, setup, why in [('stale pane', stale_pane, 'moved off pane p9'), ('replaced', replaced, 'different session'),
+                                 ('blocked', blocked, 'is blocked'), ('absent', absent, 'is gone'),
+                                 ('failed prompt', failed_prompt, 'prompt to the maintainer failed')]:
+            with self.subTest(name):
+                reg.write_text(good)
+                (self.fake / 'agents/demo-master').write_text('idle claude\n')
+                (self.fake / 'prompt-fail').unlink(missing_ok=True)
+                (self.fake / 'calls.log').write_text('')
+                setup()
+                out, path = self.file_feedback()
+                self.assertRegex(out, rf'delivered: notification for the human \([^)]*{why}')
+                self.assertIn('notification show pstack-kitchen: feedback filed --body ' + str(path), self.calls())
+                self.assertTrue(path.exists())
+
+    def test_maintainer_off_and_status(self):
+        self.assertIn('maintainer: none', self.run_sh('maintainer', 'status'))
+        self.register_maintainer()
+        self.assertEqual(json.loads((self.feedback_dir() / 'maintainer.json').read_text())['pane'], 'p0')
+        self.assertIn('maintainer: none', self.run_sh('maintainer', 'off'))
+        self.assertFalse((self.feedback_dir() / 'maintainer.json').exists())
+
+    def test_inbox_lists_oldest_first_and_close_moves_the_report(self):
+        _, first = self.file_feedback()
+        text = first.read_text().replace('filed: ', 'filed: 2020-01-01T00:00:00Z\nold-filed: ')
+        first.write_text(text)
+        self.file_feedback(self.GAP + '\n### 2. second\n')
+        lines = self.run_sh('feedback', '--inbox').strip().splitlines()
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[0].startswith(first.stem), lines)
+        self.assertRegex(lines[0], r'demo\s+repo\s+unknown\s+1\s+\d+d')
+        self.assertRegex(lines[1], r'demo\s+repo\s+unknown\s+2\s+\d+m')
+        out = self.run_sh('feedback', '--close', first.stem, 'abc1234', 'fixed in the next build')
+        self.assertIn(f'closed: {first.stem}', out)
+        self.assertFalse(first.exists())
+        done = (self.feedback_dir() / 'done' / first.name).read_text()
+        self.assertIn('status: closed\n', done)
+        self.assertIn('## Closed\n\nclosed: ', done)
+        self.assertIn('commit: abc1234\nnote: fixed in the next build\n', done)
+        self.assertEqual(len(self.run_sh('feedback', '--inbox').strip().splitlines()), 1)
+
+    def test_closing_twice_prints_the_block_and_an_unknown_id_fails(self):
+        _, path = self.file_feedback()
+        self.run_sh('feedback', '--close', path.stem, 'none', 'wontfix')
+        again = self.run_sh('feedback', '--close', path.stem, 'ffff', 'other note')
+        self.assertIn('already closed', again)
+        self.assertIn('note: wontfix', again)
+        self.assertNotIn('ffff', (self.feedback_dir() / 'done' / path.name).read_text())
+        self.assertIn('no feedback report', self.run_sh('feedback', '--close', 'nope', 'none', 'x', code=1))
+        _, next_path = self.file_feedback()
+        self.assertNotEqual(next_path.stem, path.stem)
+
     def test_a_rate_limited_verifier_without_a_fallback_is_inconclusive(self):
         state = self.state()
         del state['sidekick']['fallback']

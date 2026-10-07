@@ -18,9 +18,11 @@ case "$1 $2" in
 "agent get")
 	n="$(resolve "$3")"; s="$(status_of "$n")" || { printf '{"error":{"code":"not_found"}}\n' >&2; exit 1; }
 	# $FAKE/sessions/<name>: the agent's session log path, as herdr reports pi's.
+	# The pane that hosts the agent, as real herdr reports it, is the one file under panes/ naming it.
+	pid="$(grep -lxF "$n" "$FAKE"/panes/* 2>/dev/null | head -1 | xargs -r basename)"
 	if [ -s "$FAKE/sessions/$n" ]; then
-		printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","agent_session":{"kind":"path","value":"%s"}}}}\n' "$s" "$(kind_of "$n")" "$(cat "$FAKE/sessions/$n")"
-	else ok "$s" "$(kind_of "$n")"; fi ;;
+		printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","name":"%s","pane_id":"%s","agent_session":{"kind":"path","value":"%s"}}}}\n' "$s" "$(kind_of "$n")" "$n" "$pid" "$(cat "$FAKE/sessions/$n")"
+	else printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","name":"%s","pane_id":"%s"}}}\n' "$s" "$(kind_of "$n")" "$n" "$pid"; fi ;;
 "agent start")
 	name="$3"; kind=""; shift 3
 	while [ $# -gt 0 ]; do case "$1" in --kind) kind="$2"; shift 2 ;; --pane) printf '%s' "$name" >"$FAKE/panes/$2"; shift 2 ;; --) break ;; *) shift ;; esac; done
@@ -32,6 +34,8 @@ case "$1 $2" in
 "agent prompt")
 	name="$3"; text="$4"; wait=0; until=""; shift 4
 	if [ "$text" = /exit ] || [ "$text" = /quit ]; then rm -f "$FAKE/agents/$name"; printf '{}\n'; exit 0; fi
+	# $FAKE/prompt-fail: delivery fails.
+	[ -e "$FAKE/prompt-fail" ] && { printf '{"error":{"code":"prompt_failed"}}\n' >&2; exit 1; }
 	while [ $# -gt 0 ]; do case "$1" in --wait) wait=1; shift ;; --until) until="$until $2"; shift 2 ;; *) shift ;; esac; done
 	s="$(status_of "$name")"
 	# $FAKE/devin-input: a working Devin leaves a prompt typed in its input

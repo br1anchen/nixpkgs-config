@@ -70,6 +70,12 @@ consult, advice. These differ or are new:
                                             gate, policy, self, verify, review, triage, or escalation
   retro <store>                             where the master was needed, and what repeated, from this run
                                             and the repo's ledger
+  feedback <store> <file>                   file the master's kitchen gaps (see references/feedback-template.md)
+                                            into the host inbox; tells the registered maintainer, else the human
+  feedback --inbox                          open reports, oldest first
+  feedback --close <id> <commit|none> <note>
+                                            retire a report (closing twice is harmless)
+  maintainer on [--pane ID] | off | status  register this session to receive FEEDBACK pointers
 
 exit codes: the pair's, plus 2 for a failed gate, a rejected or invalid verdict, or a failed land-check
 USAGE
@@ -1087,6 +1093,26 @@ cmd_catch() {
 	printf 'caught at %s: %s\n' "$layer" "$text"
 }
 
+# The run's counts, read-only: sets the rc_* globals. retro prints them
+# and feedback quotes the same line.
+retro_counts() {
+	local store="$1" f
+	rc_units=0
+	for f in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
+		[ -e "$f" ] && [ "$(header_field "$(expected_report "$store" "$f")" status 2>/dev/null)" = "done" ] && rc_units=$((rc_units + 1))
+	done
+	rc_verified="$(grep -l '^status: clean' "$store"/verdicts/*-v[0-9]*.md 2>/dev/null | grep -vc packet || true)"
+	rc_clean_first="$(grep -l '^status: clean' "$store"/verdicts/*-v1.md 2>/dev/null | grep -vc packet || true)"
+	rc_wakes="$(awk -F '\t' '$3 == "master" && $4 == "wake"' "$store/events.tsv" 2>/dev/null | grep -c . || true)"
+	rc_escalations="$(awk -F '\t' '$4 == "escalate"' "$store/events.tsv" 2>/dev/null | grep -c . || true)"
+	rc_failovers="$(awk -F '\t' '$4 == "failover"' "$store/events.tsv" 2>/dev/null | grep -c . || true)"
+}
+
+retro_line() {
+	printf 'run %s: %s unit reports, %s clean verdicts (%s on the first try), %s master wakes, %s escalations, %s failovers\n' \
+		"$(field "$1" .slug)" "$rc_units" "$rc_verified" "$rc_clean_first" "$rc_wakes" "$rc_escalations" "$rc_failovers"
+}
+
 # Where the master was needed, and what repeated. Each repeated class is a
 # candidate for the kitchen: a rule, a lint, a profile command, a sharper
 # brief. Appends this run's classes to the repo's ledger, then counts across
@@ -1113,19 +1139,9 @@ cmd_retro() {
 		for f in "$store"/steers/*-s[0-9]*.md; do [ -e "$f" ] && printf '%s\t%s\tsteer\tbrief\t%s\n' "$now" "$run" "$(basename "$f" .md)"; done
 		[ -f "$store/events.tsv" ] && awk -F '\t' -v t="$now" -v r="$run" '$4 == "gate-flaky" {printf "%s\t%s\tgate-flaky\t%s\t%s\n", t, r, $6, $5}' "$store/events.tsv"
 	} >>"$ledger"
-	local f units verified clean_first wakes escalations failovers
-	units=0
-	for f in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
-		[ -e "$f" ] && [ "$(header_field "$(expected_report "$store" "$f")" status 2>/dev/null)" = "done" ] && units=$((units + 1))
-	done
-	verified="$(grep -l '^status: clean' "$store"/verdicts/*-v[0-9]*.md 2>/dev/null | grep -vc packet || true)"
-	clean_first="$(grep -l '^status: clean' "$store"/verdicts/*-v1.md 2>/dev/null | grep -vc packet || true)"
-	wakes="$(awk -F '\t' '$3 == "master" && $4 == "wake"' "$store/events.tsv" 2>/dev/null | grep -c . || true)"
-	escalations="$(awk -F '\t' '$4 == "escalate"' "$store/events.tsv" 2>/dev/null | grep -c . || true)"
-	failovers="$(awk -F '\t' '$4 == "failover"' "$store/events.tsv" 2>/dev/null | grep -c . || true)"
-	printf 'run %s: %s unit reports, %s clean verdicts (%s on the first try), %s master wakes, %s escalations, %s failovers\n' \
-		"$run" "$units" "$verified" "$clean_first" "$wakes" "$escalations" "$failovers"
-	[ "$verified" -eq 0 ] || printf 'master wakes per verified unit: %s\n' "$(awk -v w="$wakes" -v v="$verified" 'BEGIN{printf "%.1f", w / v}')"
+	retro_counts "$store"
+	retro_line "$store"
+	[ "$rc_verified" -eq 0 ] || printf 'master wakes per verified unit: %s\n' "$(awk -v w="$rc_wakes" -v v="$rc_verified" 'BEGIN{printf "%.1f", w / v}')"
 	printf 'repeated across runs (the kitchen should catch these, not the master):\n'
 	awk -F '\t' 'NR > 1 {k = $3 "\t" $4; n[k]++; if (!((k, $2) in seen)) {seen[k, $2] = 1; runs[k]++}}
 		END {for (k in n) if (n[k] >= 2) {split(k, p, "\t"); printf "  %3d %-10s %-24s in %d runs\n", n[k], p[1], p[2], runs[k]}}' "$ledger" | sort -rn || true
@@ -1139,6 +1155,192 @@ encode a repeated class at the highest level that works (the correct skill):
   steer brief          briefs miss a decision the master keeps making: a standing order or plan template line
   catch <layer>        the layer that should have caught it gets the check
 HINT
+}
+
+# The host's feedback inbox: gaps in the kitchen itself, filed by masters
+# and read by whoever maintains pstack on this host.
+fb_root() {
+	printf '%s\n' "${XDG_STATE_HOME:-$HOME/.local/state}/pstack/feedback"
+}
+
+# One short lock around allocating an id and moving a report between
+# directories, so concurrent filings and closures never share a name.
+fb_lock() {
+	local lock="$1/.lock" tries=0
+	while ! mkdir "$lock" 2>/dev/null; do
+		# A lock left by a killed command is older than any filing takes.
+		[ -z "$(find "$lock" -maxdepth 0 -mmin +1 2>/dev/null)" ] || { rmdir "$lock" 2>/dev/null || true; continue; }
+		tries=$((tries + 1))
+		[ "$tries" -lt 100 ] || die "the feedback inbox is locked ($lock)"
+		sleep 0.1
+	done
+}
+
+fb_unlock() {
+	rmdir "$1/.lock" 2>/dev/null || true
+}
+
+# Why the registered maintainer cannot take a pointer, or nothing when it can.
+maintainer_problem() {
+	local file="$1/maintainer.json" name pane session info
+	[ -f "$file" ] || { printf 'no maintainer is registered'; return 0; }
+	name="$(jq -r .name "$file")"
+	pane="$(jq -r .pane "$file")"
+	session="$(jq -r '.session // empty' "$file")"
+	info="$(herdr agent get "$name" 2>/dev/null)" || { printf 'agent %s is gone' "$name"; return 0; }
+	[ "$(jq -r '.result.agent.pane_id // empty' <<<"$info")" = "$pane" ] || { printf 'agent %s moved off pane %s' "$name" "$pane"; return 0; }
+	if [ -n "$session" ] && [ "$(jq -r '.result.agent.agent_session.value // empty' <<<"$info")" != "$session" ]; then
+		printf 'agent %s is a different session than the one registered' "$name"
+		return 0
+	fi
+	[ "$(jq -r '.result.agent.agent_status // empty' <<<"$info")" != blocked ] || printf 'agent %s is blocked on a dialog' "$name"
+}
+
+# Open reports, oldest first: id, run, repo, build, gaps, age.
+fb_inbox() {
+	local fb f now filed secs age rows=""
+	fb="$(fb_root)"
+	now="$(date +%s)"
+	for f in "$fb"/inbox/*.md; do
+		[ -e "$f" ] || continue
+		[ ! -e "$fb/done/$(basename "$f")" ] || continue
+		filed="$(header_field "$f" filed)"
+		secs="$(date -u -d "$filed" +%s 2>/dev/null || stat -c %Y "$f")"
+		age=$(( (now - secs) / 60 ))
+		if [ "$age" -ge 2880 ]; then age="$((age / 1440))d"; elif [ "$age" -ge 120 ]; then age="$((age / 60))h"; else age="${age}m"; fi
+		rows+="$secs	$(header_field "$f" id)	$(sed -n 's/^run: \([^ ]*\) .*/\1/p' "$f" | head -1)	$(head -1 "$f" | sed -n 's/^.*(\(.*\))$/\1/p')	$(header_field "$f" build | cut -d' ' -f1)	$(grep -c '^### ' "$f")	$age
+"
+	done
+	if [ -z "$rows" ]; then
+		printf 'feedback inbox: empty\n'
+		return 0
+	fi
+	printf '%s' "$rows" | sort -n | cut -f2- | column -t -s "$(printf '\t')"
+}
+
+# Move a report to done/ with a Closed block. Closing a closed id prints its
+# block and succeeds.
+fb_close() {
+	[ $# -eq 3 ] || die "usage: kitchen.sh feedback --close <id> <commit|none> <note>"
+	local fb id="${1%.md}" commit="$2" note="$3" tmp
+	fb="$(fb_root)"
+	[ -f "$fb/inbox/$id.md" ] || [ -f "$fb/done/$id.md" ] || die "no feedback report $id in $fb"
+	fb_lock "$fb"
+	if [ -f "$fb/inbox/$id.md" ] && [ ! -f "$fb/done/$id.md" ]; then
+		tmp="$(mktemp "$fb/.closing-XXXXXX")"
+		{
+			sed 's/^status: open$/status: closed/' "$fb/inbox/$id.md"
+			printf '\n## Closed\n\nclosed: %s\ncommit: %s\nnote: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$commit" "$(printf '%s' "$note" | tr '\n' ' ')"
+		} >"$tmp"
+		mv "$tmp" "$fb/done/$id.md"
+		rm -f "$fb/inbox/$id.md"
+		fb_unlock "$fb"
+		printf 'closed: %s (commit %s)\n' "$id" "$commit"
+		return 0
+	fi
+	fb_unlock "$fb"
+	rm -f "$fb/inbox/$id.md"
+	printf 'already closed: %s\n' "$id"
+	sed -n '/^## Closed/,$p' "$fb/done/$id.md"
+}
+
+# File a report: the master's text behind a header this command writes.
+cmd_feedback() {
+	[ $# -ge 1 ] || die "usage: kitchen.sh feedback <store> <file> | --inbox | --close <id> <commit|none> <note>"
+	case "$1" in
+	--inbox) shift; fb_inbox "$@"; return ;;
+	--close) shift; fb_close "$@"; return ;;
+	esac
+	[ $# -eq 2 ] || die "usage: kitchen.sh feedback <store> <file>"
+	local store="$1" src="$2" fb run repo stem k name tmp retro path problem
+	pair_file "$store" >/dev/null
+	[ -f "$src" ] || die "no such file: $src"
+	awk '/^## Gaps/ {g = 1; next} /^## / {g = 0} g && /^### / {found = 1} END {exit !found}' "$src" ||
+		die "$src has no gap: a \`### <n>. <title>\` heading under \`## Gaps\` (see $skill_root/references/feedback-template.md)"
+	fb="$(fb_root)"
+	mkdir -p "$fb/inbox" "$fb/done"
+	run="$(field "$store" .slug)"
+	# The repo's name, not its worktree's: a bare repo's common dir is its own name.
+	repo="$(git -C "$(field "$store" .git_root)" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+	case "$(basename "${repo:-.}")" in
+	.git) repo="$(basename "$(dirname "$repo")")" ;;
+	.) repo="$(basename "$(field "$store" .git_root)")" ;;
+	*) repo="$(basename "$repo" .git)" ;;
+	esac
+	retro_counts "$store"
+	retro="$(retro_line "$store")"
+	stem="$(date -u +%Y%m%d)-$repo-$run"
+	tmp="$(mktemp "$fb/.filing-XXXXXX")"
+	fb_lock "$fb"
+	k=1
+	name="$stem"
+	while [ -e "$fb/inbox/$name.md" ] || [ -e "$fb/done/$name.md" ]; do
+		k=$((k + 1))
+		name="$stem-$k"
+	done
+	{
+		printf '# Kitchen feedback: %s (%s)\n' "$run" "$repo"
+		printf 'id: %s\n' "$name"
+		printf 'run: %s   store: %s   repo: %s   master: %s (%s)\n' "$run" "$store" "$(field "$store" .git_root)" \
+			"$(field "$store" '.master.name // "unknown"')" "$(field "$store" '.master.pane_id // "unknown"')"
+		printf 'build: unknown (%s)\n' "$skill_root"
+		printf 'retro: %s\n' "$retro"
+		printf 'filed: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+		printf 'status: open\n\n'
+		cat "$src"
+	} >"$tmp"
+	mv "$tmp" "$fb/inbox/$name.md"
+	fb_unlock "$fb"
+	path="$fb/inbox/$name.md"
+	event "$store" master feedback - "$name"
+	printf 'filed: %s\n' "$path"
+	problem="$(maintainer_problem "$fb")"
+	if [ -z "$problem" ] && herdr agent prompt "$(jq -r .name "$fb/maintainer.json")" "pstack-kitchen FEEDBACK $path" >/dev/null 2>&1; then
+		printf 'delivered: to maintainer %s\n' "$(jq -r .name "$fb/maintainer.json")"
+		return 0
+	fi
+	[ -n "$problem" ] || problem="the prompt to the maintainer failed"
+	herdr notification show "pstack-kitchen: feedback filed" --body "$path" --sound request >/dev/null 2>&1 || true
+	printf 'delivered: notification for the human (%s); read it with: cat %s\n' "$problem" "$path"
+}
+
+cmd_maintainer() {
+	[ $# -ge 1 ] || die "usage: kitchen.sh maintainer on [--pane ID] | off | status"
+	local fb file sub="$1" pane="" info tmp problem
+	shift
+	fb="$(fb_root)"
+	file="$fb/maintainer.json"
+	case "$sub" in
+	on)
+		while [ $# -gt 0 ]; do
+			case "$1" in
+			--pane) pane="$2"; shift 2 ;;
+			*) die "unknown option $1" ;;
+			esac
+		done
+		[ "${HERDR_ENV:-}" = 1 ] || die "maintainer on needs Herdr (HERDR_ENV=1)"
+		[ -n "$pane" ] || pane="${HERDR_PANE_ID:-}"
+		[ -n "$pane" ] || die "no pane: pass --pane ID"
+		info="$(herdr agent get "$pane" 2>/dev/null)" || die "herdr has no agent on pane $pane"
+		mkdir -p "$fb"
+		tmp="$(mktemp "$fb/.maintainer-XXXXXX")"
+		jq -n --argjson i "$info" --arg since "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+			'{name: $i.result.agent.name, pane: $i.result.agent.pane_id, session: ($i.result.agent.agent_session.value // null), since: $since}' >"$tmp"
+		[ "$(jq -r '.name // empty' "$tmp")" != "" ] || { rm -f "$tmp"; die "herdr reports no name for the agent on pane $pane; name it first"; }
+		mv "$tmp" "$file"
+		printf 'maintainer: %s on %s\n' "$(jq -r .name "$file")" "$(jq -r .pane "$file")"
+		;;
+	off)
+		rm -f "$file"
+		printf 'maintainer: none\n'
+		;;
+	status)
+		[ -f "$file" ] || { printf 'maintainer: none\n'; return 0; }
+		problem="$(maintainer_problem "$fb")"
+		printf 'maintainer: %s on %s since %s: %s\n' "$(jq -r .name "$file")" "$(jq -r .pane "$file")" "$(jq -r .since "$file")" "${problem:-live}"
+		;;
+	*) die "usage: kitchen.sh maintainer on [--pane ID] | off | status" ;;
+	esac
 }
 
 pair_main "$@"
