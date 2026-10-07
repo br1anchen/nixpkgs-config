@@ -1056,6 +1056,36 @@ esac
         self.done(b, self.commit('util'))
         return self.run_sh('verify', str(self.store), '--landing')
 
+    def declare_setup(self):
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + '\n[scratch]\nsetup = ["bun install --frozen-lockfile"]\n')
+        self.commit('declare scratch setup')
+
+    def prove_block(self, packet):
+        return packet.read_text().split('## Prove', 1)[1].split('```bash\n', 1)[1].split('```', 1)[0].splitlines()
+
+    def test_the_unit_packet_runs_setup_first_only_when_declared(self):
+        self.verify_app_unit('clean', 0)
+        plain = self.prove_block(self.store / 'verdicts/001-util-v1-packet.md')
+        self.assertEqual(plain[0], 'export PSTACK_KITCHEN_ROLE=verifier')
+        self.assertIn(' gate app behavioral ', plain[1])
+        self.assertFalse(any(' setup' in line for line in plain))
+
+    def test_the_unit_packet_puts_setup_ahead_of_the_gates(self):
+        self.declare_setup()
+        self.verify_app_unit('clean', 0)
+        block = self.prove_block(self.store / 'verdicts/001-util-v1-packet.md')
+        self.assertEqual(block[0], 'export PSTACK_KITCHEN_ROLE=verifier')
+        self.assertRegex(block[1], r'^python3 \S+kitchen\.py --repo \S+/001-util-verify setup$')
+        self.assertIn(' gate app behavioral ', block[2])
+
+    def test_the_landing_packet_runs_setup_first_when_declared(self):
+        self.declare_setup()
+        self.verify_landing()
+        block = self.prove_block(self.store / 'verdicts/landing-v1-packet.md')
+        self.assertRegex(block[1], r'^python3 \S+kitchen\.py --repo \S+/000-landing-verify setup$')
+        self.assertIn(' gate app behavioral ', block[2])
+
     def test_a_routine_verifier_defaults_to_the_sidekick(self):
         self.verify_app_unit('clean', 0)
         self.assertIn('--kind pi', self.verifier_starts()[0])
