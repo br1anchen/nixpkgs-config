@@ -139,6 +139,7 @@ class SchemaTests(KitchenTests):
         self.assertEqual(list(k.profiles), ['ui', 'engine', 'docs'])
         self.assertEqual(k.review['escalated']['budget'], 8)
         self.assertTrue(k.review['landing']['walkthrough'])
+        self.assertEqual(k.scratch_setup, ['pnpm install --frozen-lockfile'])
 
     def test_validate_names_the_bad_key(self):
         cases = [

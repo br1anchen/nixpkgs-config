@@ -52,6 +52,7 @@ silently doing nothing.
 | `[landing].mode` | `"commit"` | how far the kitchen goes: `commit`, `branch` (push), `stack` (a linear stack of PRs), `pr`. It never merges. A stack landed by a push that rewrites its commits (a squash; `jj checked-push` of an spr stack, whose PRs sit on synthetic merge heads) leaves its PRs open: the landing brief closes each with a pointer to its landed commit |
 | `[coverage].ignore` | `[]` | globs `doctor` and `classify` treat as covered without a gate |
 | `[resources].max_parallel_heavy` | `1` | heavy gates running at once on this machine |
+| `[scratch].setup` | `[]` | commands that prepare a bare worktree, run in order by `kitchen.py setup` (and first in every verifier packet when set), inside `[run].wrap`, from the repo root, as the verifier. They run inside the wrap, so do not repeat it: with `wrap = "nix develop --impure --command"` the line is `bun install --frozen-lockfile`. `doctor` warns when a root lockfile suggests the repo needs one |
 | `[run].wrap` | `""` | a prefix the gates run inside, such as `nix develop --impure --command`, entered once per gate |
 
 ## Globs

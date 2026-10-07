@@ -67,3 +67,8 @@ ignore = [".github/**", ".agents/**", "LICENSE", ".gitignore", "pnpm-lock.yaml"]
 
 [resources]
 max_parallel_heavy = 1
+
+# How to prepare a bare worktree (a verifier's scratch has no dependencies).
+# Runs inside [run].wrap if one is set, so it does not repeat the wrap.
+[scratch]
+setup = ["pnpm install --frozen-lockfile"]

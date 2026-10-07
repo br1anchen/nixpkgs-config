@@ -84,6 +84,11 @@ Three shapes need care:
   `[run] wrap` to that prefix once instead of prefixing every command;
   `kitchen.py` enters it once per gate. A profile that must run outside it
   sets `wrap = ""`.
+- **A worktree that needs preparing.** A verifier works in a bare scratch
+  worktree, with no installed dependencies. Read the repo's own install
+  command (the one CI or its README runs) and write it as `[scratch] setup =
+  [...]`, without the `[run] wrap` it already runs inside; `doctor` warns when
+  a root lockfile suggests it is missing. The packet runs it first.
 - **One script that runs every stage.** Read it and list its stages as
   separate commands, so a failure names the stage and `fast` can leave the
   slow ones to `landing`.
