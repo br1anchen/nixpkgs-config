@@ -93,6 +93,15 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      matching entry's arguments when its class names that kind.
      `verify:missing` now means the verifier ended without a verdict and
      without a provider error: read the packet and the pane.
+   - The start line names the configured agent, `verifier <name> (<kind>
+     <model arguments>)`, or `(<kind> (model unspecified))` when the entry
+     sets no model, so you see which model proves the unit before the verdict;
+     it is what the CLI was asked for. The packet records it as
+     `verifier-agent:`, with `verifier-class:` and a `verifier-outcome:` the
+     host updates per attempt. `kitchen.sh fleet` ends with a table by agent
+     and class built from those; read it as reported outcomes on different
+     workloads, not as model accuracy. `kitchen.py doctor` prints the resolved
+     routine, fallback and escalated verifier and where each came from.
    - A unit is measured from its dispatch head, but never from before where
      its branch leaves trunk: a unit dispatched before a landing and then
      rebased onto the new trunk is measured from there (`verify` and

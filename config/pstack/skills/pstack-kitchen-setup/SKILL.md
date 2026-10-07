@@ -68,6 +68,10 @@ One profile per area with its own proof. For each:
   under load stalls the sidekick.
 - `behavioral`: e2e, journey, or app-driving commands the verifier runs at
   the unit's commit.
+- The release gate's cheap static checks (test inventories, name-based
+  conformance lists, schema snapshots): put them in a profile's `fast` or
+  `behavioral` commands, so a step or a verifier catches what would otherwise
+  fail only at the release push.
 - `landing`: the rest of CI's battery for the area, run once.
 - `tests` and `require_tests = true` where the area has tests.
 - `verify`: `gates` for areas whose deterministic gates are the whole proof

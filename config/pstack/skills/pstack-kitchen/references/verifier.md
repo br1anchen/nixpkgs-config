@@ -29,7 +29,8 @@ work?", and then your pane closes.
 5. Try to break it within the brief's scope: the edge the Acceptance implies
    (empty input, the error path, a second run), and the nearest feature the
    change could have regressed.
-6. Write the verdict from the template:
+6. Write the verdict from the template, copying the packet's `verifier-agent:`
+   line into the verdict header:
    - `clean`: every Acceptance line proven, nothing broken.
    - `reject`: a line fails or something regressed. One numbered finding per
      problem, each pointing at its Evidence block.

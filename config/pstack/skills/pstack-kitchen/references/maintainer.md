@@ -27,7 +27,12 @@ the human a notification instead, and the report stays filed either way.
 0. `kitchen.sh fleet` shows how the runs on this host are going, by build:
    wakes per verified unit, failovers and provider stops per run. Use it to
    compare the runs before and after a change, with the build rows' eligible
-   run counts in mind; a `mixed` or `unknown` run belongs to no build.
+   run counts in mind; a `mixed` or `unknown` run belongs to no build. The
+   verifier table at the end of `fleet` compares verifier models by class from
+   the packets (started, clean, reject, invalid, provider, missing). It reports
+   outcomes on different workloads, so treat it as evidence for a trial, not a
+   ranking; the roster itself is the owner's, and a maintainer asks before
+   changing a `[verifier*]` entry.
 1. `kitchen.sh feedback --inbox` lists the open reports, oldest first. Read
    the one named, or the oldest. The header says which run, repo and build it
    came from; the body says what happened, the workaround, and the evidence
