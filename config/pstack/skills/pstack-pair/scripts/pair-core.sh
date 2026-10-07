@@ -200,7 +200,7 @@ pending_report() {
 		# A unit the master already reviewed was seen, however it was read.
 		ls "$1"/reviews/"$(basename "$b" | cut -c1-3)"-*.md >/dev/null 2>&1 && continue
 		r="$(expected_report "$1" "$b")"
-		[ -f "$r" ] && { printf '%s\n' "$r"; return 0; }
+		[ -f "$r" ] && report_ready "$1" "$r" && { printf '%s\n' "$r"; return 0; }
 	done < <(jq -r '.pending // [] | .[]' "$1/pair.json")
 	return 1
 }
@@ -260,6 +260,7 @@ fresh_reply() {
 		[ -f "$f" ] || continue
 		t="$(file_mtime "$f")"
 		[ "$t" -ge "$epoch" ] || continue
+		report_ready "$1" "$f" || continue
 		rank="$(basename "$f" .md | sed -nE 's/.*-[sq]([0-9]+)$/\1/p')"
 		key=$(( t * 1000 + ${rank:-999} ))
 		[ "$key" -gt "$best" ] && { best="$key"; r="$f"; }
@@ -565,7 +566,7 @@ unreviewed_steps() {
 	file="$(steps_file "$1" "$brief")"
 	[ -s "$file" ] || return 1
 	report="$(expected_report "$1" "$brief")"
-	if [ -f "$report" ] && [ "$(file_mtime "$report")" -ge "$(tail -1 "$file" | cut -f3)" ]; then
+	if [ -f "$report" ] && [ "$(file_mtime "$report")" -ge "$(tail -1 "$file" | cut -f3)" ] && report_ready "$1" "$report"; then
 		return 1
 	fi
 	through="$(noted_through "$1" "$brief")"
@@ -599,6 +600,54 @@ open_notes() {
 		fi
 		printf '%s\n' "$f"
 	done
+}
+
+# Whether a report may be shown to the master as a reply. Sets report_open
+# (the open note paths) and report_why (the reason it is withheld). Only a
+# done unit report can be withheld: partial, blocked and failed reports, plan
+# responses, asks (-q<k>) and objections (-s<k>) are ready as soon as written.
+# A done report waits while its own unit has open blocking notes, and, when
+# the unit has recorded steps and the report's head resolves to a commit, until
+# that head contains the last recorded step, so a step that resolves the last
+# note does not expose the report written before it. A unit with no steps, or a
+# head that does not resolve (older stores, fixtures), is judged on notes alone.
+# It judges the report's own unit, whichever brief is running now.
+report_ready() {
+	local store="$1" report="$2" base file head root last k
+	report_open=""
+	report_why=""
+	[ "$(header_field "$report" status)" = "done" ] || return 0
+	base="$(basename "$report" .md)"
+	case "$base" in *-[sq][0-9]*) return 0 ;; esac
+	report_open="$(open_notes "$store" "$report")"
+	if [ -n "$report_open" ]; then
+		report_why="open blocking notes $(printf '%s\n' "$report_open" | sed -E 's/.*-(n[0-9]+)\.md$/\1/' | paste -sd, -)"
+		return 1
+	fi
+	file="$(steps_file "$store" "$base")"
+	[ -s "$file" ] || return 0
+	head="$(header_field "$report" head | grep -oE '^[0-9a-f]{7,40}' || true)"
+	[ -n "$head" ] || return 0
+	root="$(field "$store" '.git_root // .cwd')"
+	git -C "$root" rev-parse --verify --quiet "$head^{commit}" >/dev/null 2>&1 || return 0
+	k="$(tail -1 "$file" | cut -f1)"
+	last="$(tail -1 "$file" | cut -f2)"
+	git -C "$root" rev-parse --verify --quiet "$last^{commit}" >/dev/null 2>&1 || return 0
+	git -C "$root" merge-base --is-ancestor "$last" "$head" 2>/dev/null && return 0
+	report_why="the report's head ${head:0:9} predates step $k ${last:0:9}"
+	return 1
+}
+
+# The sent unit's report when it is written but withheld: "path<TAB>reason".
+withheld_report() {
+	local sent unit r
+	sent="$(field "$1" '.sent.file // empty')"
+	[ -n "$sent" ] || return 1
+	unit="$(basename "$sent" .md | sed -E 's/-a[0-9]+$//')"
+	r="$1/reports/$unit.md"
+	[ -f "$r" ] && [ "$(file_mtime "$r")" -ge "$(field "$1" '.sent.epoch // 0')" ] || return 1
+	report_ready "$1" "$r" && return 1
+	printf '%s\t%s\n' "$r" "$report_why"
 }
 
 # With a report on a unit that has steps: the one diff the final review reads.
@@ -661,21 +710,27 @@ finish_wait() {
 		event "$store" master wake "$running" "steps:$first"
 		exit 0
 	fi
-	local shown
-	if shown="$(seen_reply "$store")" && [ "$code" -eq 0 ] && [ "$(agent_status "$(field "$store" .sidekick.name)")" != working ]; then
+	local shown withheld="" why=""
+	withheld="$(withheld_report "$store" || true)"
+	if shown="$(seen_reply "$store")" && [ -z "$withheld" ] && [ "$code" -eq 0 ] && [ "$(agent_status "$(field "$store" .sidekick.name)")" != working ]; then
 		printf 'idle: the reply to %s was already shown (%s); send the next message\n' "$(basename "$(field "$store" '.sent.file // "-"')")" "$shown"
 		event "$store" master wake "$(field "$store" '.sent.file // "-"')" idle
 		exit 4
 	fi
-	printf 'report: missing\n'
+	if [ -n "$withheld" ]; then
+		printf 'report: %s written but not ready: %s\n' "${withheld%%$'\t'*}" "${withheld#*$'\t'}"
+		why=report:unready
+	else
+		printf 'report: missing\n'
+	fi
 	case "$state" in
-	blocked) event "$store" master wake "$running" blocked; exit 3 ;;
+	blocked) event "$store" master wake "$running" "${why:-blocked}"; exit 3 ;;
 	esac
 	if [ "$(agent_status "$(field "$store" .sidekick.name)")" = working ]; then
-		event "$store" master wake "$running" checkin
+		event "$store" master wake "$running" "${why:-checkin}"
 		checkin "$store" "$checkin_interval_m"
 	else
-		event "$store" master wake "$running" missing
+		event "$store" master wake "$running" "${why:-missing}"
 		provider_hint "$store"
 	fi
 	exit 4
@@ -1733,11 +1788,12 @@ cmd_finish() {
 		esac
 	fi
 	if [ "$status" = done ]; then
-		local open
-		open="$(open_notes "$store" "$report")"
-		[ -z "$open" ] || die "blocking review notes are still open on $(basename "$report" .md):
-$open
+		report_ready "$store" "$report" || {
+			[ -z "$report_open" ] || die "blocking review notes are still open on $(basename "$report" .md):
+$report_open
 Resolve each as a fixup commit, record it with pair.sh step $store <sha> <summary> --resolves <n-ids>, then finish again" 7
+			die "$(basename "$report" .md): $report_why; rewrite the report at the unit's last commit (head:), then finish again" 7
+		}
 	fi
 	local current
 	current="$(field "$store" '.dispatch.brief // empty')"

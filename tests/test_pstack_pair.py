@@ -212,6 +212,156 @@ esac
                          ['-a', 'on-request', '-s', 'read-only'])
 
 
+class ReadinessTests(unittest.TestCase):
+    """A done report is a reply only when finish would accept it: no open notes, head at the last step."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.path = Path(self.tmp.name)
+        self.fake = self.path / 'fake'
+        self.fake.mkdir()
+        self.cwd = self.path / 'repo'
+        self.cwd.mkdir()
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake),
+                    'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
+                    'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
+                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0',
+                    'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
+        self.env.pop('CLAUDE_CODE_SESSION_ID', None)
+        self.script = skills / 'pstack-pair/scripts/pair.sh'
+        self.store = self.path / 'state/pstack/pair/demo'
+        self.git('init', '-q')
+        self.commit('c0')
+        self.run_command('init', 'demo')
+        hook = self.fake / 'hook'
+        hook.write_text(f"#!/usr/bin/env bash\ncase \"$2\" in\nLoad*) printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;\nesac\n")
+        hook.chmod(0o755)
+        self.run_command('spawn', str(self.store), '--kind', 'pi', '--permission', 'auto', '--', '--model', 'm')
+        self.brief = self.store / 'briefs/001-first.md'
+        self.brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
+        self.run_command('dispatch', str(self.store), str(self.brief), '--timeout', '1', code=4)
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        self.report = self.store / 'reports/001-first.md'
+
+    def git(self, *args):
+        return subprocess.run(['git', *args], cwd=self.cwd, env=self.env, check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, message):
+        (self.cwd / 'f.txt').write_text(message)
+        self.git('add', 'f.txt')
+        self.git('commit', '-q', '-m', message)
+        return self.git('rev-parse', 'HEAD')
+
+    def run_command(self, *args, code=0):
+        r = subprocess.run([self.script, *args], cwd=self.cwd, env=self.env, capture_output=True, text=True, check=False)
+        self.assertEqual(r.returncode, code, r.stdout + r.stderr)
+        return r.stdout + r.stderr
+
+    def step(self, sha, resolves=None):
+        extra = ['--resolves', resolves] if resolves else []
+        self.run_command('step', str(self.store), sha, 'a step', *extra)
+
+    def note(self, k, status='blocking'):
+        f = self.store / f'notes/001-first-n{k}.md'
+        f.parent.mkdir(exist_ok=True)
+        f.write_text(f'# Note\n\nstatus: {status}\n\n## Blocking\n\n1. fix it\n')
+
+    def write_report(self, head, status='done'):
+        self.report.write_text(f'# Report\n\nstatus: {status}\nhead: {head}\n')
+
+    def wait(self, code):
+        return self.run_command('wait', str(self.store), '--timeout', '1000', code=code)
+
+    def test_a_done_report_over_an_open_note_is_not_a_reply(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.note(1)
+        self.write_report(c1)
+        out = self.wait(4)
+        self.assertIn(f'report: {self.report} written but not ready: open blocking notes n1', out)
+        self.assertNotIn('report_status', out)
+        self.assertIn('report:unready', (self.store / 'events.tsv').read_text())
+
+    def test_the_resolving_step_does_not_expose_the_old_report_until_it_is_rewritten(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.note(1)
+        self.write_report(c1)
+        c2 = self.commit('two')
+        self.step(c2, 'n1')
+        self.note(2, 'clear')
+        out = self.wait(4)
+        self.assertIn(f'written but not ready: the report\'s head {c1[:9]} predates step 2 {c2[:9]}', out)
+        self.write_report(c2)
+        out = self.wait(0)
+        self.assertIn(f'report: {self.report}\nreport_status: done', out)
+
+    def test_finish_refuses_a_report_that_is_not_ready(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.note(1)
+        self.write_report(c1)
+        self.assertIn('blocking review notes are still open', self.run_command('finish', str(self.store), str(self.report), code=7))
+        c2 = self.commit('two')
+        self.step(c2, 'n1')
+        self.assertIn(f'predates step 2 {c2[:9]}', self.run_command('finish', str(self.store), str(self.report), code=7))
+        self.write_report(c2)
+        self.run_command('finish', str(self.store), str(self.report))
+
+    def test_an_earlier_shown_reply_then_a_withheld_report_is_named_not_idle(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.write_report(c1)
+        self.assertIn('report_status: done', self.wait(0))
+        self.note(1)
+        (self.fake / 'agents/demo-sidekick').write_text('idle pi\n')
+        out = self.wait(4)
+        self.assertIn('written but not ready: open blocking notes n1', out)
+        self.assertNotIn('send the next message', out)
+
+    def test_a_withheld_report_does_not_hide_reviewable_steps(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.note(1)
+        c2 = self.commit('two')
+        self.step(c2)
+        self.write_report(c2)
+        out = self.wait(0)
+        self.assertIn('steps: 1 to review on 001-first', out)
+
+    def test_an_earlier_unit_is_judged_by_its_own_notes_while_the_next_one_runs(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.note(1)
+        self.write_report(c1)
+        second = self.store / 'briefs/002-second.md'
+        second.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
+        state = json.loads((self.store / 'pair.json').read_text())
+        state['dispatch']['brief'] = str(second)
+        state['pending'] = [str(self.brief)]
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.assertNotIn('report_status', self.wait(4))
+        (self.store / 'notes/001-first-n1.md').write_text('# Note\n\nstatus: resolved\n')
+        self.assertIn(f'report: {self.report}', self.wait(0))
+
+    def test_partial_blocked_and_old_style_reports_are_unaffected(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.note(1)
+        for status in ('partial', 'blocked', 'failed'):
+            self.write_report(c1, status)
+            self.assertIn(f'report_status: {status}', self.wait(0))
+            state = json.loads((self.store / 'pair.json').read_text())
+            state['sent'].pop('seen', None)
+            state['pending'] = [str(self.brief)]
+            (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.store / 'notes/001-first-n1.md').unlink()
+        (self.store / 'steps/001-first.tsv').unlink()
+        self.write_report('abc123')
+        self.assertIn('report_status: done', self.wait(0))
+
+
 class PiSidekickTests(unittest.TestCase):
     """A pi sidekick, its print-mode preflight, and failover to a fallback kind."""
 
