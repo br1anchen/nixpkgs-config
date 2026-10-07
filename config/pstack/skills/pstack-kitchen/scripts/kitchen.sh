@@ -671,13 +671,17 @@ cmd_verify() {
 		mapfile -t args < <(verifier_args "$kind" "$entry")
 	fi
 	[ -n "$kind" ] && [ "$kind" != null ] || die "cannot tell which agent kind verifies ($class)"
+	local identity vclass
+	identity="$(verifier_identity "$kind" "${args[@]}")"
+	vclass="$class"
+	[ "$landing" -eq 0 ] || vclass=landing
 	if [ "$landing" -eq 1 ]; then scratch_id="000-landing-verify"; else scratch_id="$last-$slug-verify"; fi
 	scratch="$(cmd_scratch "$store" "$scratch_id" --at "$head" | tail -1)"
 	{
 		local u b
 		if [ "$landing" -eq 1 ]; then
-			printf '# Verify landing: the stack at %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: landing\nunits: landing\n\n' \
-				"${head:0:9}" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head"
+			printf '# Verify landing: the stack at %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: landing\nunits: landing\nverifier-agent: %s\nverifier-class: %s\nverifier-outcome: prepared\n\n' \
+				"${head:0:9}" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$identity" "$vclass"
 			printf '## Stack\n\nEach unit below was verified on its own. Prove that together, at this tip,\nthey still hold: run every Prove command, then drive the main flows the\nbriefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n'
 			for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
 				[ -e "$b" ] && [ "$(header_field "$(expected_report "$store" "$b")" status 2>/dev/null)" = "done" ] || continue
@@ -686,8 +690,8 @@ cmd_verify() {
 			done
 			printf '\n'
 		else
-			printf '# Verify %s: %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: %s\nunits: %s\n\n' \
-				"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${all[*]}"
+			printf '# Verify %s: %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: %s\nunits: %s\nverifier-agent: %s\nverifier-class: %s\nverifier-outcome: prepared\n\n' \
+				"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${all[*]}" "$identity" "$vclass"
 			[ "${#covered[@]}" -eq 0 ] || printf 'Unit %s fixes unit %s: prove every unit'"'"'s Acceptance at this one head.\n\n' "${units[*]}" "${covered[*]}"
 			for u in "${all[@]}"; do
 				b="$(unit_brief "$store" "$u")"
@@ -717,6 +721,7 @@ cmd_verify() {
 		fi
 		herdr pane close "$pane" >/dev/null 2>&1 || true
 		cmd_scratch "$store" "$scratch_id" --remove >/dev/null
+		set_outcome "$packet" start-failed
 		die "$why" 5
 	fi
 	json_update "$store" --arg pane "$pane" --arg kind "$kind" --arg verdict "$verdict" --arg packet "$packet" \
@@ -730,9 +735,10 @@ cmd_verify() {
 		 | .verifying = {verdict: $verdict, packet: $packet, brief: $brief, scratch: $scratch, units: $units,
 		                 risk: $risk, sample: $sample, unit: $unit, started: $started, deadline: $deadline,
 		                 class: $class, entry: $entry, retried: $retried, argv: $argv}'
+	set_outcome "$packet" running
 	event "$store" master send-verify "$brief" "$kind:${all[*]:-landing}"
 	record_verifier_session "$store" "$name"
-	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$kind" "$pane" "${base:0:9}" "${head:0:9}"
+	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$identity" "$pane" "${base:0:9}" "${head:0:9}"
 	# A just-started agent can take the text before it takes the Enter (pi
 	# drawing its startup screen), so the prompt must be seen working; an
 	# idle agent gets one more Enter, which submits the typed text.
@@ -759,6 +765,33 @@ verifier_entry() {
 		jq -c --arg k "$(agent_kind "$(field "$store" .master.pane_id)")" '.kind = $k | .args = [] | .source = "master"' <<<"$entry" ;;
 	*) printf '%s\n' "$entry" ;;
 	esac
+}
+
+# The verifier as configured, for the start line and the packet: the kind and
+# its model arguments, shell-quoted, with the permission and trust arguments
+# left out; "<kind> (model unspecified)" when no argument is left. It is what
+# was asked of the CLI, not proof of the model that answered.
+verifier_identity() {
+	local kind="$1" a skip=0 out="" any=0
+	shift
+	for a in "$@"; do
+		if [ "$skip" -eq 1 ]; then skip=0; continue; fi
+		case "$a" in
+		--permission-mode | --respect-workspace-trust | -a | -s | --ask-for-approval | --sandbox) skip=1; continue ;;
+		--permission-mode=* | --respect-workspace-trust=* | --ask-for-approval=* | --sandbox=* | --approve | --no-approve | -na | \
+			--dangerously-skip-permissions | --allow-dangerously-skip-permissions | --dangerously-bypass-approvals-and-sandbox) continue ;;
+		esac
+		out+=" $(printf '%q' "$a")"
+		any=1
+	done
+	if [ "$any" -eq 1 ]; then printf '%s%s\n' "$kind" "$out"; else printf '%s (model unspecified)\n' "$kind"; fi
+}
+
+# The packet's host-written outcome for this attempt: prepared, running, then
+# one of clean, reject, inconclusive, invalid, provider, missing, start-failed.
+set_outcome() {
+	[ -f "$1" ] || return 0
+	sed -i "s/^verifier-outcome:.*/verifier-outcome: $2/" "$1"
 }
 
 # A verifier starts with its entry's arguments, then its kind's permission
@@ -828,7 +861,8 @@ verify_wait() {
 		sleep 10
 	done
 	[ -f "$verdict" ] && sleep 3
-	local brief risk sample unit pane
+	local brief risk sample unit pane packet
+	packet="$(field "$store" .verifying.packet)"
 	brief="$(field "$store" .verifying.brief)"
 	risk="$(field "$store" .verifying.risk)"
 	sample="$(field "$store" .verifying.sample)"
@@ -845,6 +879,19 @@ verify_wait() {
 	while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
 	herdr pane close "$pane" >/dev/null 2>&1 || true
 	cmd_scratch "$store" "$(field "$store" .verifying.scratch)" --remove >/dev/null
+	# The attempt's outcome is written to its packet before .verifying goes and
+	# before any fallback starts, so fleet can tell attempts apart.
+	local problem="" status=""
+	if [ -f "$verdict" ]; then
+		problem="$(verdict_problem "$verdict")"
+		status="$(header_field "$verdict" status)"
+		[ -z "$problem" ] || status=invalid
+		set_outcome "$packet" "$status"
+	elif [ -n "$provider" ]; then
+		set_outcome "$packet" provider
+	else
+		set_outcome "$packet" missing
+	fi
 	json_update "$store" 'del(.verifying)'
 	if [ ! -f "$verdict" ] && [ -n "$provider" ]; then
 		event "$store" master wake "$brief" "verify:provider"
@@ -866,10 +913,6 @@ verify_wait() {
 		event "$store" master wake "$brief" "verify:missing"
 		die "no verdict at $verdict (verifier ${state:-gone}); read the packet and verify by hand, or rerun" 4
 	fi
-	local problem status
-	problem="$(verdict_problem "$verdict")"
-	status="$(header_field "$verdict" status)"
-	[ -z "$problem" ] || status=invalid
 	event "$store" master verify "$brief" "$status"
 	printf 'verdict: %s\nstatus: %s%s\n' "$verdict" "$status" "${problem:+ ($problem)}"
 	case "$status" in

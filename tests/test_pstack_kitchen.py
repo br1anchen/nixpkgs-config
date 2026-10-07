@@ -683,13 +683,15 @@ Load*VERIFY*)
   units="$(sed -n 's/^units: //p' "$packet")"
   mode="$(cat "$FAKE/verdict-mode" 2>/dev/null || echo clean)"
   [ "$mode" = slow ] && exit 0
+  # gone: the verifier exits without a verdict and without a provider error.
+  [ "$mode" = gone ] && {{ rm -f "$FAKE/agents/$1"; exit 0; }}
   # ratelimit: a pi verifier stops on its provider and exits; another kind works.
   # ratelimit-all: every kind does.
   if {{ [ "$mode" = ratelimit ] && [ "$(cut -d' ' -f2 "$FAKE/agents/$1")" = pi ]; }} || [ "$mode" = ratelimit-all ]; then
     printf '{{"type":"message","message":{{"role":"assistant","stopReason":"error","errorMessage":"Reached free model rate limit. Your limit will reset in 50 minutes (at 11:26 UTC)."}}}}\n' >>"$(cat "$FAKE/sessions/$1")"
     rm -f "$FAKE/agents/$1"; exit 0
   fi
-  case "$mode" in clean | ratelimit) status=clean ;; *) status=reject ;; esac
+  case "$mode" in clean | ratelimit) status=clean ;; inconclusive) status=inconclusive ;; *) status=reject ;; esac
   {{ printf '# Verdict\\n\\nstatus: %s\\nunits: %s\\n\\n## Findings\\n\\n' "$status" "$units"
      [ "$status" = reject ] && printf '1. Acceptance broke: add returns 0\\n'
      printf '\\n## Evidence\\n\\n'
@@ -928,7 +930,7 @@ esac
 
     def test_verifier_pane_writes_a_clean_verdict_then_goes(self):
         _, out = self.verify_app_unit('clean', 0)
-        self.assertIn('verifier demo-verifier (pi)', out)
+        self.assertIn('verifier demo-verifier (pi --model devin/swe-2) in ', out)
         self.assertIn('status: clean\n', out)
         self.assertRegex(out, r'audit: (yes|no)')
         calls = (self.fake / 'calls.log').read_text()
@@ -1030,7 +1032,7 @@ esac
         self.assertIn('status: inconclusive (the verifier hit its provider', out)
         self.assertIn('provider_error: Reached free model rate limit. Your limit will reset in 50 minutes', out)
         self.assertIn('retry: verifying again on the fallback, devin', out)
-        self.assertIn('verifier demo-verifier (devin)', out)
+        self.assertIn('verifier demo-verifier (devin (model unspecified)) in ', out)
         self.assertIn('status: clean\n', out)
         starts = [line for line in (self.fake / 'calls.log').read_text().splitlines()
                   if line.startswith('agent start demo-verifier')]
@@ -1086,6 +1088,60 @@ esac
         block = self.prove_block(self.store / 'verdicts/landing-v1-packet.md')
         self.assertRegex(block[1], r'^python3 \S+kitchen\.py --repo \S+/000-landing-verify setup$')
         self.assertIn(' gate app behavioral ', block[2])
+
+    def packet_fields(self, n='001-util-v1'):
+        text = (self.store / f'verdicts/{n}-packet.md').read_text()
+        return {k: v for k, v in (line.split(': ', 1) for line in text.splitlines() if line.startswith('verifier-'))}
+
+    def test_the_packet_records_the_configured_agent_class_and_a_prepared_outcome(self):
+        self.set_roster('[verifier]\nkind = "pi"\nargs = ["--approve", "--model", "devin/swe-2", "--thinking", "high"]\n')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        self.assertEqual(self.packet_fields(), {'verifier-agent': 'pi --model devin/swe-2 --thinking high',
+                                                'verifier-class': 'routine', 'verifier-outcome': 'running'})
+
+    def test_every_attempt_ends_with_its_own_outcome(self):
+        for mode, code, outcome in [('clean', 0, 'clean'), ('reject', 2, 'reject'), ('inconclusive', 2, 'inconclusive'),
+                                    ('noevidence', 2, 'invalid'), ('gone', 4, 'missing')]:
+            with self.subTest(mode):
+                self.setUp()
+                self.verify_app_unit(mode, code)
+                self.assertEqual(self.packet_fields()['verifier-outcome'], outcome)
+                self.assertNotIn('verifying', self.state())
+
+    def test_a_provider_stop_then_a_clean_fallback_are_two_attempts(self):
+        self.set_roster('[verifier]\nkind = "pi"\n[verifier.fallback]\nkind = "devin"\n')
+        self.rate_limited_verifier()
+        self.verify_app_unit('ratelimit', 0)
+        self.assertEqual(self.packet_fields('001-util-v1')['verifier-outcome'], 'provider')
+        self.assertEqual(self.packet_fields('001-util-v2')['verifier-outcome'], 'clean')
+        self.assertEqual(self.packet_fields('001-util-v2')['verifier-agent'], 'devin (model unspecified)')
+
+    def test_both_attempts_failing_are_both_recorded(self):
+        self.set_roster('[verifier]\nkind = "pi"\n[verifier.fallback]\nkind = "devin"\n')
+        self.rate_limited_verifier()
+        self.verify_app_unit('ratelimit-all', 2)
+        self.assertEqual([self.packet_fields(f'001-util-v{k}')['verifier-outcome'] for k in (1, 2)], ['provider', 'provider'])
+
+    def test_a_failed_start_is_recorded_as_start_failed(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'trust-dialog').touch()
+        self.run_sh('verify', str(self.store), '001', code=5)
+        self.assertEqual(self.packet_fields()['verifier-outcome'], 'start-failed')
+
+    def test_landing_and_escalated_packets_name_their_class(self):
+        self.verify_landing()
+        self.assertEqual(self.packet_fields('landing-v1'), {'verifier-agent': 'claude --model claude-opus-5-5',
+                                                            'verifier-class': 'landing', 'verifier-outcome': 'clean'})
 
     def test_a_routine_verifier_defaults_to_the_sidekick(self):
         self.verify_app_unit('clean', 0)
@@ -1423,7 +1479,7 @@ esac
         self.assertIn('name no units', self.run_sh('verify', str(self.store), '001', '--landing', code=1))
         out = self.run_sh('verify', str(self.store), '--landing')
         self.assertIn('landing base: merge-base of remotes/origin/main and HEAD', out)
-        self.assertIn('verifier demo-verifier (claude)', out)
+        self.assertIn('verifier demo-verifier (claude --model claude-opus-5-5) in ', out)
         self.assertIn('status: clean', out)
         packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
         self.assertIn('units: landing', packet)

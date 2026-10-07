@@ -4,6 +4,7 @@ status: clean | reject | inconclusive
 units: <the unit numbers from the packet, space-separated>
 range: <base>..<head> from the packet
 verifier: <your agent kind and model>
+verifier-agent: <copy the verifier-agent: line from the packet>
 
 ## Findings
 
