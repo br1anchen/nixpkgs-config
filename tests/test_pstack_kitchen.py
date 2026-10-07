@@ -74,7 +74,7 @@ class KitchenTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name) / 'repo'
-        self.env = {**os.environ, 'XDG_STATE_HOME': str(Path(self.tmp.name) / 'state'),
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'XDG_STATE_HOME': str(Path(self.tmp.name) / 'state'),
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.repo.mkdir()
@@ -495,6 +495,80 @@ if __name__ == '__main__':
     unittest.main()
 
 
+class FleetTests(unittest.TestCase):
+    """kitchen.py fleet and counters over fixture run stores."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.t = Path(self.tmp.name)
+        self.runs = self.t / 'state/pstack/kitchen/runs'
+        self.env = {k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'} | {'XDG_STATE_HOME': str(self.t / 'state')}
+
+    def store(self, name, pair=None, events=(), briefs=(), reports=(), verdicts=()):
+        d = self.runs / name
+        for sub in ('briefs', 'reports', 'verdicts', 'steers'):
+            (d / sub).mkdir(parents=True)
+        if pair is not None:
+            (d / 'pair.json').write_text(json.dumps(pair))
+        if events:
+            rows = ['ts\tepoch\tactor\tevent\tunit\tdetail'] + [f'x\t{e}\t{a}\t{v}\t-\t{det}' for e, a, v, det in events]
+            (d / 'events.tsv').write_text('\n'.join(rows) + '\n')
+        for b in briefs:
+            (d / 'briefs' / f'{b}.md').write_text('# Brief\n')
+        for r, status in reports:
+            (d / 'reports' / f'{r}.md').write_text(f'# Report\n\nstatus: {status}\n')
+        for name_, status, units in verdicts:
+            (d / 'verdicts' / f'{name_}.md').write_text(f'# Verdict\n\nstatus: {status}\nunits: {units}\n')
+        return d
+
+    def fleet(self, *args):
+        r = subprocess.run([sys.executable, str(script), '--json', 'fleet', '--runs', str(self.runs), *args],
+                           env=self.env, capture_output=True, text=True, check=True)
+        out = json.loads(r.stdout)
+        return {x['run']: x for x in out['runs']}, {x['build']: x for x in out['builds']}
+
+    def test_verified_units_are_the_union_over_clean_non_landing_verdicts(self):
+        self.store('a', pair={'git_root': str(self.t), 'sidekick': {'failovers': [{}, {}]},
+                              'skill_builds': [{'path': '/s/one'}]},
+                   events=[(100, 'master', 'init', ''), (160, 'master', 'wake', 'x'), (220, 'master', 'wake', 'verify:provider'),
+                           (300, 'master', 'catch', 'gate'), (400, 'sidekick', 'gate-flaky', 'app')],
+                   briefs=['001-a', '002-b', '003-c', '004-d'],
+                   reports=[('001-a', 'done'), ('002-b', 'done'), ('003-c', 'done'), ('004-d', 'partial')],
+                   verdicts=[('002-b-v1', 'clean', '001 002'), ('003-c-v1', 'reject', '003'), ('003-c-v2', 'clean', '003'),
+                             ('003-c-v3', 'clean', '003'), ('005-e-v1', 'clean (gates only: docs)', '005'),
+                             ('landing-v1', 'clean', 'landing'), ('002-b-v1-packet', 'clean', '999')])
+        (self.t / 'state/pstack/builds.tsv').write_text('1\tabc123\t/s/one\n')
+        runs, builds = self.fleet()
+        a = runs['a']
+        self.assertEqual((a['done_units'], a['verified_units'], a['gates_only_units'], a['landing']), (3, 4, 1, 'clean'))
+        self.assertEqual((a['wakes'], a['wakes_per_verified'], a['failovers']), (2, 0.5, 2))
+        self.assertEqual((a['verify_provider'], a['verify_missing'], a['gate_flaky'], a['catches']), (1, 0, 1, {'gate': 1}))
+        self.assertEqual((a['clean_first_try'], a['build'], a['started'], a['last']), (2, 'abc123', 100, 400))
+        self.assertEqual(builds['abc123']['runs'], 1)
+
+    def test_mixed_and_unstamped_runs_get_their_own_build_rows(self):
+        self.store('m', pair={'skill_builds': [{'path': '/s/one'}, {'path': '/s/two'}]}, events=[(10, 'master', 'wake', '')])
+        self.store('u', pair={}, events=[(20, 'master', 'wake', '')])
+        self.store('empty')
+        runs, builds = self.fleet()
+        self.assertEqual((runs['m']['build'], runs['u']['build'], runs['empty']['build']), ('mixed', 'unknown', 'unknown'))
+        self.assertEqual(set(builds), {'mixed', 'unknown'})
+        self.assertEqual(builds['unknown']['runs'], 2)
+        self.assertEqual(builds['unknown']['eligible_runs'], 0)
+        e = runs['empty']
+        self.assertEqual((e['done_units'], e['verified_units'], e['wakes'], e['wakes_per_verified'], e['failovers'], e['started']),
+                         (0, 0, 0, None, 0, None))
+
+    def test_since_filters_by_the_first_event_and_fleet_writes_nothing(self):
+        self.store('old', pair={}, events=[(1_000_000_000, 'master', 'init', '')])
+        self.store('new', pair={}, events=[(1_790_000_000, 'master', 'init', '')])
+        before = sorted(str(p) for p in self.t.rglob('*'))
+        runs, _ = self.fleet('--since', '2026-01-01')
+        self.assertEqual(list(runs), ['new'])
+        self.assertEqual(sorted(str(p) for p in self.t.rglob('*')), before)
+
+
 class KitchenScriptTests(unittest.TestCase):
     """kitchen.sh against a fake herdr, a fake joo-dev, and a real repo and kitchen.py."""
 
@@ -508,7 +582,7 @@ class KitchenScriptTests(unittest.TestCase):
         roster = t / 'roster.toml'
         roster.write_text('[sidekick]\nkind = "pi"\nargs = ["--model", "devin/swe-2"]\n'
                           '[sidekick.fallback]\nkind = "devin"\n[consultant]\nkind = "codex"\n')
-        self.env = {**os.environ, 'FAKE': str(self.fake), 'PSTACK_KITCHEN_ROSTER': str(roster),
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'PSTACK_KITCHEN_ROSTER': str(roster),
                     'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
                     'HOME': str(t / 'home'), 'XDG_STATE_HOME': str(t / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0',
@@ -535,7 +609,8 @@ Load*VERIFY*)
   mode="$(cat "$FAKE/verdict-mode" 2>/dev/null || echo clean)"
   [ "$mode" = slow ] && exit 0
   # ratelimit: a pi verifier stops on its provider and exits; another kind works.
-  if [ "$mode" = ratelimit ] && [ "$(cut -d' ' -f2 "$FAKE/agents/$1")" = pi ]; then
+  # ratelimit-all: every kind does.
+  if {{ [ "$mode" = ratelimit ] && [ "$(cut -d' ' -f2 "$FAKE/agents/$1")" = pi ]; }} || [ "$mode" = ratelimit-all ]; then
     printf '{{"type":"message","message":{{"role":"assistant","stopReason":"error","errorMessage":"Reached free model rate limit. Your limit will reset in 50 minutes (at 11:26 UTC)."}}}}\n' >>"$(cat "$FAKE/sessions/$1")"
     rm -f "$FAKE/agents/$1"; exit 0
   fi
@@ -947,6 +1022,14 @@ esac
         self.assertIn('--model fb', second)
         self.assertTrue(self.state()['verifier']['kind'] == 'devin')
 
+    def test_a_fallback_that_hits_its_provider_too_is_not_retried_again(self):
+        self.set_roster('[verifier]\nkind = "pi"\n[verifier.fallback]\nkind = "devin"\n')
+        self.rate_limited_verifier()
+        _, out = self.verify_app_unit('ratelimit-all', 2)
+        self.assertIn('retry: verifying again on the fallback, devin', out)
+        self.assertEqual(len(self.verifier_starts()), 2)
+        self.assertIn(f'next: wait for the limit, or kitchen.sh verify {self.store} 001 --kind <another kind>', out)
+
     def test_a_fallback_of_the_failed_kind_is_not_retried(self):
         self.set_roster('[verifier]\nkind = "pi"\n[verifier.fallback]\nkind = "pi"\nargs = ["--model", "other"]\n')
         self.rate_limited_verifier()
@@ -975,8 +1058,9 @@ esac
         self.assertEqual(path.parent, self.feedback_dir() / 'inbox')
         text = path.read_text()
         self.assertRegex(text, r'^# Kitchen feedback: demo \(repo\)\nid: \d{8}-repo-demo\nrun: demo   store: ')
-        self.assertIn(f'master: demo-master (p0)\nbuild: unknown ({skill}', text)
-        self.assertRegex(text, r'retro: run demo: 0 unit reports, 0 clean verdicts')
+        self.assertIn(f'master: demo-master (p0)\nbuild: unknown ({skill.parent.resolve()})\nretro: ', text)
+        self.assertNotIn('filed with:', text)
+        self.assertRegex(text, r'retro: run demo: 0 unit reports, 0 verified units \(0 clean verdicts on the first try\)')
         self.assertRegex(text, r'filed: \d{4}-\d\d-\d\dT[\d:]+Z\nstatus: open\n\n## Gaps\n\n### 1\. dispatch hid the rotation')
         self.assertIn('feedback\t', (self.store / 'events.tsv').read_text())
         self.assertIn('delivered: notification for the human (no maintainer is registered)', out)
@@ -1081,6 +1165,44 @@ esac
         self.assertIn('no feedback report', self.run_sh('feedback', '--close', 'nope', 'none', 'x', code=1))
         _, next_path = self.file_feedback()
         self.assertNotEqual(next_path.stem, path.stem)
+
+    def write_builds(self, *rows):
+        f = Path(self.env['XDG_STATE_HOME']) / 'pstack/builds.tsv'
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_text(''.join('\t'.join(r) + '\n' for r in rows))
+
+    def test_init_stamps_the_skills_build_and_a_later_path_adds_a_row(self):
+        here = str(skill.parent.resolve())
+        builds = self.state()['skill_builds']
+        self.assertEqual([b['path'] for b in builds], [here])
+        self.run_sh('status', str(self.store))
+        self.assertEqual(len(self.state()['skill_builds']), 1)
+        state = self.state()
+        state['skill_builds'][0]['path'] = '/old/skills'
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.run_sh('status', str(self.store))
+        self.assertEqual([b['path'] for b in self.state()['skill_builds']], ['/old/skills', here])
+
+    def test_a_run_without_stamps_stays_unstamped(self):
+        state = self.state()
+        del state['skill_builds']
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.run_sh('status', str(self.store))
+        self.assertNotIn('skill_builds', self.state())
+
+    def test_feedback_names_the_build_the_run_started_on_and_the_one_it_filed_with(self):
+        here = str(skill.parent.resolve())
+        self.write_builds(('1', 'abc123', '/old/skills'), ('2', 'def456', here))
+        state = self.state()
+        state['skill_builds'][0]['path'] = '/old/skills'
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        _, path = self.file_feedback()
+        text = path.read_text()
+        self.assertIn('build: abc123 (/old/skills)\nfiled with: def456 (' + here + ')\n', text)
+
+    def test_feedback_build_is_unknown_without_a_builds_file(self):
+        _, path = self.file_feedback()
+        self.assertIn('build: unknown (', path.read_text())
 
     def test_a_rate_limited_verifier_without_a_fallback_is_inconclusive(self):
         state = self.state()
@@ -1248,6 +1370,15 @@ esac
         self.run_sh('resolve', str(self.store), 'finding-zzz', 'fixed', 'x', code=1)
         self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
         self.assertIn('blocking: none open', self.run_sh('review', str(self.store), '001'))
+
+    def test_retro_and_counters_agree_on_verified_units(self):
+        for n, status, units in [('001-a-v1', 'clean', '001 002'), ('003-c-v1', 'reject', '003'), ('003-c-v2', 'clean', '003')]:
+            (self.store / 'verdicts' / f'{n}.md').write_text(f'# V\n\nstatus: {status}\nunits: {units}\n')
+        out = self.run_sh('retro', str(self.store))
+        self.assertIn('run demo: 0 unit reports, 3 verified units (1 clean verdicts on the first try)', out)
+        counters = json.loads(subprocess.run([sys.executable, str(script), 'counters', str(self.store)], env=self.env,
+                                             capture_output=True, text=True, check=True).stdout)
+        self.assertEqual(counters['verified_units'], 3)
 
     def test_retro_counts_the_run_and_repeats_across_runs(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])

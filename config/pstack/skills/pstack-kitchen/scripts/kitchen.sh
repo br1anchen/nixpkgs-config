@@ -9,6 +9,7 @@ set -euo pipefail
 
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 skill_root="$(dirname "$here")"
+skills_dir="$(dirname "$skill_root")"
 PAIR_SKILL=pstack-kitchen
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/runs"
 store_label=Kitchen
@@ -76,6 +77,10 @@ consult, advice. These differ or are new:
   feedback --close <id> <commit|none> <note>
                                             retire a report (closing twice is harmless)
   maintainer on [--pane ID] | off | status  register this session to receive FEEDBACK pointers
+  fleet [--since YYYY-MM-DD] [--runs DIR] [--json]
+                                            one row per run on the host (verified units, wakes, failovers,
+                                            provider stops, catches, open feedback), then one per skills build;
+                                            read-only, no store needed
 
 exit codes: the pair's, plus 2 for a failed gate, a rejected or invalid verdict, or a failed land-check
 USAGE
@@ -208,12 +213,29 @@ next_index() {
 
 # The repo's kitchen speaks through the standing orders too: the review
 # skills the sidekick runs before done, and how far landing goes.
+# The flake rev that built a skills directory, from the switch's builds.tsv
+# ("unknown" for a path no switch recorded, such as a working checkout).
+build_rev() {
+	local rev
+	rev="$(awk -F '\t' -v p="$1" '$3 == p {r = $2} END {print r}' "${XDG_STATE_HOME:-$HOME/.local/state}/pstack/builds.tsv" 2>/dev/null || true)"
+	printf '%s\n' "${rev:-unknown}"
+}
+
+# A run stamped at init lists the skills directories its commands ran from; a
+# command from a different one adds a row. A run from before stamps stays unstamped.
+record_skill_build() {
+	[ "$(field "$1" '.skill_builds // empty | length')" != "" ] || return 0
+	[ "$(field "$1" '.skill_builds[-1].path')" != "$skills_dir" ] || return 0
+	json_update "$1" --arg p "$skills_dir" --arg a "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.skill_builds += [{path: $p, at: $a}]'
+}
+
 cmd_init() {
 	local out store json orders
 	out="$(core_init "$@")"
 	printf '%s\n' "$out"
 	orders="$(sed -n 's/^standing orders: //p' <<<"$out")"
 	store="$(dirname "$orders")"
+	json_update "$store" --arg p "$skills_dir" --arg a "$(date -u +%Y-%m-%dT%H:%M:%SZ)" '.skill_builds = [{path: $p, at: $a}]'
 	json="$(kpy "$store" --json validate 2>/dev/null)" || { printf 'kitchen: none valid in this repo; run pstack-kitchen-setup before dispatching\n' >&2; return 0; }
 	grep -q 'kitchen.toml review.self' "$orders" || [ "$(jq '.self | length' <<<"$json")" -eq 0 ] ||
 		printf '16. Before reporting done, the sidekick runs these skills on its diff and fixes what they find: %s (kitchen.toml review.self).\n' \
@@ -848,7 +870,13 @@ verify_wait() {
 			printf 'retry: verifying again on the fallback, %s\n' "$(jq -r .kind <<<"$fallback")"
 			exec "$here/kitchen.sh" verify "$store" "${argv[@]}" --retry-entry "$fallback"
 		fi
-		printf 'next: wait for the limit, or kitchen.sh verify %s %s --kind <another kind>\n' "$store" "${argv[*]}"
+		# A retried call carries its entry; the advice is for the master's own call.
+		local -a shown=()
+		local i
+		for ((i = 0; i < ${#argv[@]}; i++)); do
+			if [ "${argv[i]}" = --retry-entry ]; then i=$((i + 1)); else shown+=("${argv[i]}"); fi
+		done
+		printf 'next: wait for the limit, or kitchen.sh verify %s %s --kind <another kind>\n' "$store" "${shown[*]}"
 		exit 2
 	fi
 	if [ ! -f "$verdict" ]; then
@@ -1093,23 +1121,22 @@ cmd_catch() {
 	printf 'caught at %s: %s\n' "$layer" "$text"
 }
 
-# The run's counts, read-only: sets the rc_* globals. retro prints them
-# and feedback quotes the same line.
+# The run's counts, read-only and from the same function fleet uses: sets
+# the rc_* globals. retro prints them and feedback quotes the same line.
 retro_counts() {
-	local store="$1" f
-	rc_units=0
-	for f in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
-		[ -e "$f" ] && [ "$(header_field "$(expected_report "$store" "$f")" status 2>/dev/null)" = "done" ] && rc_units=$((rc_units + 1))
-	done
-	rc_verified="$(grep -l '^status: clean' "$store"/verdicts/*-v[0-9]*.md 2>/dev/null | grep -vc packet || true)"
-	rc_clean_first="$(grep -l '^status: clean' "$store"/verdicts/*-v1.md 2>/dev/null | grep -vc packet || true)"
-	rc_wakes="$(awk -F '\t' '$3 == "master" && $4 == "wake"' "$store/events.tsv" 2>/dev/null | grep -c . || true)"
-	rc_escalations="$(awk -F '\t' '$4 == "escalate"' "$store/events.tsv" 2>/dev/null | grep -c . || true)"
-	rc_failovers="$(awk -F '\t' '$4 == "failover"' "$store/events.tsv" 2>/dev/null | grep -c . || true)"
+	local c
+	c="$(python3 "$here/kitchen.py" counters "$1")"
+	rc_units="$(jq .done_units <<<"$c")"
+	rc_verified="$(jq .verified_units <<<"$c")"
+	rc_clean_first="$(jq .clean_first_try <<<"$c")"
+	rc_wakes="$(jq .wakes <<<"$c")"
+	rc_escalations="$(jq .escalations <<<"$c")"
+	rc_failovers="$(jq .failovers <<<"$c")"
+	rc_repo="$(jq -r .repo <<<"$c")"
 }
 
 retro_line() {
-	printf 'run %s: %s unit reports, %s clean verdicts (%s on the first try), %s master wakes, %s escalations, %s failovers\n' \
+	printf 'run %s: %s unit reports, %s verified units (%s clean verdicts on the first try), %s master wakes, %s escalations, %s failovers\n' \
 		"$(field "$1" .slug)" "$rc_units" "$rc_verified" "$rc_clean_first" "$rc_wakes" "$rc_escalations" "$rc_failovers"
 }
 
@@ -1252,7 +1279,7 @@ cmd_feedback() {
 	--close) shift; fb_close "$@"; return ;;
 	esac
 	[ $# -eq 2 ] || die "usage: kitchen.sh feedback <store> <file>"
-	local store="$1" src="$2" fb run repo stem k name tmp retro path problem
+	local store="$1" src="$2" fb run repo stem k name tmp retro path problem first
 	pair_file "$store" >/dev/null
 	[ -f "$src" ] || die "no such file: $src"
 	awk '/^## Gaps/ {g = 1; next} /^## / {g = 0} g && /^### / {found = 1} END {exit !found}' "$src" ||
@@ -1260,14 +1287,9 @@ cmd_feedback() {
 	fb="$(fb_root)"
 	mkdir -p "$fb/inbox" "$fb/done"
 	run="$(field "$store" .slug)"
-	# The repo's name, not its worktree's: a bare repo's common dir is its own name.
-	repo="$(git -C "$(field "$store" .git_root)" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
-	case "$(basename "${repo:-.}")" in
-	.git) repo="$(basename "$(dirname "$repo")")" ;;
-	.) repo="$(basename "$(field "$store" .git_root)")" ;;
-	*) repo="$(basename "$repo" .git)" ;;
-	esac
 	retro_counts "$store"
+	repo="$rc_repo"
+	[ -n "$repo" ] || repo="$(basename "$(field "$store" .git_root)")"
 	retro="$(retro_line "$store")"
 	stem="$(date -u +%Y%m%d)-$repo-$run"
 	tmp="$(mktemp "$fb/.filing-XXXXXX")"
@@ -1283,7 +1305,9 @@ cmd_feedback() {
 		printf 'id: %s\n' "$name"
 		printf 'run: %s   store: %s   repo: %s   master: %s (%s)\n' "$run" "$store" "$(field "$store" .git_root)" \
 			"$(field "$store" '.master.name // "unknown"')" "$(field "$store" '.master.pane_id // "unknown"')"
-		printf 'build: unknown (%s)\n' "$skill_root"
+		first="$(field "$store" '.skill_builds[0].path // empty')"
+		printf 'build: %s (%s)\n' "$([ -n "$first" ] && build_rev "$first" || echo unknown)" "${first:-unknown}"
+		[ -z "$first" ] || [ "$first" = "$skills_dir" ] || printf 'filed with: %s (%s)\n' "$(build_rev "$skills_dir")" "$skills_dir"
 		printf 'retro: %s\n' "$retro"
 		printf 'filed: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 		printf 'status: open\n\n'
@@ -1302,6 +1326,11 @@ cmd_feedback() {
 	[ -n "$problem" ] || problem="the prompt to the maintainer failed"
 	herdr notification show "pstack-kitchen: feedback filed" --body "$path" --sound request >/dev/null 2>&1 || true
 	printf 'delivered: notification for the human (%s); read it with: cat %s\n' "$problem" "$path"
+}
+
+# Every run on the host and each skills build; read-only and repo-free.
+cmd_fleet() {
+	python3 "$here/kitchen.py" fleet "$@"
 }
 
 cmd_maintainer() {
@@ -1343,4 +1372,5 @@ cmd_maintainer() {
 	esac
 }
 
+if [ $# -ge 2 ] && [ -f "$2/pair.json" ]; then record_skill_build "$2"; fi
 pair_main "$@"

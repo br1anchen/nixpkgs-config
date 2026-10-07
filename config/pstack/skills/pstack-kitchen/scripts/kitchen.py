@@ -854,6 +854,176 @@ def roster(as_json: bool) -> int:
     return 0
 
 
+def _header(path: Path, key: str) -> str:
+    try:
+        for line in path.read_text().splitlines():
+            if line.startswith(f'{key}:'):
+                return line[len(key) + 1:].strip()
+    except OSError:
+        pass
+    return ''
+
+
+def _json(path: Path) -> dict:
+    try:
+        data = json.loads(path.read_text())
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def pstack_state() -> Path:
+    return Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state') / 'pstack'
+
+
+def build_revs() -> dict[str, str]:
+    """skills path -> flake rev, from the switch's builds.tsv (the last row of a path wins)."""
+    revs = {}
+    try:
+        for line in (pstack_state() / 'builds.tsv').read_text().splitlines():
+            cols = line.split('\t')
+            if len(cols) >= 3:
+                revs[cols[2]] = cols[1]
+    except OSError:
+        pass
+    return revs
+
+
+def repo_label(git_root: str) -> str:
+    """The repo's name, not its worktree's: a bare repo's common dir is its own name."""
+    if not git_root:
+        return ''
+    r = subprocess.run(['git', '-C', git_root, 'rev-parse', '--path-format=absolute', '--git-common-dir'],
+                       capture_output=True, text=True, check=False)
+    common = Path(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
+    if common is None:
+        return Path(git_root).name
+    return common.parent.name if common.name == '.git' else common.name.removesuffix('.git')
+
+
+def run_counters(store: Path) -> dict:
+    """One run's counters, read-only. Every file is optional: an older or partial store gives zeros."""
+    pair = _json(store / 'pair.json')
+    events = []
+    try:
+        events = [line.split('\t') for line in (store / 'events.tsv').read_text().splitlines()[1:]]
+    except OSError:
+        pass
+    events = [e + [''] * (6 - len(e)) for e in events]
+    done = 0
+    for brief in sorted((store / 'briefs').glob('[0-9][0-9][0-9]-*.md')):
+        report = store / 'reports' / (re.sub(r'-a\d+$', '', brief.stem) + '.md')
+        done += _header(report, 'status') == 'done'
+    verified: set[str] = set()
+    gates_only: set[str] = set()
+    clean_first = 0
+    landing = None
+    for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md')):
+        if v.stem.endswith('-packet') or 'packet' in v.name:
+            continue
+        status = _header(v, 'status')
+        ok = status.startswith('clean')
+        if v.name.startswith('landing-'):
+            landing = status.split(' ')[0] or None
+            continue
+        if ok:
+            units = _header(v, 'units').split()
+            verified.update(units)
+            if 'gates only' in status:
+                gates_only.update(units)
+            clean_first += v.stem.endswith('-v1')
+    wakes = sum(e[2] == 'master' and e[3] == 'wake' for e in events)
+    catches: dict[str, int] = {}
+    for e in events:
+        if e[3] == 'catch':
+            catches[e[5]] = catches.get(e[5], 0) + 1
+    paths = [b.get('path') for b in pair.get('skill_builds') or [] if isinstance(b, dict) and b.get('path')]
+    revs = build_revs()
+    if len(set(paths)) > 1:
+        build = 'mixed'
+    elif paths:
+        build = revs.get(paths[0], 'unknown')
+    else:
+        build = 'unknown'
+    failovers = pair.get('sidekick', {}).get('failovers') if isinstance(pair.get('sidekick'), dict) else None
+    return {
+        'run': store.name, 'repo': repo_label(pair.get('git_root') or ''), 'build': build,
+        'started': int(events[0][1]) if events and events[0][1].isdigit() else None,
+        'last': int(events[-1][1]) if events and events[-1][1].isdigit() else None,
+        'done_units': done, 'verified_units': len(verified), 'gates_only_units': len(gates_only),
+        'clean_first_try': clean_first, 'landing': landing, 'wakes': wakes,
+        'wakes_per_verified': round(wakes / len(verified), 1) if verified else None,
+        'failovers': len(failovers) if isinstance(failovers, list) else 0,
+        'escalations': sum(e[3] == 'escalate' for e in events),
+        'verify_missing': sum(e[5] == 'verify:missing' for e in events),
+        'verify_provider': sum(e[5] == 'verify:provider' for e in events),
+        'gate_flaky': sum(e[3] == 'gate-flaky' for e in events),
+        'catches': catches, 'steers': len(list((store / 'steers').glob('*-s[0-9]*.md'))),
+    }
+
+
+def open_feedback() -> dict[str, int]:
+    """store path -> open feedback reports filed from it."""
+    out: dict[str, int] = {}
+    for f in (pstack_state() / 'feedback/inbox').glob('*.md'):
+        if (f.parent.parent / 'done' / f.name).exists():
+            continue
+        m = re.search(r'store: (\S+)', _header(f, 'run'))
+        if m:
+            out[m.group(1)] = out.get(m.group(1), 0) + 1
+    return out
+
+
+def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
+    """Every kitchen run on the host and each skills build, read-only (it never runs retro)."""
+    rows = []
+    fb = open_feedback()
+    for store in sorted(p for p in runs_dir.glob('*') if p.is_dir()):
+        c = run_counters(store)
+        c['open_feedback'] = fb.get(str(store), 0)
+        if since and (c['started'] is None or time.strftime('%Y-%m-%d', time.gmtime(c['started'])) < since):
+            continue
+        rows.append(c)
+    rows.sort(key=lambda r: (r['started'] is None, r['started'] or 0, r['run']))
+    builds: dict[str, dict] = {}
+    for r in rows:
+        b = builds.setdefault(r['build'], {'build': r['build'], 'runs': 0, 'wakes_per_verified': [], 'failovers': 0, 'provider_stops': 0})
+        b['runs'] += 1
+        b['failovers'] += r['failovers']
+        b['provider_stops'] += r['verify_provider']
+        if r['wakes_per_verified'] is not None:
+            b['wakes_per_verified'].append(r['wakes_per_verified'])
+    brows = []
+    for b in builds.values():
+        w = b.pop('wakes_per_verified')
+        b['mean_wakes_per_verified'] = round(sum(w) / len(w), 1) if w else None
+        b['eligible_runs'] = len(w)
+        b['failovers_per_run'] = round(b['failovers'] / b['runs'], 1)
+        b['provider_stops_per_run'] = round(b['provider_stops'] / b['runs'], 1)
+        brows.append(b)
+
+    def when(t):
+        return time.strftime('%Y-%m-%d %H:%M', time.gmtime(t)) if t else '-'
+
+    def num(x):
+        return '-' if x is None else str(x)
+    lines = [f'{"run":24} {"repo":14} {"build":9} {"started":16} {"last":16} {"done":>4} {"ver":>3} {"gates":>5} {"land":6} '
+             + f'{"wakes":>5} {"w/ver":>5} {"fo":>2} {"miss":>4} {"prov":>4} {"flaky":>5} {"steer":>5} {"fb":>2}  catches']
+    for r in rows:
+        lines.append(f'{r["run"][:24]:24} {r["repo"][:14]:14} {r["build"][:9]:9} {when(r["started"]):16} {when(r["last"]):16} '
+                     f'{r["done_units"]:>4} {r["verified_units"]:>3} {r["gates_only_units"]:>5} {num(r["landing"]):6} {r["wakes"]:>5} '
+                     f'{num(r["wakes_per_verified"]):>5} {r["failovers"]:>2} {r["verify_missing"]:>4} {r["verify_provider"]:>4} '
+                     f'{r["gate_flaky"]:>5} {r["steers"]:>5} {r["open_feedback"]:>2}  '
+                     f'{",".join(f"{k}:{v}" for k, v in sorted(r["catches"].items())) or "-"}')
+    lines.append('')
+    lines.append(f'{"build":9} {"runs":>4} {"eligible":>8} {"mean w/ver":>10} {"fo/run":>6} {"prov/run":>8}')
+    for b in brows:
+        lines.append(f'{b["build"][:9]:9} {b["runs"]:>4} {b["eligible_runs"]:>8} {num(b["mean_wakes_per_verified"]):>10} '
+                     f'{b["failovers_per_run"]:>6} {b["provider_stops_per_run"]:>8}')
+    emit({'runs': rows, 'builds': brows}, as_json, '\n'.join(lines))
+    return 0
+
+
 def emit(obj, as_json: bool, text: str) -> None:
     print(json.dumps(obj, indent=2) if as_json else text)
 
@@ -890,6 +1060,11 @@ def main(argv: list[str] | None = None) -> int:
     rs = sub.add_parser('review-settings', help='style budget second_reviewer walkthrough for a review class')
     rs.add_argument('cls', choices=('routine', 'escalated', 'landing'))
     sub.add_parser('roster', help='the host roster: which agents fill the roles (no repo needed)')
+    f = sub.add_parser('fleet', help='every run on the host and each skills build (no repo needed, read-only)')
+    f.add_argument('--since', metavar='YYYY-MM-DD', help='only runs that started on or after this date')
+    f.add_argument('--runs', type=Path, help='runs directory (default: the host kitchen runs)')
+    c = sub.add_parser('counters', help="one run store's counters as JSON (no repo needed, read-only)")
+    c.add_argument('store', type=Path)
     sub.add_parser('statedir', help="this repo's kitchen state directory")
     t = sub.add_parser('timing', help="the slowest recent passing run of each profile's stage, and their sum")
     t.add_argument('profiles', nargs='*')
@@ -898,6 +1073,11 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.cmd == 'roster':
         return roster(args.json)
+    if args.cmd == 'fleet':
+        return fleet(args.runs or pstack_state() / 'kitchen/runs', args.since, args.json)
+    if args.cmd == 'counters':
+        print(json.dumps(run_counters(args.store)))
+        return 0
     try:
         if args.cmd == 'statedir':
             print(state_dir(repo_root(args.repo)))
