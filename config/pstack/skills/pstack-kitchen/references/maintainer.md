@@ -24,13 +24,19 @@ the human a notification instead, and the report stays filed either way.
 
 ## On `pstack-kitchen FEEDBACK <path>`, or when asked
 
+0. `kitchen.sh fleet` shows how the runs on this host are going, by build:
+   wakes per verified unit, failovers and provider stops per run. Use it to
+   compare the runs before and after a change, with the build rows' eligible
+   run counts in mind; a `mixed` or `unknown` run belongs to no build.
 1. `kitchen.sh feedback --inbox` lists the open reports, oldest first. Read
    the one named, or the oldest. The header says which run, repo and build it
    came from; the body says what happened, the workaround, and the evidence
    by path into the run's store (read-only, and only while it still exists).
-2. For each gap, decide whether it is already fixed. A newer build does not
-   prove it: compare the cited behaviour with the code and the commits since
-   the report's build, and reproduce it when you can.
+2. For each gap, decide whether it is already fixed. A newer build alone does
+   not prove it, and neither does a lower number in `fleet`: compare the cited
+   behaviour with the code and the commits since the report's build (`build:`
+   in the header, and `filed with:` when the filing command ran on another),
+   and reproduce it when you can.
 3. Propose the fixes to the human, with the gaps you would leave and why. A
    gap that is the repo's own habit (a lint, a profile command, a brief
    line) belongs to pstack-kitchen-setup's maintain path, not here.
