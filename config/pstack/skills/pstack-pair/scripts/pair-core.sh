@@ -373,9 +373,10 @@ scope_entry_exists() {
 		dir="${prefix%/*}"
 		[ "$dir" != "$prefix" ] || dir=""
 		[ -z "$dir" ] || [ -d "$root/$dir" ] || return 1
+		# bash's case needs a slash for **/, so a top-level file also tries the pattern without it.
 		while IFS= read -r f; do
 			# shellcheck disable=SC2254
-			case "$f" in $e) return 0 ;; esac
+			case "$f" in $e | ${e#\*\*/}) return 0 ;; esac
 		done <<<"$tracked"
 		[ -n "$dir" ] ;;
 	*/) [ -d "$root/$e" ] || [ -d "$root/$(dirname "${e%/}")" ] ;;
@@ -1254,7 +1255,8 @@ spawn_role() {
 		 | .[$role].bootstrap_pending = true
 		 | .[$role].permission_mode = $perm | .master.permission_mode = $mperm'
 	printf '%s %s (%s) started in %s with permission %s (master: %s)\n' "$role" "$name" "$kind" "$pane" "$permission" "$master_mode"
-	local bootstrap
+	local bootstrap generation
+	generation="$(field "$store" ".$role.generation")"
 	if [ -f "$store/$ready" ]; then
 		mkdir -p "$store/sessions"
 		mv "$store/$ready" "$store/sessions/$role-$(field "$store" ".$role.generation")-previous-ready.md"
@@ -1275,7 +1277,7 @@ spawn_role() {
 		# or swallow the prompt whole. bootstrap_recover acts only on a live
 		# idle agent in this pane; otherwise state detection lagged on a narrow
 		# pane while the agent works. Either way the ready file is the signal.
-		if bootstrap_recover "$store" "$name" "$role" "$pane" "$ready" "$bootstrap"; then
+		if bootstrap_recover "$store" "$name" "$role" "$pane" "$ready" "$bootstrap" "$generation"; then
 			printf '%s prompt looked stalled; waiting for %s instead\n' "$role" "$ready"
 			await_file "$store/$ready" "${PAIR_BOOTSTRAP_WAIT_MS:-240000}" && code=0
 		fi
@@ -1708,11 +1710,11 @@ reply_mode() {
 # typed in its input, or the bootstrap sent once more when nothing was typed (a
 # startup screen swallowed it). A working agent is left alone; a blocked one is
 # waiting on a dialog that belongs to the human, so no keys; an absent or
-# unknown one keeps the failure and inspection message. Returns 1 when the
-# caller should not wait for the ready file.
+# unknown one keeps the failure and inspection message. $7 is the generation
+# the spawn recorded for this agent: a newer one means another spawn replaced
+# it. Returns 1 when the caller should not wait for the ready file.
 bootstrap_recover() {
-	local store="$1" name="$2" role="$3" pane="$4" ready="$5" bootstrap="$6" generation info state
-	generation="$(field "$store" ".$role.generation")"
+	local store="$1" name="$2" role="$3" pane="$4" ready="$5" bootstrap="$6" generation="$7" info state
 	sleep "${PAIR_SUBMIT_CHECK_S:-5}"
 	[ ! -f "$store/$ready" ] || return 0
 	info="$(herdr agent get "$name" 2>/dev/null)" || return 0

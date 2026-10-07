@@ -514,6 +514,15 @@ class ReadinessTests(unittest.TestCase):
         out = self.wait(4)
         self.assertIn('outside scope: 1\n  other.txt', out)
 
+    def test_a_double_star_glob_matches_a_top_level_file(self):
+        (self.cwd / 'flake.nix').write_text('x')
+        self.git('add', 'flake.nix')
+        self.git('commit', '-q', '-m', 'flake')
+        b = self.scoped_brief('002-second', '**/*.nix', '**/*.zig')
+        out = self.run_command('queue', str(self.store), str(b))
+        self.assertNotIn('"**/*.nix"', out)
+        self.assertIn('warning: Scope entry "**/*.zig" matches no file', out)
+
     def test_an_entry_that_matches_nothing_warns_without_refusing(self):
         (self.cwd / 'services/x').mkdir(parents=True)
         (self.cwd / 'services/x/state.rs').write_text('x')
@@ -684,6 +693,17 @@ esac
         out = self.spawn_pi()
         self.assertEqual(len(self.bootstrap_prompts()), 1)
         self.assertIn('ready:', out)
+
+    def test_a_generation_change_before_the_recheck_stops_the_recovery(self):
+        (self.fake / 'prompt-drop').write_text('')
+        self.env = {**self.env, 'PAIR_SUBMIT_CHECK_S': '2', 'PAIR_BOOTSTRAP_WAIT_MS': '1000'}
+        bump = (f"sleep 1; jq '.sidekick.generation += 1' {self.store}/pair.json >{self.store}/pair.json.new"
+                f" && mv {self.store}/pair.json.new {self.store}/pair.json")
+        late = subprocess.Popen(['bash', '-c', bump])
+        self.addCleanup(late.wait)
+        self.spawn_pi(code=3)
+        self.assertEqual(len(self.bootstrap_prompts()), 1)
+        self.assertNotIn('send-keys', (self.fake / 'calls.log').read_text())
 
     def test_done_brief_gets_a_fresh_pi_session_and_keeps_the_queue(self):
         self.spawn_pi()
