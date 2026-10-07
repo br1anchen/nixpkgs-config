@@ -412,6 +412,80 @@ class WrapTests(KitchenTests):
         self.assertTrue(self.data('gate', 'app', 'fast')['passed'])
         self.assertFalse(self.entered.exists())
 
+    def scratch(self, setup, wrap=True):
+        self.kitchen()
+        text = (self.repo / '.agents/kitchen.toml').read_text()
+        if not wrap:
+            text = text.replace('[run]\nwrap = "wrap/enter.sh"\n\n', '')
+        self.write('.agents/kitchen.toml', text + '\n[scratch]\nsetup = ' + json.dumps(setup) + '\n')
+
+    def test_setup_with_nothing_declared_passes(self):
+        self.kitchen()
+        r = self.data('setup')
+        self.assertEqual((r['passed'], r['commands'], r['log']), (True, [], None))
+        self.assertFalse(self.entered.exists())
+
+    def test_setup_runs_in_order_inside_the_wrap_entered_once_as_the_verifier(self):
+        self.scratch(['echo one >> out', 'echo two >> out', 'printf "%s" "$PSTACK_KITCHEN_ROLE" > role',
+                      'test "$KITCHEN_WRAPPED" = "" || true'])
+        r = self.data('setup')
+        self.assertTrue(r['passed'], r)
+        self.assertEqual((self.repo / 'out').read_text(), 'one\ntwo\n')
+        self.assertEqual((self.repo / 'role').read_text(), 'verifier')
+        self.assertEqual(self.entered.read_text(), 'x\n')
+        self.assertTrue(Path(r['log']).exists())
+
+    def test_setup_stops_at_the_first_failure_with_the_log_tail(self):
+        self.scratch(['true', 'echo boom; exit 3', 'touch never'])
+        r = self.data('setup', code=2)
+        self.assertEqual((r['passed'], r['exit']), (False, 3))
+        self.assertIn('boom', r['tail'])
+        self.assertFalse((self.repo / 'never').exists())
+        self.assertIn('setup: FAIL exit 3', self.run_kitchen('setup', code=2))
+
+    def test_a_failing_wrap_fails_setup_with_its_output(self):
+        self.scratch(['touch ran'])
+        self.write('wrap/enter.sh', '#!/usr/bin/env bash\necho "no devshell"; exit 7\n')
+        r = self.data('setup', code=2)
+        self.assertEqual((r['exit'], r['tail']), (7, ['no devshell']))
+        self.assertFalse((self.repo / 'ran').exists())
+
+    def test_setup_without_a_wrap_runs_from_the_repo_root(self):
+        self.scratch(['pwd > where'], wrap=False)
+        self.assertTrue(self.data('setup')['passed'])
+        self.assertEqual((self.repo / 'where').read_text().strip(), str(self.repo.resolve()))
+
+    def test_scratch_setup_is_validated(self):
+        self.kitchen(extra='\n[scratch]\nsetup = "bun install"\n')
+        self.assertIn('scratch.setup: expected a list of non-empty strings', self.run_kitchen('validate', code=1))
+        self.kitchen(extra='\n[scratch]\ninstall = []\n')
+        self.assertIn('scratch: unknown key install', self.run_kitchen('validate', code=1))
+
+    def doctor_scratch(self):
+        r = subprocess.run([sys.executable, str(script), '--json', 'doctor'], cwd=self.repo, env=self.env,
+                           capture_output=True, text=True, check=False)
+        return {x['check']: x for x in json.loads(r.stdout)['checks']}['scratch setup']
+
+    def test_doctor_reports_setup_and_warns_only_for_a_lockfile_without_it(self):
+        self.kitchen()
+        self.assertEqual(self.doctor_scratch()['status'], 'ok')
+        self.assertEqual(self.doctor_scratch()['detail'], 'none')
+        self.write('package.json', '{}\n')
+        self.assertEqual(self.doctor_scratch()['status'], 'ok')
+        self.write('bun.lock', '{}\n')
+        c = self.doctor_scratch()
+        self.assertEqual(c['status'], 'warn')
+        self.assertIn('package.json with a lockfile', c['detail'])
+        self.scratch(['bun install --frozen-lockfile'])
+        c = self.doctor_scratch()
+        self.assertEqual((c['status'], c['detail']), ('ok', 'bun install --frozen-lockfile'))
+        self.kitchen()
+        for f in ('package.json', 'bun.lock'):
+            (self.repo / f).unlink()
+        self.write('pyproject.toml', '[project]\n')
+        self.write('uv.lock', '\n')
+        self.assertEqual(self.doctor_scratch()['status'], 'warn')
+
     def test_doctor_resolves_commands_inside_the_wrap(self):
         self.kitchen()
         self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
@@ -456,7 +530,7 @@ class DoctorTests(KitchenTests):
         c = self.checks()
         self.assertEqual({k: v['status'] for k, v in c.items()}, {
             'coverage': 'ok', 'profiles': 'ok', 'commands': 'ok', 'fast gates': 'ok',
-            'features': 'ok', 'verification skill': 'warn'})
+            'features': 'ok', 'verification skill': 'warn', 'scratch setup': 'ok'})
 
     def test_problems_fail(self):
         self.change({'tools/gen.py': 'pass\n'})

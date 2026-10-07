@@ -98,6 +98,7 @@ class Kitchen:
     coverage_ignore: list[re.Pattern]
     max_parallel_heavy: int
     wrap: str
+    scratch_setup: list[str] = field(default_factory=list)
 
 
 def _check_keys(table: dict, where: str, allowed: set[str]) -> None:
@@ -132,7 +133,7 @@ def _bool(value, where: str) -> bool:
 
 def parse(data: dict) -> Kitchen:
     _check_keys(data, 'kitchen.toml', {'version', 'profile', 'escalate', 'policy', 'review',
-                                       'verify', 'landing', 'coverage', 'resources', 'run'})
+                                       'verify', 'landing', 'coverage', 'resources', 'run', 'scratch'})
     if data.get('version') != 1:
         raise ConfigError('version: expected 1')
     raw_profiles = data.get('profile')
@@ -233,6 +234,8 @@ def parse(data: dict) -> Kitchen:
     _check_keys(coverage, 'coverage', {'ignore'})
     resources = data.get('resources', {})
     _check_keys(resources, 'resources', {'max_parallel_heavy'})
+    scratch = data.get('scratch', {})
+    _check_keys(scratch, 'scratch', {'setup'})
     run = data.get('run', {})
     _check_keys(run, 'run', {'wrap'})
     if not isinstance(run.get('wrap', ''), str):
@@ -242,7 +245,7 @@ def parse(data: dict) -> Kitchen:
         landing=_choice(landing.get('mode', 'commit'), 'landing.mode', LANDING_MODES),
         coverage_ignore=[glob_regex(g) for g in _strings(coverage.get('ignore', []), 'coverage.ignore')],
         max_parallel_heavy=_int(resources.get('max_parallel_heavy', 1), 'resources.max_parallel_heavy', 1),
-        wrap=run.get('wrap', ''))
+        wrap=run.get('wrap', ''), scratch_setup=_strings(scratch.get('setup', []), 'scratch.setup'))
 
 
 # Fixed diff output whatever the user's git config says (mnemonicPrefix,
@@ -395,6 +398,7 @@ def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: lis
         'files': files,
         'outside': outside or [],
         'bookkeeping': not changed and bool(outside),
+        'scratch_setup': kitchen.scratch_setup,
     }
 
 
@@ -548,6 +552,24 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
     if commands and not inside and only is None:
         record_timing(root, profile, stage, role, out)
     return out
+
+
+def run_setup(root: Path, kitchen: Kitchen) -> dict:
+    """Prepare a bare worktree the repo's way: [scratch].setup, in order, inside the wrap entered
+    once, from the repo root, as the verifier. Fail-fast. No gate slot, retry, or timing sample."""
+    log_dir = state_dir(root) / 'logs'
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log = log_dir / f'setup-{time.strftime("%Y%m%dT%H%M%S")}-{os.getpid()}.log'
+    if not kitchen.scratch_setup:
+        return {'passed': True, 'commands': kitchen.scratch_setup, 'exit': 0, 'seconds': 0.0, 'log': None, 'tail': []}
+    script = 'set -e\n' + ''.join(f'echo {shlex.quote("+ " + c)}\n{c}\n' for c in kitchen.scratch_setup)
+    inner = f'bash -c {shlex.quote(script)}'
+    start = time.monotonic()
+    with open(log, 'w') as out:
+        code = subprocess.run(['bash', '-c', f'{kitchen.wrap} {inner}' if kitchen.wrap else inner], cwd=root, stdout=out,
+                              stderr=subprocess.STDOUT, env={**os.environ, ROLE: 'verifier'}, check=False).returncode
+    return {'passed': code == 0, 'commands': kitchen.scratch_setup, 'exit': code, 'seconds': round(time.monotonic() - start, 1),
+            'log': str(log), 'tail': [] if code == 0 else log.read_text(errors='replace').splitlines()[-20:]}
 
 
 TIMINGS = 'timings.tsv'
@@ -774,6 +796,16 @@ def doctor(root: Path, kitchen: Kitchen, run: bool) -> list[dict]:
         add('verification skill', 'warn' if behavioral else 'ok',
             'no .agents/skills/verify-*; run create-verification-skill' if behavioral
             else 'none, and no profile has behavioral commands')
+    manifests = [m for m, locks in (('package.json', ('bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock')),
+                                    ('pyproject.toml', ('uv.lock', 'poetry.lock')))
+                 if (root / m).exists() and any((root / x).exists() for x in locks)]
+    if kitchen.scratch_setup:
+        add('scratch setup', 'ok', '; '.join(kitchen.scratch_setup))
+    elif manifests:
+        add('scratch setup', 'warn', f'none, but the repo root has {", ".join(manifests)} with a lockfile: a bare verifier '
+            'worktree may need [scratch].setup (the install command, without the wrap)')
+    else:
+        add('scratch setup', 'ok', 'none')
     if kitchen.review['engine'] == 'joo':
         joo = shutil.which('joo-dev') or shutil.which('joo')
         add('review engine', 'ok' if joo else 'warn', joo or 'joo-dev and joo are not on PATH')
@@ -1036,6 +1068,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--json', action='store_true', help='machine-readable output')
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('validate', help='parse and check kitchen.toml')
+    sub.add_parser('setup', help='run [scratch].setup in the repo root, inside the wrap')
     c = sub.add_parser('classify', help='profiles, risk class, and verify/review settings for a change')
     p = sub.add_parser('policy', help='forbid rules on added lines, and test-touch')
     for s in (c, p):
@@ -1104,6 +1137,11 @@ def main(argv: list[str] | None = None) -> int:
                   'landing': kitchen.landing}, args.json,
                  f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})')
             return 0
+        if args.cmd == 'setup':
+            r = run_setup(root, kitchen)
+            emit(r, args.json, (f'setup: ok ({len(r["commands"])} commands' + (f', log {r["log"]}' if r['log'] else '') + ')')
+                 if r['passed'] else f'setup: FAIL exit {r["exit"]} (log {r["log"]})\n' + '\n'.join(f'  | {t}' for t in r['tail']))
+            return 0 if r['passed'] else 2
         if args.cmd == 'classify':
             if not args.paths:
                 args.paths = None
