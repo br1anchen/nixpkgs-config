@@ -51,6 +51,14 @@ case "$1 $2" in
 		rm -f "$FAKE/typed-ok"; mkdir -p "$FAKE/stalled"; printf '%s' "$text" >"$FAKE/stalled/$name"
 		ok "$s"; exit 0
 	fi
+	# $FAKE/prompt-drop: a startup screen swallowed the prompt: nothing typed,
+	# nothing run, herdr reports a stall once. The file's text, if any, sets
+	# the agent's state (blocked: a dialog is up).
+	if [ -e "$FAKE/prompt-drop" ] && [ "$wait" = 1 ]; then
+		st="$(cat "$FAKE/prompt-drop")"; rm -f "$FAKE/prompt-drop"
+		[ -z "$st" ] || printf '%s %s\n' "$st" "$(kind_of "$name")" >"$FAKE/agents/$name"
+		printf '{"error":{"code":"agent_prompt_stalled"}}\n' >&2; exit 1
+	fi
 	# $FAKE/stall: the prompt is typed but not submitted (a first-run screen
 	# took the Enter); herdr reports a stall and one Enter submits it.
 	if [ -e "$FAKE/stall" ] && [ "$wait" = 1 ]; then

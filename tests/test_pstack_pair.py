@@ -648,6 +648,43 @@ esac
         self.assertIn('send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text())
         self.assertFalse(self.state()['sidekick']['bootstrap_pending'])
 
+    def bootstrap_prompts(self):
+        return [line for line in (self.fake / 'calls.log').read_text().splitlines()
+                if line.startswith('agent prompt demo-sidekick Load the')]
+
+    def test_a_swallowed_bootstrap_is_sent_once_more_to_an_idle_agent(self):
+        (self.fake / 'prompt-drop').write_text('')
+        out = self.spawn_pi()
+        self.assertIn('prompt looked stalled', out)
+        self.assertEqual(len(self.bootstrap_prompts()), 2)
+        self.assertNotIn('send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text())
+        self.assertFalse(self.state()['sidekick']['bootstrap_pending'])
+
+    def test_a_typed_bootstrap_gets_an_enter_and_no_second_prompt(self):
+        (self.fake / 'stall').touch()
+        self.spawn_pi()
+        self.assertEqual(len(self.bootstrap_prompts()), 1)
+        self.assertIn('send-keys demo-sidekick enter', (self.fake / 'calls.log').read_text())
+
+    def test_a_blocked_agent_gets_no_keys_and_no_resend(self):
+        (self.fake / 'prompt-drop').write_text('blocked')
+        out = self.spawn_pi(code=3)
+        self.assertIn('is blocked on a dialog that needs the human; no keys were sent', out)
+        self.assertEqual(len(self.bootstrap_prompts()), 1)
+        self.assertNotIn('send-keys', (self.fake / 'calls.log').read_text())
+
+    def test_a_ready_file_that_lands_between_the_stall_and_the_recheck_is_not_resent(self):
+        (self.fake / 'prompt-drop').write_text('')
+        ready = self.store / 'reports/000-ready.md'
+        env = {**self.env, 'PAIR_SUBMIT_CHECK_S': '2'}
+        self.env = env
+        # The agent answers late: the ready file appears during the recheck pause.
+        late = subprocess.Popen(['bash', '-c', f'sleep 1; printf "status: done\\n" >{ready}'])
+        self.addCleanup(late.wait)
+        out = self.spawn_pi()
+        self.assertEqual(len(self.bootstrap_prompts()), 1)
+        self.assertIn('ready:', out)
+
     def test_done_brief_gets_a_fresh_pi_session_and_keeps_the_queue(self):
         self.spawn_pi()
         args = self.state()['sidekick']['start_args']

@@ -1270,16 +1270,15 @@ spawn_role() {
 		[ "$submitted" -eq 0 ] || [ "$code" -ne 0 ] || await_file "$store/$ready" 240000 || true
 	fi
 	if [ "$code" -ne 0 ] && grep -q agent_prompt_stalled <<<"$err"; then
-		# A first-run screen (pi's changelog after an update, a trust prompt)
-		# can take the Enter that submits the bootstrap, leaving it typed in
-		# the input of an idle agent: one more Enter submits it, and an empty
-		# input ignores it. Otherwise state detection lagged on a narrow pane
-		# while the agent works. Either way the ready file is the real signal.
-		if [ "$(agent_status "$name")" != working ]; then
-			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+		# A first-run screen (pi's changelog after an update, a trust prompt,
+		# Claude's update banner) can take the Enter that submits the bootstrap,
+		# or swallow the prompt whole. bootstrap_recover acts only on a live
+		# idle agent in this pane; otherwise state detection lagged on a narrow
+		# pane while the agent works. Either way the ready file is the signal.
+		if bootstrap_recover "$store" "$name" "$role" "$pane" "$ready" "$bootstrap"; then
+			printf '%s prompt looked stalled; waiting for %s instead\n' "$role" "$ready"
+			await_file "$store/$ready" "${PAIR_BOOTSTRAP_WAIT_MS:-240000}" && code=0
 		fi
-		printf '%s prompt looked stalled; waiting for %s instead\n' "$role" "$ready"
-		await_file "$store/$ready" 240000 && code=0
 	fi
 	if [ "$code" -ne 0 ]; then
 		printf '%s bootstrap did not settle: %s\n' "$role" "$err" >&2
@@ -1704,6 +1703,36 @@ reply_mode() {
 # left alone, since there Enter cancels the running command. $1 agent name,
 # $2 marker (a word of the message with no spaces, such as a file's name).
 # Sets submitted to the number of Enters it sent.
+# After a bootstrap prompt stalled and no ready file exists: an idle or done
+# agent in the recorded pane and generation gets one Enter when the prompt is
+# typed in its input, or the bootstrap sent once more when nothing was typed (a
+# startup screen swallowed it). A working agent is left alone; a blocked one is
+# waiting on a dialog that belongs to the human, so no keys; an absent or
+# unknown one keeps the failure and inspection message. Returns 1 when the
+# caller should not wait for the ready file.
+bootstrap_recover() {
+	local store="$1" name="$2" role="$3" pane="$4" ready="$5" bootstrap="$6" generation info state
+	generation="$(field "$store" ".$role.generation")"
+	sleep "${PAIR_SUBMIT_CHECK_S:-5}"
+	[ ! -f "$store/$ready" ] || return 0
+	info="$(herdr agent get "$name" 2>/dev/null)" || return 0
+	[ "$(jq -r '.result.agent.pane_id // empty' <<<"$info")" = "$pane" ] || return 0
+	[ "$(field "$store" ".$role.generation")" = "$generation" ] || return 0
+	state="$(agent_status "$name")"
+	case "$state" in
+	idle | done)
+		if grep -qF "$(basename "$ready")" <<<"$(herdr agent read "$name" --source visible --lines 12 2>/dev/null | tr -d '\n │')"; then
+			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+		else
+			herdr agent prompt "$name" "$bootstrap" --wait --timeout 240000 >/dev/null 2>&1 || true
+		fi ;;
+	blocked)
+		printf '%s is blocked on a dialog that needs the human; no keys were sent. Read it with: herdr agent read %s --source visible --lines 60\n' "$name" "$name" >&2
+		return 1 ;;
+	esac
+	return 0
+}
+
 submit_typed() {
 	local name="$1" marker="$2" kind tries=0
 	submitted=0
