@@ -55,6 +55,17 @@ silently doing nothing.
 | `[scratch].setup` | `[]` | commands that prepare a bare worktree, run in order by `kitchen.py setup` (and first in every verifier packet when set), inside `[run].wrap`, from the repo root, as the verifier. They run inside the wrap, so do not repeat it: with `wrap = "nix develop --impure --command"` the line is `bun install --frozen-lockfile`. `doctor` warns when a root lockfile suggests the repo needs one |
 | `[run].wrap` | `""` | a prefix the gates run inside, such as `nix develop --impure --command`, entered once per gate |
 
+## Lanes
+
+Every command the kitchen runs for a role sees two variables: `PSTACK_KITCHEN_ROLE`
+(`sidekick` or `verifier`) and `PSTACK_KITCHEN_RUN` (the run's slug). The role
+keeps the sidekick and its verifier apart; the run keeps two kitchens on one
+machine apart. A repo's scripts should derive ports, data directories and
+emulator names from the (run, role) pair, since either one alone can collide
+(two runs share the role `verifier`). `kitchen.py` passes both through to the
+wrap, `setup` and gate commands without inferring or clearing them; the kitchen
+allocates no ports.
+
 ## Globs
 
 Paths are repo-relative. `**` crosses directories; `*` and `?` stay inside

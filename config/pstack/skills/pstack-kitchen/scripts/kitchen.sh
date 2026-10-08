@@ -510,7 +510,7 @@ cmd_step() {
 		jq -r '.profiles[]' <<<"$json" >"$job/profiles"
 		printf '%s\n' "$base" >"$job/base"
 		# shellcheck disable=SC2016
-		setsid bash -c '
+		PSTACK_KITCHEN_RUN="$(field "$store" .slug)" setsid bash -c '
 			cd "$1" || exit 1
 			rc=0
 			while IFS= read -r p; do
@@ -746,7 +746,8 @@ cmd_verify() {
 			done
 		fi
 		printf '## Changed\n\n```\n%s\n```\n\n' "$(git -C "$root" diff --stat "$base...$head" | tail -40)"
-		printf '## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo'"'"'s scripts give you\nyour own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n```bash\nexport PSTACK_KITCHEN_ROLE=verifier\n'
+		printf '## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo'"'"'s scripts give you\nyour own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n```bash\nexport PSTACK_KITCHEN_ROLE=verifier'
+		printf ' PSTACK_KITCHEN_RUN=%s\n' "$(field "$store" .slug)"
 		jq -r --arg k "$here/kitchen.py" --arg s "$scratch" 'if (.scratch_setup | length) > 0 then "python3 \($k) --repo \($s) setup" else empty end' <<<"$json"
 		jq -r --arg k "$here/kitchen.py" --arg s "$scratch" --arg b "$(git -C "$root" merge-base "$base" "$head" 2>/dev/null || printf '%s' "$base")" \
 			'.behavioral[] | "python3 \($k) --repo \($s) gate \(.) behavioral --role verifier --base \($b)"' <<<"$json"

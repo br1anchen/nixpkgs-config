@@ -15,10 +15,12 @@ work?", and then your pane closes.
    with a `kitchen.py ... setup` line, run it before anything else: it is the
    repo's declared preparation, such as its dependency install, and a bare
    worktree has none. Without that line, install what the commands need
-   yourself. You share the machine with the sidekick: export
-   `PSTACK_KITCHEN_ROLE=verifier` in every shell you run repo commands in,
-   so the repo's scripts give you your own ports, emulators, and data, and
-   stop every server, emulator, or process you start before step 7.
+   yourself. You share the machine with the sidekick, and other kitchens may
+   run beside this one: export `PSTACK_KITCHEN_ROLE=verifier` and
+   `PSTACK_KITCHEN_RUN=<the packet's run>` (the packet's export line sets both)
+   in every shell you run repo commands in, so the repo's scripts give you
+   your own ports, emulators, and data, and stop every server, emulator, or
+   process you start before step 7.
 3. Run every command under Prove. They are the repo's behavioral gates for
    the touched profiles. Run anything that can outlast your harness's
    foreground limit (a sweep, a long suite) in the background and wait on its

@@ -149,7 +149,11 @@ Read a digest for direction only, in this order:
    stuck from quiet. `editing: last change Nm ago` in its place means files or
    HEAD changed within the interval: that is activity, not advancement, so the
    timebox check above still applies, and a formatter or watcher can keep it
-   alive. `running: <command>` still comes first.
+   alive. `running: <command> for Nm` still comes first, and names background
+   work the sidekick started since the dispatch (a harness Monitor, a background
+   shell) even when Herdr says the agent is done; on Linux a wait does not end
+   on such a settle, and a dev server left running keeps it open until the
+   interval digest shows it. Elsewhere that signal is absent.
 
 Steer when the answer to "if the sidekick finishes as it is going, would my
 review say revise?" is yes and one sentence now saves a unit later. Do not

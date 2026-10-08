@@ -430,6 +430,19 @@ class WrapTests(KitchenTests):
         self.assertEqual([(r[1], r[2], r[3], r[4]) for r in rows], [('-', 'setup', 'verifier', 'pass')])
         self.assertEqual(self.data('timing', 'app', '--stage', 'behavioral')['seconds'], 0)
 
+    def test_two_run_slugs_reach_setup_the_wrap_and_gate_commands(self):
+        self.kitchen(fast='["printf \'%s\' \\"$PSTACK_KITCHEN_RUN\\" > gate-run"]')
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + '\n[scratch]\nsetup = ["printf \'%s\' \\"$PSTACK_KITCHEN_RUN\\" > setup-run"]\n')
+        for slug in ('alpha', 'beta'):
+            with self.subTest(slug):
+                self.env['PSTACK_KITCHEN_RUN'] = slug
+                self.entered.unlink(missing_ok=True)
+                self.assertTrue(self.data('setup')['passed'])
+                self.assertTrue(self.data('gate', 'app', 'fast')['passed'])
+                self.assertEqual(((self.repo / 'setup-run').read_text(), (self.repo / 'gate-run').read_text()), (slug, slug))
+                self.assertTrue(self.entered.exists())
+
     def test_setup_with_nothing_declared_passes(self):
         self.kitchen()
         r = self.data('setup')
@@ -887,6 +900,18 @@ esac
         self.assertIn('2 failed checks in a row; write the report as blocked', out)
         self.assertEqual(len((self.store / 'steps/001-util.tsv').read_text().splitlines()), 2)
 
+    def test_step_gates_see_the_run_and_role(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text().replace('fast = ["test ! -e FAIL"]',
+                                                 'fast = ["printf \'%s|%s\' \\"$PSTACK_KITCHEN_RUN\\" \\"$PSTACK_KITCHEN_ROLE\\" > lane.txt"]'))
+        self.write('src/util.py', 'X = 2\n')
+        self.write('tests/test_app.py', 'x = 2\n')
+        sha = self.commit('step 1')
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'util two'))
+        self.assertEqual((self.repo / 'lane.txt').read_text(), 'demo|sidekick')
+
     def test_a_resumed_units_commit_is_checked_against_its_own_diff(self):
         self.write('src/util.py', 'X = 3\n')
         self.write('tests/test_app.py', 'x = 3\n')
@@ -1197,7 +1222,7 @@ esac
     def test_the_unit_packet_runs_setup_first_only_when_declared(self):
         self.verify_app_unit('clean', 0)
         plain = self.prove_block(self.store / 'verdicts/001-util-v1-packet.md')
-        self.assertEqual(plain[0], 'export PSTACK_KITCHEN_ROLE=verifier')
+        self.assertEqual(plain[0], 'export PSTACK_KITCHEN_ROLE=verifier PSTACK_KITCHEN_RUN=demo')
         self.assertIn(' gate app behavioral ', plain[1])
         self.assertFalse(any(' setup' in line for line in plain))
 
@@ -1205,7 +1230,7 @@ esac
         self.declare_setup()
         self.verify_app_unit('clean', 0)
         block = self.prove_block(self.store / 'verdicts/001-util-v1-packet.md')
-        self.assertEqual(block[0], 'export PSTACK_KITCHEN_ROLE=verifier')
+        self.assertEqual(block[0], 'export PSTACK_KITCHEN_ROLE=verifier PSTACK_KITCHEN_RUN=demo')
         self.assertRegex(block[1], r'^python3 \S+kitchen\.py --repo \S+/001-util-verify setup$')
         self.assertIn(' gate app behavioral ', block[2])
 
