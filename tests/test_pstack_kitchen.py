@@ -1770,6 +1770,19 @@ esac
         self.assertIn('agent prompt demo-sidekick /quit', calls)
         self.assertFalse(self.state()['sidekick'].get('rotation_required'))
 
+    def test_discuss_rotates_a_pi_sidekick_after_a_done_unit(self):
+        state = self.state()
+        state['sidekick']['rotation_required'] = True
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        plan = self.store / 'plans/001-util.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text('# Plan 001: util\n\nrisk: routine\n')
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1', code=4)
+        self.assertIn('rotated: the pi sidekick starts this plan in a fresh session', out)
+        self.assertNotIn('needs a fresh session', out)
+        self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
+        self.assertFalse(self.state()['sidekick'].get('rotation_required'))
+
     def test_a_running_command_is_not_a_stale_log(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

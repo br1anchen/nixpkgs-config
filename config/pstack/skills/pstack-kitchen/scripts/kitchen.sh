@@ -422,6 +422,21 @@ cmd_wait() {
 	quiet_wait "$@"
 }
 
+# A sidekick that starts fresh per brief (pi, devin) is rotated before the
+# next brief or plan once its last unit is done, so the rotation costs the
+# master no extra wake. Partial or blocked work never sets rotation_required
+# and keeps its session. $1 store, $2 what comes next (brief or plan).
+rotate_if_due() {
+	local out rc=0
+	fresh_per_brief "$(field "$1" .sidekick.kind)" && [ "$(field "$1" '.sidekick.rotation_required // false')" = true ] || return 0
+	# The report lands a moment before the sidekick's turn ends.
+	herdr agent wait "$(field "$1" .sidekick.name)" --until idle --until "done" --timeout 60000 >/dev/null 2>&1 || true
+	out="$(cmd_rotate "$1" 2>&1)" || rc=$?
+	[ "$rc" -eq 0 ] || die "rotating the sidekick before this $2 failed:
+$out" "$rc"
+	printf 'rotated: the %s sidekick starts this %s in a fresh session\n' "$(field "$1" .sidekick.kind)" "$2"
+}
+
 cmd_dispatch() {
 	[ $# -ge 2 ] || die "usage: kitchen.sh dispatch <store> <brief-path> [--timeout MS | --every MIN] [--max MIN]"
 	[ -f "$2" ] || die "brief not found: $2"
@@ -432,17 +447,7 @@ cmd_dispatch() {
 	fi
 	local -a waitargs=() sendargs=()
 	local a rc=0 out
-	# A sidekick that starts fresh per brief (pi, devin) is rotated here once
-	# its last unit is done, so the rotation costs the master no extra wake.
-	# Partial or blocked work never sets rotation_required and keeps its session.
-	if fresh_per_brief "$(field "$1" .sidekick.kind)" && [ "$(field "$1" '.sidekick.rotation_required // false')" = true ]; then
-		# The report lands a moment before the sidekick's turn ends.
-		herdr agent wait "$(field "$1" .sidekick.name)" --until idle --until "done" --timeout 60000 >/dev/null 2>&1 || true
-		out="$(cmd_rotate "$1" 2>&1)" || rc=$?
-		[ "$rc" -eq 0 ] || die "rotating the sidekick before this brief failed:
-$out" "$rc"
-		printf 'rotated: the %s sidekick starts this brief in a fresh session\n' "$(field "$1" .sidekick.kind)"
-	fi
+	rotate_if_due "$1" brief
 	for a in "${@:3}"; do waitargs+=("$a"); done
 	# --max belongs to the quiet wait, not to the pair's dispatch.
 	set -- "$1" "$2"
@@ -471,6 +476,9 @@ cmd_discuss() {
 	[ -f "$2" ] || die "plan not found: $2"
 	if [ "$(header_field "$2" risk)" = escalated ]; then
 		[ "$(agent_status "$(field "$1" .consultant.name)")" != absent ] || die "an escalated plan goes to the consultant too; start it: kitchen.sh consultant $1 --reason TEXT" 5
+	fi
+	rotate_if_due "$1" plan
+	if [ "$(header_field "$2" risk)" = escalated ]; then
 		discuss_with_consultant "$@"
 	else
 		core_discuss "$@"
