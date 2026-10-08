@@ -29,7 +29,7 @@ the human a notification instead, and the report stays filed either way.
    compare the runs before and after a change, with the build rows' eligible
    run counts in mind; a `mixed` or `unknown` run belongs to no build. The
    verifier table at the end of `fleet` compares verifier models by class from
-   the packets (started, clean, reject, invalid, provider, missing). It reports
+   the packets (started, clean, reject, invalid, provider, stalled, missing). It reports
    outcomes on different workloads, so treat it as evidence for a trial, not a
    ranking; the roster itself is the owner's, and a maintainer asks before
    changing a `[verifier*]` entry.

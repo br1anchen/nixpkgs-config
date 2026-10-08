@@ -87,6 +87,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      it; `verify` then returns exit 4 with the grace left, and
      `verify --wait` resumes the same expiry. A working Devin is not prompted
      (Enter would cancel its command) and a blocked verifier gets no grace.
+   - A verifier never seen working, with nothing typed and no verdict, gets
+     its packet once more (`redelivered:`). One idle for
+     `KITCHEN_VERIFY_IDLE_S` (600 s) with no verdict and no process of its
+     own running in its pane does not sit out the deadline: `verify` closes
+     it as `stalled` and exits 4 with the command to rerun.
    - `--covers` takes one unit per flag or a comma list, and the fix is named
      last: `verify 015 --covers 010,011,013` checks out 015's head. `verify`
      refuses a head that does not contain a named unit's head, and says which.

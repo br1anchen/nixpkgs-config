@@ -810,10 +810,21 @@ cmd_verify() {
 	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$identity" "$pane" "${base:0:9}" "${head:0:9}"
 	# A just-started agent can take the text before it takes the Enter (pi
 	# drawing its startup screen), so the prompt must be seen working; an
-	# idle agent gets one more Enter, which submits the typed text.
-	herdr agent prompt "$name" "Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the verifier role. $PAIR_SKILL VERIFY $packet" \
-		--wait --until working --timeout 30000 >/dev/null 2>&1 || true
+	# idle agent gets one more Enter, which submits the typed text. A startup
+	# screen can also swallow the prompt whole: an agent never seen working,
+	# with nothing typed and no verdict, still idle, gets the packet once more.
+	local vprompt="Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the verifier role. $PAIR_SKILL VERIFY $packet" took=0
+	herdr agent prompt "$name" "$vprompt" --wait --until working --timeout 30000 >/dev/null 2>&1 && took=1
 	submit_typed "$name" "$(basename "$packet")"
+	if [ "$took" -eq 0 ] && [ "$submitted" -eq 0 ] && [ ! -f "$verdict" ]; then
+		case "$(agent_status "$name")" in
+		idle | "done")
+			event "$store" master verify-redeliver "$brief" "$kind"
+			printf 'redelivered: the verifier sat idle without the packet; sent it again\n'
+			herdr agent prompt "$name" "$vprompt" --wait --until working --timeout 30000 >/dev/null 2>&1 || true
+			submit_typed "$name" "$(basename "$packet")" ;;
+		esac
+	fi
 	record_verifier_session "$store" "$name"
 	verify_wait "$store" "$every_m"
 }
@@ -960,9 +971,12 @@ verify_grace() {
 # Waits up to $2 minutes for the open verification's verdict. A verifier
 # still working at the interval leaves the verification open (exit 4, with
 # its progress); a verdict, a gone verifier, or the deadline closes it:
-# the pane is closed, the scratch removed, and the verdict read.
+# the pane is closed, the scratch removed, and the verdict read. So does a
+# stall: a verifier idle for KITCHEN_VERIFY_IDLE_S (default 600) with no
+# verdict and no process of its own still running in its pane, which would
+# otherwise sit out the whole deadline.
 verify_wait() {
-	local store="$1" every_m="$2" verdict name kind until state="" now
+	local store="$1" every_m="$2" verdict name kind until state="" now idle_since stalled=0
 	verdict="$(field "$store" .verifying.verdict)"
 	name="$(field "$store" .verifier.name)"
 	kind="$(field "$store" .verifier.kind)"
@@ -979,10 +993,21 @@ verify_wait() {
 			exit 4
 		fi
 		# A verifier that ended its turn on a provider error will not write.
+		idle_since="$(field "$store" '.verifying.idle_since // empty')"
 		case "$state" in
-		idle | "done") [ -z "$(verifier_provider_error "$store" "$name")" ] || break ;;
+		idle | "done")
+			[ -z "$(verifier_provider_error "$store" "$name")" ] || break
+			if [ -n "$(busy_command "$(field "$store" .verifier.pane_id)" "$(field "$store" .verifying.started)")" ]; then
+				[ -z "$idle_since" ] || json_update "$store" 'del(.verifying.idle_since)'
+			elif [ -z "$idle_since" ]; then
+				json_update "$store" --argjson at "$now" '.verifying.idle_since = $at'
+			elif [ $(( now - idle_since )) -ge "${KITCHEN_VERIFY_IDLE_S:-600}" ]; then
+				stalled=1
+				break
+			fi ;;
+		*) [ -z "$idle_since" ] || json_update "$store" 'del(.verifying.idle_since)' ;;
 		esac
-		sleep 10
+		sleep "${KITCHEN_VERIFY_POLL_S:-10}"
 	done
 	# A verifier still alive at the deadline is asked once for what it proved.
 	if { [ ! -f "$verdict" ] || [ -z "$(header_field "$verdict" status)" ]; } && [ "$state" != absent ] &&
@@ -1018,6 +1043,8 @@ verify_wait() {
 		set_outcome "$packet" "$status"
 	elif [ -n "$provider" ]; then
 		set_outcome "$packet" provider
+	elif [ "$stalled" -eq 1 ]; then
+		set_outcome "$packet" stalled
 	else
 		set_outcome "$packet" missing
 	fi
@@ -1037,6 +1064,15 @@ verify_wait() {
 		done
 		printf 'next: wait for the limit, or kitchen.sh verify %s %s --kind <another kind>\n' "$store" "${shown[*]}"
 		exit 2
+	fi
+	if [ ! -f "$verdict" ] && [ "$stalled" -eq 1 ]; then
+		event "$store" master wake "$brief" "verify:stalled"
+		local -a again=()
+		local j
+		for ((j = 0; j < ${#argv[@]}; j++)); do
+			if [ "${argv[j]}" = --retry-entry ]; then j=$((j + 1)); else again+=("${argv[j]}"); fi
+		done
+		die "no verdict at $verdict: the verifier sat idle $(( ${KITCHEN_VERIFY_IDLE_S:-600} / 60 ))m with nothing running; rerun: kitchen.sh verify $store ${again[*]}" 4
 	fi
 	if [ ! -f "$verdict" ]; then
 		event "$store" master wake "$brief" "verify:missing"

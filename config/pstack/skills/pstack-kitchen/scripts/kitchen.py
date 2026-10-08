@@ -1129,7 +1129,7 @@ def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
         b['provider_stops_per_run'] = round(b['provider_stops'] / b['runs'], 1)
         brows.append(b)
 
-    OUTCOMES = ('clean', 'reject', 'inconclusive', 'invalid', 'provider', 'missing', 'start-failed')
+    OUTCOMES = ('clean', 'reject', 'inconclusive', 'invalid', 'provider', 'stalled', 'missing', 'start-failed')
     vrows: dict[tuple[str, str], dict] = {}
     for r in rows:
         for a in r['verifier_attempts']:
@@ -1161,10 +1161,10 @@ def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
     lines.append('')
     lines.append('verifier attempts by configured agent and class (reported outcomes on different workloads, not model accuracy;')
     lines.append('the agent is what the CLI was asked for; attempts from before the packet fields count as unknown)')
-    lines.append(f'{"agent":38} {"class":9} {"start":>5} {"clean":>5} {"rej":>3} {"incon":>5} {"inval":>5} {"prov":>4} {"miss":>4} {"sfail":>5} {"run":>3} {"unk":>3}')
+    lines.append(f'{"agent":38} {"class":9} {"start":>5} {"clean":>5} {"rej":>3} {"incon":>5} {"inval":>5} {"prov":>4} {"stall":>5} {"miss":>4} {"sfail":>5} {"run":>3} {"unk":>3}')
     for v in vlist:
         lines.append(f'{v["agent"][:38]:38} {v["class"]:9} {v["started"]:>5} {v["clean"]:>5} {v["reject"]:>3} {v["inconclusive"]:>5} '
-                     f'{v["invalid"]:>5} {v["provider"]:>4} {v["missing"]:>4} {v["start-failed"]:>5} {v["running"]:>3} {v["unknown"]:>3}')
+                     f'{v["invalid"]:>5} {v["provider"]:>4} {v["stalled"]:>5} {v["missing"]:>4} {v["start-failed"]:>5} {v["running"]:>3} {v["unknown"]:>3}')
     emit({'runs': rows, 'builds': brows, 'verifiers': vlist}, as_json, '\n'.join(lines))
     return 0
 
