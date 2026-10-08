@@ -1301,7 +1301,8 @@ esac
 
     def test_a_verdict_arriving_during_the_grace_wins(self):
         verdict = self.store / 'verdicts/001-util-v1.md'
-        late = subprocess.Popen(['bash', '-c', f"sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}"])
+        packet = self.store / 'verdicts/001-util-v1-packet.md'
+        late = subprocess.Popen(['bash', '-c', f"until [ -f {packet} ]; do sleep 0.2; done; sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}"])
         self.addCleanup(late.wait)
         out = self.deadline_verify('slow', code=2)
         self.assertIn('status: reject', out)

@@ -314,6 +314,21 @@ busy_command() {
 	[ -z "$best" ] || printf '%s for %dm' "$best" $((best_et / 60))
 }
 
+# The longest-running process in the sidekick's pane started since the current
+# dispatch, as "<command> for Nm", or nothing. It is how the wait and the digest
+# see background work the agent's UI does not show (a harness Monitor sweep, a
+# background shell): those processes inherit the pane's HERDR_PANE_ID. Linux
+# only (it reads /proc); elsewhere it reports nothing and the wait falls back to
+# the screen and Herdr's state.
+sidekick_activity() {
+	local pane at since
+	pane="$(field "$1" '.sidekick.pane_id // empty')"
+	at="$(field "$1" '.dispatch.at // empty')"
+	[ -n "$pane" ] && [ -n "$at" ] || return 0
+	since="$(date -d "$at" +%s 2>/dev/null)" || return 0
+	busy_command "$pane" "$since"
+}
+
 # A brief's Scope entries, one path or glob per line, for `may` (the
 # may write: list) or `mustnot` (must not write:). An entry is the text after
 # "- ", without a " — " annotation or a trailing "(...)" note; one pair of
@@ -472,7 +487,7 @@ tree_activity() {
 # Scope, commits since dispatch, and steer counts. Bounded, so the master can
 # poll it cheaply instead of reading the pane. $2 is the interval in minutes.
 checkin() {
-	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale busy active timebox elapsed_m now
+	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale run active timebox elapsed_m now
 	brief="$(field "$store" '.dispatch.brief // empty')"
 	[ -n "$brief" ] && [ -f "$brief" ] || return 0
 	at="$(field "$store" '.dispatch.at // empty')"
@@ -490,6 +505,7 @@ checkin() {
 	timebox="$(header_field "$brief" timebox | grep -oE '^[0-9]+' || true)"
 	elapsed_m=$(( (now - $(date -d "$at" +%s)) / 60 ))
 	printf 'check-in: %s  elapsed %dm of %sm\n' "$(basename "$brief")" "$elapsed_m" "${timebox:-?}"
+	run="$(sidekick_activity "$store")"
 	prog="$(progress_path "$store")"
 	if [ -f "$prog" ]; then
 		total="$(wc -l <"$prog")"
@@ -500,9 +516,8 @@ checkin() {
 		age_m=$(( (now - $(stat -c %Y "$prog")) / 60 ))
 		stale=""
 		if [ "$age_m" -ge "$interval" ]; then
-			busy="$(busy_command "$(field "$store" '.sidekick.pane_id // empty')" "$(stat -c %Y "$prog")")"
-			if [ -n "$busy" ]; then
-				stale="  running: $busy"
+			if [ -n "$run" ]; then
+				stale="  running: $run"
 			else
 				# Edits and commits are activity, not advancement: the timebox still fires.
 				active="$(tree_activity "$cwd" "$head")"
@@ -519,6 +534,7 @@ checkin() {
 	else
 		printf 'progress: none yet\n'
 	fi
+	[ -z "$run" ] || [[ "${stale:-}" == *running:* ]] || printf 'running: %s\n' "$run"
 	local -a touched=() may=() outside=()
 	mapfile -t touched < <({
 		status_paths "$cwd"
@@ -876,9 +892,10 @@ finish_wait() {
 		event "$store" master wake "$running" "steps:$first"
 		exit 0
 	fi
-	local shown withheld="" why=""
+	local shown withheld="" why="" activity
 	withheld="$(withheld_report "$store" || true)"
-	if shown="$(seen_reply "$store")" && [ -z "$withheld" ] && [ "$code" -eq 0 ] && [ "$(agent_status "$(field "$store" .sidekick.name)")" != working ]; then
+	activity="$(sidekick_activity "$store")"
+	if shown="$(seen_reply "$store")" && [ -z "$withheld" ] && [ -z "$activity" ] && [ "$code" -eq 0 ] && [ "$(agent_status "$(field "$store" .sidekick.name)")" != working ]; then
 		printf 'idle: the reply to %s was already shown (%s); send the next message\n' "$(basename "$(field "$store" '.sent.file // "-"')")" "$shown"
 		event "$store" master wake "$(field "$store" '.sent.file // "-"')" idle
 		exit 4
@@ -892,7 +909,7 @@ finish_wait() {
 	case "$state" in
 	blocked) event "$store" master wake "$running" "${why:-blocked}"; exit 3 ;;
 	esac
-	if [ "$(agent_status "$(field "$store" .sidekick.name)")" = working ]; then
+	if [ "$(agent_status "$(field "$store" .sidekick.name)")" = working ] || [ -n "$activity" ]; then
 		event "$store" master wake "$running" "${why:-checkin}"
 		checkin "$store" "$checkin_interval_m"
 	else
@@ -1675,13 +1692,21 @@ wait_for_reply() {
 			state="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // empty' 2>/dev/null || true)"
 			[ "$state" != blocked ] || break
 			{ pending_report "$store" >/dev/null || fresh_reply "$store" >/dev/null || steps_due "$store"; } && continue
-			if ! pane_busy "$name" && seen_reply "$store" >/dev/null; then
+			if ! pane_busy "$name" && [ -z "$(sidekick_activity "$store")" ] && seen_reply "$store" >/dev/null; then
 				# Idle, and its reply to the last message was already shown:
 				# nothing is coming until the master sends the next one.
 				break
 			fi
 			if pane_busy "$name"; then
 				# herdr says settled, the pane says working: believe the pane.
+				settled_at=""
+				sleep "$busy_poll_s"
+				[ "$(date +%s)" -lt "$deadline" ] || break
+				continue
+			fi
+			if [ -n "$(sidekick_activity "$store")" ]; then
+				# Settled by Herdr, but a process the sidekick started since
+				# this dispatch still runs in its pane: it is not done.
 				settled_at=""
 				sleep "$busy_poll_s"
 				[ "$(date +%s)" -lt "$deadline" ] || break

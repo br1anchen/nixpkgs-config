@@ -518,6 +518,60 @@ class ReadinessTests(unittest.TestCase):
         self.assertNotIn('Scope takes one path', out)
         self.assertIn('queued ', out)
 
+    def background(self, seconds='30'):
+        """A process in the sidekick's pane, started after the dispatch, as a harness Monitor or shell would be."""
+        pane = json.loads((self.store / 'pair.json').read_text())['sidekick']['pane_id']
+        proc = subprocess.Popen(['sleep', seconds], cwd=self.cwd, env={**self.env, 'HERDR_PANE_ID': pane})
+        self.addCleanup(lambda: (proc.kill(), proc.wait()))
+        time.sleep(1.1)
+        return proc
+
+    def timed_wait(self, timeout_ms, code):
+        t0 = time.time()
+        out = self.run_command('wait', str(self.store), '--timeout', str(timeout_ms), code=code)
+        return out, time.time() - t0
+
+    def test_a_settle_is_not_believed_while_background_work_runs(self):
+        (self.fake / 'agents/demo-sidekick').write_text('done pi\n')
+        out, took = self.timed_wait(5000, 4)
+        self.assertLess(took, 3.5)
+        self.assertNotIn('check-in:', out)
+        self.background()
+        out, took = self.timed_wait(5000, 4)
+        self.assertGreater(took, 4.5)
+        self.assertIn('check-in:', out)
+        self.assertIn('running: sleep for 0m', out)
+        self.assertIn('progress: none yet', out)
+
+    def test_the_digest_names_background_work_even_when_the_log_is_fresh(self):
+        self.quiet_log(minutes=0)
+        self.background()
+        out = self.wait(4)
+        self.assertEqual(out.count('running: sleep for 0m'), 1)
+        self.assertNotIn('STALE', out)
+
+    def test_an_already_shown_reply_does_not_end_the_wait_while_background_work_runs(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.write_report(c1)
+        self.assertIn('report_status: done', self.wait(0))
+        (self.fake / 'agents/demo-sidekick').write_text('idle pi\n')
+        out = self.wait(4)
+        self.assertIn('send the next message', out)
+        self.background()
+        out = self.wait(4)
+        self.assertNotIn('send the next message', out)
+        self.assertIn('running: sleep for 0m', out)
+
+    def test_a_ready_report_and_due_steps_still_win_over_background_work(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.background()
+        self.assertIn('steps: 1 to review', self.wait(0))
+        self.note(1, 'clear')
+        self.write_report(c1)
+        self.assertIn('report_status: done', self.wait(0))
+
     def test_quoted_paths_with_commas_or_spaces_stay_in_scope_in_the_digest(self):
         self.scoped_brief('001-first', '`docs/a, b.toml` — note, with commas', 'my dir/file one.txt — a path with spaces',
                           'src/ — the tree')
