@@ -29,6 +29,7 @@
     ./agent-workflow.nix
     ./tmux.nix
     ./lazygit.nix
+    ./tmp-clean.nix
   ];
 
   # Omarchy owns fonts on Linux (ttf-jetbrains-mono-nerd-basic, which its themes
