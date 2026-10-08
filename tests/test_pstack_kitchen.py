@@ -961,7 +961,9 @@ esac
         self.env['KITCHEN_STEP_SLICE_S'] = '1'
         out = self.run_sh('step', str(self.store), sha, 'slow', code=4)
         self.assertIn('gates: still running', out)
+        self.assertIn('this step is not recorded yet; do not end your turn', out)
         self.assertIn(f'kitchen.sh step {self.store} {sha} "slow"', out)
+        self.assertIn('never end your turn on it', (self.store / 'briefs/001-util.md').read_text())
         self.env['KITCHEN_STEP_SLICE_S'] = '30'
         self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'slow'))
         self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)

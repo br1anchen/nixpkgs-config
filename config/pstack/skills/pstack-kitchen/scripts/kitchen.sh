@@ -550,7 +550,7 @@ cmd_step() {
 	until [ -f "$job/rc" ]; do
 		if [ "$(date +%s)" -ge "$deadline" ]; then
 			printf 'gates: still running for %s (%ss so far; log: %s)\n' "${full:0:9}" "$(( $(date +%s) - $(file_mtime "$job/base") ))" "$job/out"
-			printf 'next: run the same command again to keep waiting: kitchen.sh step %s %s "%s"\n' "$store" "$sha" "$3"
+			printf 'next: this step is not recorded yet; do not end your turn. Run the same command again now, in the foreground, until it records: kitchen.sh step %s %s "%s"\n' "$store" "$sha" "$3"
 			exit 4
 		fi
 		sleep 2

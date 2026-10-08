@@ -55,9 +55,11 @@ every step anyway: the targeted tests for what this unit changes, or "none"}}
 Work the Steps in order. End each in a commit and record it with
 `kitchen.sh step {{STORE}} <sha> "<what it does>"`: it runs the touched
 profiles' fast gates and the repo's policy check, and records the step only
-when they pass. On a failure, fix it in a new commit and run `kitchen.sh step`
-again with that commit; it tells you when two failures in a row make this a
-blocked report. At each step boundary run `kitchen.sh notes {{STORE}}` and fix
+when they pass. When it exits 4 with `gates: still running`, the step is not
+recorded: run the same command again at once, in the foreground, and keep
+going until it records; never end your turn on it. On a failure, fix it in a
+new commit and run `kitchen.sh step` again with that commit; it tells you when
+two failures in a row make this a blocked report. At each step boundary run `kitchen.sh notes {{STORE}}` and fix
 any open blocking note first, as a fixup commit recorded with `--resolves`.
 Append one progress line per change of approach with
 `kitchen.sh progress {{STORE}} "<line>"`. When any `kitchen.sh` command prints
