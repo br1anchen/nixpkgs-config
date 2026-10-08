@@ -725,8 +725,8 @@ cmd_verify() {
 	{
 		local u b
 		if [ "$landing" -eq 1 ]; then
-			printf '# Verify landing: the stack at %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: landing\nunits: landing\nverifier-agent: %s\nverifier-class: %s\nverifier-outcome: prepared\n\n' \
-				"${head:0:9}" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$identity" "$vclass"
+			printf '# Verify landing: the stack at %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: landing\nunits: landing\nverifier-agent: %s\nverifier-class: %s\nverifier-outcome: prepared\ndeadline: %sm from now\n\n' \
+				"${head:0:9}" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$identity" "$vclass" "$timeout_m"
 			printf '## Stack\n\nEach unit below was verified on its own. Prove that together, at this tip,\nthey still hold: run every Prove command, then drive the main flows the\nbriefs describe, and try the seams between units. Read a brief only for\nthe flow you are driving.\n\n'
 			for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
 				[ -e "$b" ] && [ "$(header_field "$(expected_report "$store" "$b")" status 2>/dev/null)" = "done" ] || continue
@@ -735,8 +735,8 @@ cmd_verify() {
 			done
 			printf '\n'
 		else
-			printf '# Verify %s: %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: %s\nunits: %s\nverifier-agent: %s\nverifier-class: %s\nverifier-outcome: prepared\n\n' \
-				"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${all[*]}" "$identity" "$vclass"
+			printf '# Verify %s: %s\n\nverdict: %s\ntemplate: %s\nscratch: %s\nrange: %s..%s\nrisk: %s\nunits: %s\nverifier-agent: %s\nverifier-class: %s\nverifier-outcome: prepared\ndeadline: %sm from now\n\n' \
+				"$last" "$slug" "$verdict" "$skill_root/references/verdict-template.md" "$scratch" "$base" "$head" "$risk" "${all[*]}" "$identity" "$vclass" "$timeout_m"
 			[ "${#covered[@]}" -eq 0 ] || printf 'Unit %s fixes unit %s: prove every unit'"'"'s Acceptance at this one head.\n\n' "${units[*]}" "${covered[*]}"
 			for u in "${all[@]}"; do
 				b="$(unit_brief "$store" "$u")"
@@ -769,11 +769,13 @@ cmd_verify() {
 		set_outcome "$packet" start-failed
 		die "$why" 5
 	fi
+	local started_at
+	started_at="$(date +%s)"
 	json_update "$store" --arg pane "$pane" --arg kind "$kind" --arg verdict "$verdict" --arg packet "$packet" \
 		--arg brief "$brief" --arg scratch "$scratch_id" --arg units "${all[*]:-landing}" --arg risk "$risk" \
 		--argjson sample "$(if [ "$landing" -eq 1 ]; then echo 0; else jq .sample <<<"$json"; fi)" \
 		--arg unit "$(if [ "$landing" -eq 1 ]; then echo landing; else echo "$last-$slug"; fi)" \
-		--argjson started "$(date +%s)" --argjson deadline "$(( $(date +%s) + timeout_m * 60 ))" \
+		--argjson started "$started_at" --argjson deadline "$(( started_at + timeout_m * 60 ))" \
 		--arg class "$class" --argjson entry "$entry" --argjson retried "$(if [ -n "$retry_entry" ]; then echo true; else echo false; fi)" \
 		--argjson argv "$(jq -cn '$ARGS.positional' --args -- "${argv[@]}")" \
 		'.verifier.pane_id = $pane | .verifier.kind = $kind

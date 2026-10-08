@@ -20,7 +20,16 @@ work?", and then your pane closes.
    so the repo's scripts give you your own ports, emulators, and data, and
    stop every server, emulator, or process you start before step 7.
 3. Run every command under Prove. They are the repo's behavioral gates for
-   the touched profiles.
+   the touched profiles. Run anything that can outlast your harness's
+   foreground limit (a sweep, a long suite) in the background and wait on its
+   process or log. Never count a script your harness killed as passing
+   evidence: say in an inconclusive verdict what was interrupted and what that
+   leaves unproved. The packet's `deadline:` line is your time. When it
+   passes, the host asks you once to write the verdict as `inconclusive`
+   with what you proved (and its evidence) and what you never reached; write
+   it complete in one write (a temporary name in the same directory, then
+   rename it into place), after stopping every process you started. Keep your
+   evidence as you go so that verdict is not written from memory.
 4. Prove each Acceptance line the commands do not reach, the way a user
    would: through the repo's verification skill and the feature-map files the
    packet lists (launch, doctor, drive, capture evidence, clean up), or the

@@ -77,9 +77,19 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      re-verify the rejected unit at its own head. A second rejection, an
      `inconclusive`, or an `invalid` verdict is yours: read the verdict and
      the unit before anything else.
-   - The verifier's deadline defaults to three times the slowest recent
-     passing run of the unit's behavioral gates (`kitchen.py timing`), and
-     never less than 45 minutes; `--timeout MIN` overrides it.
+   - The verifier's deadline defaults to `max(45, ceil((3 x the slowest recent
+     passing behavioral gates + the last recorded `kitchen.py setup` run, when
+     the repo declares setup) x min(3, max(1, load1 / cores)) / 60))` minutes;
+     `verify` prints the parts (`deadline 97m: 3 x 20m gates + 10m setup, x1.38
+     for load 22 on 16 cores`) and `--timeout MIN` overrides it. When it passes
+     with no verdict, a live verifier is asked once to write an `inconclusive`
+     one with what it proved, and given `KITCHEN_VERIFY_GRACE_S` (600 s) to do
+     it; `verify` then returns exit 4 with the grace left, and
+     `verify --wait` resumes the same expiry. A working Devin is not prompted
+     (Enter would cancel its command) and a blocked verifier gets no grace.
+   - `--covers` takes one unit per flag or a comma list, and the fix is named
+     last: `verify 015 --covers 010,011,013` checks out 015's head. `verify`
+     refuses a head that does not contain a named unit's head, and says which.
    - A verifier that hits its provider (a rate limit, an outage) writes no
      verdict. `verify` reports `inconclusive` with the provider's error,
      including when the limit resets, and a routine unit verifies again on
@@ -112,8 +122,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      <id> --json`) and decide: `kitchen.sh resolve <store> <id> fixed "<commit
      or brief>"`, `followup "<why it can wait>"`, or `dismissed "<why it is
      wrong>"`. Fixes go to the sidekick as a brief, queued behind its running
-     unit when it is busy. Medium and lower findings are follow-ups unless
-     you see otherwise. To read an artifact yourself, read `.findings[]`
+     unit when it is busy. A finding that a file is "not in the range" may be
+     a binary add the reviewer cannot read: check `git diff --name-status
+     <base>..<head>` for the reviewed range before dismissing it, and dismiss
+     with that evidence (presence is not proof of the file's content).
+     Medium and lower findings are follow-ups unless you see otherwise. To read an artifact yourself, read `.findings[]`
      only: the blocking ones are `.findings[] | select((.severity ==
      "critical" or .severity == "high") and .status == "actionable")`, the
      filter `review` uses. A re-review of the same unit (`-r2`) replaces the

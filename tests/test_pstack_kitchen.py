@@ -1623,6 +1623,8 @@ esac
         out, minutes = self.deadline_run()
         self.assertIn('deadline 97m: 3 x 20m gates + 10m setup, x1.38 for load 22 on 16 cores', out)
         self.assertEqual(minutes, 97)
+        self.assertIn('deadline: 97m from now\n', (self.store / 'verdicts/001-u1-v1-packet.md').read_text() if False else
+                      next((self.store / 'verdicts').glob('001-*-packet.md')).read_text())
 
     def test_the_load_factor_is_capped_and_a_setup_row_is_ignored_without_declared_setup(self):
         self.env['PSTACK_KITCHEN_LOAD'] = '100 8'
