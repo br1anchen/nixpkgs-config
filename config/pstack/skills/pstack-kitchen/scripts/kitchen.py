@@ -13,6 +13,7 @@ import argparse
 import fcntl
 import hashlib
 import json
+import math
 import os
 import re
 import shlex
@@ -568,7 +569,9 @@ def run_setup(root: Path, kitchen: Kitchen) -> dict:
     with open(log, 'w') as out:
         code = subprocess.run(['bash', '-c', f'{kitchen.wrap} {inner}' if kitchen.wrap else inner], cwd=root, stdout=out,
                               stderr=subprocess.STDOUT, env={**os.environ, ROLE: 'verifier'}, check=False).returncode
-    return {'passed': code == 0, 'commands': kitchen.scratch_setup, 'exit': code, 'seconds': round(time.monotonic() - start, 1),
+    seconds = round(time.monotonic() - start, 1)
+    record_setup_timing(root, code == 0, seconds)
+    return {'passed': code == 0, 'commands': kitchen.scratch_setup, 'exit': code, 'seconds': seconds,
             'log': str(log), 'tail': [] if code == 0 else log.read_text(errors='replace').splitlines()[-20:]}
 
 
@@ -584,6 +587,71 @@ def record_timing(root: Path, profile: str, stage: str, role: str, g: dict) -> N
             f.write('\t'.join(row) + '\n')
     except OSError:
         pass
+
+
+def deadline_text(r: dict) -> str:
+    gate = f'3 x {r["gate_seconds"] / 60:.0f}m gates' if r['gate_seconds'] else '3 x 0m gates (none measured)'
+    setup = ''
+    if r['setup_measured']:
+        setup = f' + {r["setup_seconds"] / 60:.0f}m setup'
+    elif r['setup_measured'] is False:
+        setup = ' + setup unmeasured'
+    load = f', x{r["factor"]:g} for load {r["load1"]:g} on {r["cores"]} cores' if r['factor'] > 1 else f', load {r["load1"]:g} on {r["cores"]} cores'
+    floor = f' (floor {r["floor"]}m)' if r['minutes'] == r['floor'] else ''
+    return f'deadline {r["minutes"]}m{floor}: {gate}{setup}{load}'
+
+
+def record_setup_timing(root: Path, passed: bool, seconds: float) -> None:
+    """A setup run is its own row kind (profile "-", stage setup), so no gate sample ever includes it."""
+    row = [str(int(time.time())), '-', 'setup', 'verifier', 'pass' if passed else 'fail', str(seconds)]
+    try:
+        with open(state_dir(root) / TIMINGS, 'a') as f:
+            f.write('\t'.join(row) + '\n')
+    except OSError:
+        pass
+
+
+def setup_timing(root: Path) -> float | None:
+    """The latest passing, nonempty setup run in seconds, or None when none was recorded."""
+    path = state_dir(root) / TIMINGS
+    last = None
+    if path.exists():
+        for line in path.read_text().splitlines():
+            f = line.split('\t')
+            if len(f) == 6 and f[1] == '-' and f[2] == 'setup' and f[4] == 'pass':
+                last = float(f[5])
+    return last
+
+
+def host_load() -> tuple[float, int]:
+    """One-minute load and cores; PSTACK_KITCHEN_LOAD="<load1> <cores>" overrides both (tests)."""
+    raw = os.environ.get('PSTACK_KITCHEN_LOAD')
+    if raw:
+        parts = raw.split()
+        try:
+            if len(parts) != 2 or float(parts[0]) < 0 or int(parts[1]) < 1:
+                raise ValueError
+            return float(parts[0]), int(parts[1])
+        except ValueError:
+            raise ConfigError('PSTACK_KITCHEN_LOAD: expected "<load1> <cores>", such as "22 16"') from None
+    try:
+        return os.getloadavg()[0], os.cpu_count() or 1
+    except OSError:
+        return 0.0, os.cpu_count() or 1
+
+
+def verify_deadline(root: Path, profiles: list[str], with_setup: bool) -> dict:
+    """The default verifier deadline in minutes and the parts it came from:
+    max(45, ceil((3 x gate seconds + setup seconds) x min(3, max(1, load1 / cores)) / 60))."""
+    gates = gate_timing(root, profiles, 'behavioral')
+    setup = (setup_timing(root) or 0.0) if with_setup else 0.0
+    load1, cores = host_load()
+    factor = min(3.0, max(1.0, load1 / cores))
+    raw = (3 * gates['seconds'] + setup) * factor / 60
+    minutes = max(45, math.ceil(raw))
+    return {'minutes': minutes, 'floor': 45, 'gate_seconds': gates['seconds'], 'setup_seconds': setup,
+            'setup_measured': setup_timing(root) is not None if with_setup else None,
+            'load1': round(load1, 1), 'cores': cores, 'factor': round(factor, 2), 'unmeasured': gates['unmeasured']}
 
 
 def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> dict:
@@ -1146,6 +1214,8 @@ def main(argv: list[str] | None = None) -> int:
     t = sub.add_parser('timing', help="the slowest recent passing run of each profile's stage, and their sum")
     t.add_argument('profiles', nargs='*')
     t.add_argument('--stage', choices=STAGES, default='behavioral')
+    t.add_argument('--deadline', action='store_true', help='the default verifier deadline and its parts')
+    t.add_argument('--with-setup', action='store_true', help='with --deadline: count the last recorded setup run')
     args = ap.parse_args(argv)
 
     if args.cmd == 'roster':
@@ -1160,6 +1230,10 @@ def main(argv: list[str] | None = None) -> int:
             print(state_dir(repo_root(args.repo)))
             return 0
         root = repo_root(args.repo)
+        if args.cmd == 'timing' and args.deadline:
+            r = verify_deadline(root, args.profiles, args.with_setup)
+            emit(r, args.json, deadline_text(r))
+            return 0
         if args.cmd == 'timing':
             r = gate_timing(root, args.profiles, args.stage)
             emit(r, args.json, f'{args.stage}: {r["seconds"]}s'

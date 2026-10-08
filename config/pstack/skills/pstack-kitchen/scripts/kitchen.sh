@@ -648,14 +648,18 @@ cmd_verify() {
 		printf 'verdict: %s\nstatus: clean (gates only; mode gates)\n' "$verdict"
 		exit 0
 	fi
-	# The default deadline is three times the slowest recent passing run of
-	# the profiles' behavioral gates, and never under 45 minutes.
+	# The default deadline: 3 x the slowest recent passing behavioral gates, plus
+	# the last recorded setup run when the repo declares one, scaled by the
+	# machine's load at the start (capped at 3x), and never under 45 minutes. The
+	# parts are printed; --timeout wins.
 	if [ -z "$timeout_m" ]; then
-		local measured
-		# shellcheck disable=SC2046
-		measured="$(kpy "$store" --json timing --stage behavioral $(jq -r '.behavioral[]' <<<"$json") | jq '.seconds | ceil')"
-		timeout_m=$(( (measured * 3 + 59) / 60 ))
-		[ "$timeout_m" -ge 45 ] || timeout_m=45
+		local -a dlargs=(timing --deadline --stage behavioral)
+		[ "$(jq '.scratch_setup | length' <<<"$json")" -eq 0 ] || dlargs+=(--with-setup)
+		mapfile -t -O "${#dlargs[@]}" dlargs < <(jq -r '.behavioral[]' <<<"$json")
+		timeout_m="$(kpy "$store" --json "${dlargs[@]}" | jq .minutes)"
+		kpy "$store" "${dlargs[@]}"
+	else
+		printf 'deadline %sm (--timeout)\n' "$timeout_m"
 	fi
 	local kind name pane anchor scratch_id scratch new_pane_id entry
 	local -a args=()

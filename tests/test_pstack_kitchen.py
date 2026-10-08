@@ -421,6 +421,15 @@ class WrapTests(KitchenTests):
             text = text.replace('[run]\nwrap = "wrap/enter.sh"\n\n', '')
         self.write('.agents/kitchen.toml', text + '\n[scratch]\nsetup = ' + json.dumps(setup) + '\n')
 
+    def test_a_setup_run_is_its_own_timing_row_never_a_gate_sample(self):
+        self.scratch(['true'])
+        self.data('setup')
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
+                                        env=self.env, capture_output=True, text=True, check=True).stdout.strip())
+        rows = [line.split('\t') for line in (state_dir / 'timings.tsv').read_text().splitlines()]
+        self.assertEqual([(r[1], r[2], r[3], r[4]) for r in rows], [('-', 'setup', 'verifier', 'pass')])
+        self.assertEqual(self.data('timing', 'app', '--stage', 'behavioral')['seconds'], 0)
+
     def test_setup_with_nothing_declared_passes(self):
         self.kitchen()
         r = self.data('setup')
@@ -719,7 +728,7 @@ class KitchenScriptTests(unittest.TestCase):
                     'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
                     'HOME': str(t / 'home'), 'XDG_STATE_HOME': str(t / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0',
-                    'PAIR_SUBMIT_CHECK_S': '0', 'KITCHEN_QUIET_MAX_S': '20',
+                    'PAIR_SUBMIT_CHECK_S': '0', 'KITCHEN_QUIET_MAX_S': '20', 'PSTACK_KITCHEN_LOAD': '1 8',
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
@@ -1541,6 +1550,55 @@ esac
         self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
         v = self.state()['verifying']
         self.assertEqual(v['deadline'] - v['started'], 60 * 60)
+
+    def deadline_fixture(self, *timings, setup=False):
+        if setup:
+            self.declare_setup()
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
+                                        env=self.env, capture_output=True, text=True, check=True).stdout.strip())
+        (state_dir / 'timings.tsv').write_text(''.join('\t'.join(t) + '\n' for t in timings))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 7\n')
+        self.write('tests/test_app.py', 'x = 7\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+
+    def deadline_run(self, *extra):
+        out = self.run_sh('verify', str(self.store), '001', '--every', '0', *extra, code=4)
+        v = self.state()['verifying']
+        return out, (v['deadline'] - v['started']) // 60
+
+    def test_the_default_deadline_adds_setup_and_load_and_prints_its_parts(self):
+        self.env['PSTACK_KITCHEN_LOAD'] = '22 16'
+        self.deadline_fixture(('1', 'app', 'behavioral', 'verifier', 'pass', '1200'), ('2', '-', 'setup', 'verifier', 'pass', '600'),
+                              setup=True)
+        out, minutes = self.deadline_run()
+        self.assertIn('deadline 97m: 3 x 20m gates + 10m setup, x1.38 for load 22 on 16 cores', out)
+        self.assertEqual(minutes, 97)
+
+    def test_the_load_factor_is_capped_and_a_setup_row_is_ignored_without_declared_setup(self):
+        self.env['PSTACK_KITCHEN_LOAD'] = '100 8'
+        self.deadline_fixture(('1', 'app', 'behavioral', 'verifier', 'pass', '1200'), ('2', '-', 'setup', 'verifier', 'pass', '600'))
+        out, minutes = self.deadline_run()
+        self.assertIn('deadline 180m: 3 x 20m gates, x3 for load 100 on 8 cores', out)
+        self.assertEqual(minutes, 180)
+
+    def test_an_unmeasured_setup_is_named_and_timeout_wins(self):
+        self.deadline_fixture(('1', 'app', 'behavioral', 'verifier', 'pass', '1200'), setup=True)
+        out, minutes = self.deadline_run()
+        self.assertIn('deadline 60m: 3 x 20m gates + setup unmeasured, load 1 on 8 cores', out)
+        self.setUp()
+        self.deadline_fixture(('1', 'app', 'behavioral', 'verifier', 'pass', '1200'))
+        out, minutes = self.deadline_run('--timeout', '5')
+        self.assertIn('deadline 5m (--timeout)', out)
+        self.assertEqual(minutes, 5)
+
+    def test_a_malformed_load_override_is_refused(self):
+        self.env['PSTACK_KITCHEN_LOAD'] = 'lots'
+        self.deadline_fixture(('1', 'app', 'behavioral', 'verifier', 'pass', '60'))
+        out = self.run_sh('verify', str(self.store), '001', '--every', '0', code=1)
+        self.assertIn('PSTACK_KITCHEN_LOAD: expected "<load1> <cores>"', out)
 
     def test_dispatch_rotates_a_pi_sidekick_after_a_done_unit(self):
         state = self.state()
