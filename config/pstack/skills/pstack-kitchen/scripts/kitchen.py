@@ -360,8 +360,9 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
     return out
 
 
-def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: list[str] | None = None) -> dict:
-    files, touched, unmapped, reasons = [], set(), [], []
+def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: list[str] | None = None,
+             escalate: list[str] | None = None) -> dict:
+    files, touched, unmapped, reasons = [], set(), [], list(escalate or [])
     for path, added, removed in changed:
         hit = [p.name for p in kitchen.profiles.values() if matches(path, p.path_res)]
         files.append({'path': path, 'profiles': hit, 'added': added, 'removed': removed})
@@ -1188,6 +1189,8 @@ def main(argv: list[str] | None = None) -> int:
         s.add_argument('--head')
         s.add_argument('--working-tree', action='store_true')
     c.add_argument('--paths', nargs='+', metavar='GLOB', help="a brief's Scope, expanded against tracked files")
+    c.add_argument('--escalate', action='append', default=[], metavar='REASON',
+                   help='an escalation the paths do not show, such as an escalated plan')
     g = sub.add_parser('gate', help="run one profile's commands for a stage")
     g.add_argument('profile')
     g.add_argument('stage', choices=STAGES)
@@ -1264,7 +1267,7 @@ def main(argv: list[str] | None = None) -> int:
             if not args.paths:
                 args.paths = None
             changed = changes(root, args)
-            r = classify(kitchen, changed, getattr(args, 'outside', []))
+            r = classify(kitchen, changed, getattr(args, 'outside', []), args.escalate)
             text = [f'risk: {r["risk"]}', f'profiles: {", ".join(r["profiles"]) or "none"}',
                     f'diff_lines: {r["diff_lines"]}',
                     f'verify: {r["verify"]["mode"]} by {r["verify"]["kind"]} verifier', f'sample: {r["sample"]}',

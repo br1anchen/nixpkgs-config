@@ -4,7 +4,7 @@ playbook: {{one of: investigation | bug-fix | feature | refactoring | prototype 
 timebox: {{minutes}}
 commit: {{yes, one commit per step, each recorded with kitchen.sh step | no, and why}}
 plan: {{path of the agreed plan under {{STORE}}/plans/; required when risk is escalated, else none}}
-risk: set by kitchen.sh classify at dispatch
+risk: set by kitchen.sh classify at dispatch; an escalated plan, or `escalated` written here, keeps it escalated
 profiles: set by kitchen.sh classify at dispatch
 verify: set by kitchen.sh classify at dispatch
 standing: {{STORE}}/standing-orders.md

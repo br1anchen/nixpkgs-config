@@ -869,6 +869,30 @@ esac
         self.assertIn('escalate: escalate path: contracts/api.json', out)
         self.assertIn('next: kitchen.sh consultant', out)
 
+    def test_an_escalated_plan_or_header_keeps_a_routine_scope_escalated(self):
+        plan = self.store / 'plans/001-util.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text('# Plan 001: util\n\nrisk: escalated\n')
+        b = self.brief('001', 'util', ['src/util.py'], plan=str(plan))
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('escalate: escalated plan: 001-util.md', out)
+        self.assertIn('risk: escalated\nprofiles: app\nverify: unit by escalated verifier\n', b.read_text())
+        plan.write_text('# Plan 001: util\n\nrisk: routine\n')
+        out = self.run_sh('classify', str(self.store), str(b))
+        self.assertIn('escalate: the brief says risk: escalated', out)
+        self.assertIn('risk: escalated\n', b.read_text())
+
+    def test_a_unit_dispatched_as_escalated_is_verified_by_the_escalated_class(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        b.write_text(b.read_text().replace('risk: routine', 'risk: escalated'))
+        self.run_sh('verify', str(self.store), '001')
+        self.assertEqual(self.packet_fields()['verifier-class'], 'escalated')
+        self.assertIn('risk: escalated\n', (self.store / 'verdicts/001-util-v1-packet.md').read_text())
+
     def test_escalated_units_need_an_agreed_plan_and_routine_ones_do_not(self):
         self.dispatch(self.brief('001', 'util', ['src/util.py']))
         self.dispatch(self.brief('002', 'api', ['contracts/**']), code=6)

@@ -315,13 +315,25 @@ cmd_consultant() {
 	spawn_consultant "$store" "$kind" "$permission" 60000 "${native[@]}"
 }
 
+# Why a brief is escalated beyond its paths, one line each: the master wrote
+# risk: escalated on it, or its plan is escalated. Classify only raises a
+# brief's risk from these, never lowers it.
+brief_escalations() {
+	local plan
+	[ "$(header_field "$1" risk)" != escalated ] || printf 'the brief says risk: escalated\n'
+	plan="$(header_field "$1" plan)"
+	case "$plan" in "" | none) return 0 ;; esac
+	[ ! -f "$plan" ] || [ "$(header_field "$plan" risk)" != escalated ] || printf 'escalated plan: %s\n' "$(basename "$plan")"
+}
+
 classify_brief() {
 	# $1 store, $2 brief: stamp risk, profiles, verify; print the summary.
-	local store="$1" brief="$2" json risk
-	local -a globs
+	local store="$1" brief="$2" json risk reason
+	local -a globs esc=()
 	mapfile -t globs < <(scope_globs "$brief")
 	[ "${#globs[@]}" -gt 0 ] || die "$brief lists nothing under Scope's may write:"
-	json="$(kpy "$store" --json classify --paths "${globs[@]}")" || die "kitchen.py classify failed; run kitchen.py validate in the repo"
+	while IFS= read -r reason; do esc+=(--escalate "$reason"); done < <(brief_escalations "$brief")
+	json="$(kpy "$store" --json classify --paths "${globs[@]}" "${esc[@]}")" || die "kitchen.py classify failed; run kitchen.py validate in the repo"
 	risk="$(jq -r .risk <<<"$json")"
 	set_header "$brief" risk "$risk"
 	set_header "$brief" profiles "$(jq -r '.profiles | join(", ") | if . == "" then "none" else . end' <<<"$json")"
@@ -654,7 +666,13 @@ cmd_verify() {
 	else
 		read -r base head <<<"$(unit_range "$store" "${all[@]}")"
 		unit_heads_in "$store" "$head" "${all[@]}"
-		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
+		# A unit dispatched as escalated is verified as escalated, whatever
+		# its diff touches.
+		local -a esc=()
+		for u in "${all[@]}"; do
+			[ "$(header_field "$(unit_brief "$store" "$u")" risk)" != escalated ] || esc+=(--escalate "unit $u was dispatched as escalated")
+		done
+		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head" "${esc[@]}")"
 		risk="$(jq -r .risk <<<"$json")"
 		mode="$(jq -r .verify.mode <<<"$json")"
 		class="$(jq -r .verify.kind <<<"$json")"
