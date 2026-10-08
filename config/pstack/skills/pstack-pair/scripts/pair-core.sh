@@ -350,7 +350,14 @@ check_scope() {
 			sub(/^- /, "")
 			if (substr($0, 1, 1) == "`") next
 			e = $0; sub(/ +(—|–|--) .*$/, "", e); sub(/ +\(.*\)$/, "", e)
-			if (e ~ /, /) print "- " e
+			if (e ~ /, /) { print "- " e; next }
+			# "a.ts and b/c.ts": several paths joined by "and"; prose like "README and docs" is not.
+			n = split(e, w, / and /)
+			if (n > 1) {
+				ok = 1
+				for (i = 1; i <= n; i++) if (w[i] !~ /\// && w[i] !~ /\.[A-Za-z0-9]+$/) ok = 0
+				if (ok) print "- " e
+			}
 		}' "$brief")"
 	[ -z "$bad" ] || die "$(basename "$brief"): Scope takes one path or glob per line; split these (a path with a comma goes in backquotes):
 $bad"

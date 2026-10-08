@@ -505,6 +505,19 @@ class ReadinessTests(unittest.TestCase):
             self.assertIn('- src/a.py, src/b.py', out)
             self.assertNotIn('docs/', out.split('split these', 1)[1])
 
+    def test_an_and_between_two_paths_is_refused_but_prose_and_quoted_names_are_not(self):
+        bad = self.scoped_brief('002-second', 'src/Showcase.tsx and src/Review.test.tsx — new', 'a.ts and b.ts')
+        for cmd in ('dispatch', 'queue'):
+            out = self.run_command(cmd, str(self.store), str(bad), code=1)
+            self.assertIn('Scope takes one path or glob per line', out)
+            self.assertIn('- src/Showcase.tsx and src/Review.test.tsx', out)
+            self.assertIn('- a.ts and b.ts', out)
+        ok = self.scoped_brief('003-third', 'README and docs', '`docs/this and that.md` — a quoted name with and',
+                               'README.md and docs')
+        out = self.run_command('queue', str(self.store), str(ok))
+        self.assertNotIn('Scope takes one path', out)
+        self.assertIn('queued ', out)
+
     def test_quoted_paths_with_commas_or_spaces_stay_in_scope_in_the_digest(self):
         self.scoped_brief('001-first', '`docs/a, b.toml` — note, with commas', 'my dir/file one.txt — a path with spaces',
                           'src/ — the tree')
