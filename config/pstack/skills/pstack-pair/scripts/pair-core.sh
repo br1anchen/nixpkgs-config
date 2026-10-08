@@ -1111,6 +1111,25 @@ trust_args() {
 	esac
 }
 
+# A spawned agent needs none of the human's MCP servers, and each one is a
+# process per session: the Railway server alone held 150-250 MB in every
+# sidekick and verifier on this host. Claude starts with an empty MCP
+# configuration unless the native arguments name one.
+pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+mcp_args() {
+	case "$1" in
+	claude) printf -- '--strict-mcp-config\n--mcp-config\n%s\n' "$pair_core_dir/../references/no-mcp.json" ;;
+	esac
+}
+
+has_mcp_arg() {
+	local a
+	for a in "$@"; do
+		case "$a" in --mcp-config | --mcp-config=* | --strict-mcp-config) return 0 ;; esac
+	done
+	return 1
+}
+
 # True when the native arguments already decide folder trust.
 has_trust_arg() {
 	local arg
@@ -1218,6 +1237,7 @@ spawn_role() {
 		fi
 	fi
 	has_trust_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(trust_args "$kind")
+	has_mcp_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(mcp_args "$kind")
 	set -- "${agent_args[@]}" "$@"
 	if fresh_per_brief "$kind"; then
 		local arg
@@ -1424,6 +1444,40 @@ exit_command() {
 	pi | codex) printf '/quit\n' ;;
 	*) printf '/exit\n' ;;
 	esac
+}
+
+# Ends a role's agent and closes its pane, for a run that is over: the exit
+# command, then up to fifteen seconds for the agent to go (a Claude asking
+# what to do with its background tasks is told to stop them and exit). The
+# pane closes only once the agent is gone; an agent that stays keeps its pane
+# and the function returns 1. A role never spawned, or already closed, is
+# skipped.
+close_role() {
+	local store="$1" role="$2" name pane kind deadline
+	name="$(field "$store" ".$role.name // empty")"
+	pane="$(field "$store" ".$role.pane_id // empty")"
+	[ -n "$name" ] && [ -n "$pane" ] || return 0
+	[ "$(field "$store" ".$role.closed // false")" != true ] || return 0
+	kind="$(field "$store" ".$role.kind // empty")"
+	if [ "$(agent_status "$name")" != absent ]; then
+		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
+		deadline=$(( $(date +%s) + 15 ))
+		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$deadline" ]; do
+			if grep -qi 'move to background and exit' <<<"$(pane_text "$name")"; then
+				herdr agent send-keys "$name" 1 >/dev/null 2>&1 || true
+				herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+			fi
+			sleep 1
+		done
+	fi
+	if [ "$(agent_status "$name")" != absent ]; then
+		printf '%s %s did not exit; its pane %s stays open\n' "$role" "$name" "$pane" >&2
+		return 1
+	fi
+	herdr pane close "$pane" >/dev/null 2>&1 || true
+	json_update "$store" --arg r "$role" '.[$r].closed = true'
+	event "$store" master close - "$role:$kind"
+	printf 'closed %s %s (%s)\n' "$role" "$name" "$pane"
 }
 
 # Replaces a failing sidekick with its recorded fallback in the same pane.

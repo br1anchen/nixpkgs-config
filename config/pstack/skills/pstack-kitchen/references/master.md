@@ -156,7 +156,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    across runs, propose the encoding it names to the human, or run the
    `correct` skill on it; a kitchen change is a brief like any other, through
    pstack-kitchen-setup's maintain path. Reply as the pair master does, with
-   the retro's summary line and the land-check result.
+   the retro's summary line and the land-check result, and ask the human once
+   whether to close the run's panes: a finished run's sidekick, consultant
+   and verifier hold about a gigabyte of memory for as long as they stay
+   open. On yes, `kitchen.sh close <store>` ends them and closes their
+   panes; your own pane stays.
 
    Gaps in the kitchen itself (a command, message, default or document of
    pstack-kitchen that cost the run time or a wake) are not repo classes.

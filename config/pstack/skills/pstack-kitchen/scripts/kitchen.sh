@@ -69,6 +69,9 @@ consult, advice. These differ or are new:
   land-check <store>                        every accepted unit verified and every blocking finding resolved
   catch <store> <layer> <text>              record a miss found later (audit, human review): layer is
                                             gate, policy, self, verify, review, triage, or escalation
+  close <store> [--force]                   end a finished run's sidekick, consultant and verifier and close
+                                            their panes; refuses while a verification is open or the sidekick
+                                            works (--force overrides); the master's own pane stays
   retro <store>                             where the master was needed, and what repeated, from this run
                                             and the repo's ledger
   feedback <store> <file>                   file the master's kitchen gaps (see references/feedback-template.md)
@@ -825,8 +828,9 @@ verifier_identity() {
 	for a in "$@"; do
 		if [ "$skip" -eq 1 ]; then skip=0; continue; fi
 		case "$a" in
-		--permission-mode | --respect-workspace-trust | -a | -s | --ask-for-approval | --sandbox) skip=1; continue ;;
+		--permission-mode | --respect-workspace-trust | -a | -s | --ask-for-approval | --sandbox | --mcp-config) skip=1; continue ;;
 		--permission-mode=* | --respect-workspace-trust=* | --ask-for-approval=* | --sandbox=* | --approve | --no-approve | -na | \
+			--mcp-config=* | --strict-mcp-config | \
 			--dangerously-skip-permissions | --allow-dangerously-skip-permissions | --dangerously-bypass-approvals-and-sandbox) continue ;;
 		esac
 		out+=" $(printf '%q' "$a")"
@@ -854,6 +858,7 @@ verifier_args() {
 		permission_args "$kind" "$permission"
 	fi
 	has_trust_arg "${args[@]}" || trust_args "$kind"
+	has_mcp_arg "${args[@]}" || mcp_args "$kind"
 	[ "${#args[@]}" -eq 0 ] || printf '%s\n' "${args[@]}"
 }
 
@@ -1276,6 +1281,25 @@ retro_line() {
 # candidate for the kitchen: a rule, a lint, a profile command, a sharper
 # brief. Appends this run's classes to the repo's ledger, then counts across
 # runs.
+# A finished run's agents hold their memory until someone closes them (about
+# a gigabyte per run on this host, idle for days). The master asks the human
+# once after the retro; this is the yes.
+cmd_close() {
+	in_herdr
+	[ $# -ge 1 ] || die "usage: kitchen.sh close <store> [--force]"
+	local store="$1" force=0 role rc=0
+	[ "${2:-}" != --force ] || force=1
+	pair_file "$store" >/dev/null
+	if [ "$force" -eq 0 ]; then
+		[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "a verification is open ($(field "$store" '.verifying.units')); finish it (kitchen.sh verify $store --wait) or pass --force" 5
+		[ "$(agent_status "$(field "$store" .sidekick.name)")" != working ] || die "the sidekick is working; kitchen.sh stop $store first, or pass --force" 5
+	fi
+	for role in verifier consultant sidekick; do
+		close_role "$store" "$role" || rc=1
+	done
+	[ "$rc" -eq 0 ] || exit 5
+}
+
 cmd_retro() {
 	[ $# -eq 1 ] || die "usage: kitchen.sh retro <store>"
 	local store="$1" ledger run now

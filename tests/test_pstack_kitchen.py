@@ -1070,6 +1070,38 @@ esac
         self.assertRegex(calls, r'pane send-keys p\d+ esc')
         self.assertNotRegex(calls, r'send-keys \S+ enter')
 
+    def test_spawned_claude_agents_load_no_mcp_servers(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        # The fake writes no advice/000-ready.md, so the bootstrap ends 4; the start line is what matters.
+        self.run_sh('consultant', str(self.store), '--reason', 'contract', '--kind', 'claude', code=4)
+        start = [line for line in (self.fake / 'calls.log').read_text().splitlines()
+                 if line.startswith('agent start demo-consultant')][-1]
+        self.assertIn('--strict-mcp-config --mcp-config', start)
+        self.assertIn('references/no-mcp.json', start)
+        self.set_roster('[verifier.escalated]\nkind = "claude"\nargs = ["--model", "m", "--mcp-config", "mine.json"]\n')
+        out = self.verify_landing()
+        (vstart,) = self.verifier_starts()
+        self.assertIn('--mcp-config mine.json', vstart)
+        self.assertNotIn('--strict-mcp-config', vstart)
+        self.assertIn('verifier demo-verifier (claude --model m)', out)
+
+    def test_close_ends_the_roles_and_closes_their_panes(self):
+        state = self.state()
+        state['verifying'] = {'verdict': 'x', 'units': '001'}
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.assertIn('a verification is open', self.run_sh('close', str(self.store), code=5))
+        del state['verifying']
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        out = self.run_sh('close', str(self.store))
+        self.assertIn('closed sidekick demo-sidekick', out)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertIn('agent prompt demo-sidekick /quit', calls)
+        self.assertRegex(calls, r'pane close p\d')
+        self.assertFalse((self.fake / 'agents/demo-sidekick').exists())
+        self.assertTrue(self.state()['sidekick']['closed'])
+        self.assertIn('close\tsidekick:pi', (self.store / 'events.tsv').read_text().replace('\t-\t', '\t'))
+        self.assertEqual(self.run_sh('close', str(self.store)), '')
+
     def test_verify_prompt_left_typed_is_submitted(self):
         _, out = self.verify_app_unit('clean', 0, stall=True)
         self.assertIn('status: clean', out)

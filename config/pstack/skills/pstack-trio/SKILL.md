@@ -40,6 +40,9 @@ never messages the sidekick and never writes the shared tree.
    `spawn` also skips each kind's folder-trust prompt, which would hang an
    unattended agent in a folder it has not seen: pi gets `--approve`, Devin
    `--respect-workspace-trust false`. A trust flag after `--` overrides it.
+   A spawned Claude also starts with no MCP servers (`--strict-mcp-config`
+   and an empty configuration), since each server is a process per session;
+   a `--mcp-config` after `--` keeps yours.
    Claude and Codex instead ask to trust a folder they have not seen; that
    decision is the human's, so `spawn` declines the dialog and stops with what
    to do: open that agent in the repo once and trust it.
