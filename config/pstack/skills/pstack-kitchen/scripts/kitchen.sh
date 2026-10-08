@@ -178,6 +178,37 @@ unit_range() {
 	printf '%s %s\n' "$base" "$head"
 }
 
+# Every unit this verification names must be in the head it checks out, the
+# last unit's: a fix is named last (verify 015 --covers 010,011,013), or
+# the earlier units' work would be missing from what the verifier proves. A unit
+# is judged at its report's head, or for a covered unit with none, at its last
+# recorded step; one with no usable head passes with a note.
+unit_heads_in() {
+	local store="$1" head="$2" last unit report uhead brief file root
+	shift 2
+	last="${*: -1}"
+	root="$(field "$store" .git_root)"
+	for unit in "$@"; do
+		[ "$unit" != "$last" ] || continue
+		brief="$(unit_brief "$store" "$unit")"
+		report="$(expected_report "$store" "$brief")"
+		uhead=""
+		if [ -f "$report" ]; then
+			uhead="$(git -C "$root" rev-parse --verify --quiet "$(header_field "$report" head)^{commit}" 2>/dev/null || true)"
+		fi
+		if [ -z "$uhead" ]; then
+			file="$(steps_file "$store" "$brief")"
+			[ ! -s "$file" ] || uhead="$(git -C "$root" rev-parse --verify --quiet "$(tail -1 "$file" | cut -f2)^{commit}" 2>/dev/null || true)"
+		fi
+		if [ -z "$uhead" ]; then
+			printf 'note: unit %s has no usable head; its inclusion was not checked\n' "$unit" >&2
+			continue
+		fi
+		git -C "$root" merge-base --is-ancestor "$uhead" "$head" 2>/dev/null ||
+			die "unit $unit's head ${uhead:0:9} is not in the checked-out head ${head:0:9} (unit $last); name the unit that carries all the others last" 2
+	done
+}
+
 next_index() {
 	# $1 dir, $2 prefix, $3 letter: the next k for files <prefix>-<letter><k>.*
 	local k=0 f n
@@ -563,7 +594,8 @@ audit_due() {
 cmd_verify() {
 	in_herdr
 	[ $# -ge 2 ] || die "usage: kitchen.sh verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN] [--timeout MIN] [--kind KIND] | kitchen.sh verify <store> --landing [--base REV] [...] | kitchen.sh verify <store> --wait [--every MIN]"
-	local store="$1" timeout_m="" every_m=9 wait=0 units=() kind_override="" landing=0 retry_entry=""
+	local store="$1" timeout_m="" every_m=9 wait=0 units=() kind_override="" landing=0 retry_entry="" u
+	local -a cov=()
 	range_base=""
 	local -a argv=("${@:2}")
 	covered=()
@@ -574,7 +606,15 @@ cmd_verify() {
 		--kind) kind_override="$2"; shift 2 ;;
 		--retry-entry) retry_entry="$2"; shift 2 ;;
 		--every) every_m="$2"; shift 2 ;;
-		--covers) covered+=("$2"); shift 2 ;;
+		--covers)
+			# One unit per flag, or a comma list: --covers 010,011,013.
+			[ $# -ge 2 ] || die "--covers takes a unit NNN or a comma list"
+			IFS=, read -ra cov <<<"$2"
+			for u in "${cov[@]}"; do
+				[[ "$u" =~ ^[0-9]{3}$ ]] || die "--covers takes unit numbers (NNN), one per flag or a comma list, not '$u'"
+				covered+=("$u")
+			done
+			shift 2 ;;
 		--base) range_base="$2"; shift 2 ;;
 		--landing) landing=1; shift ;;
 		--wait) wait=1; shift ;;
@@ -610,6 +650,7 @@ cmd_verify() {
 		class=escalated
 	else
 		read -r base head <<<"$(unit_range "$store" "${all[@]}")"
+		unit_heads_in "$store" "$head" "${all[@]}"
 		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
 		risk="$(jq -r .risk <<<"$json")"
 		mode="$(jq -r .verify.mode <<<"$json")"

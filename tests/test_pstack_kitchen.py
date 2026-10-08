@@ -1081,6 +1081,53 @@ esac
             (self.store / f'reviews/{name}.md').write_text('verdict: accept\n')
         self.assertIn('land-check: pass', self.run_sh('land-check', str(self.store)))
 
+    def three_units(self, scope=('src/**', 'tests/**')):
+        heads = []
+        for n in (1, 2, 3):
+            b = self.brief(f'00{n}', f'u{n}', list(scope))
+            self.dispatch(b)
+            if scope[0].startswith('docs'):
+                self.write('docs/guide.md', f'# Guide {n}\n')
+            else:
+                self.write('src/util.py', f'X = {n + 20}\n')
+                self.write('tests/test_app.py', f'x = {n + 20}\n')
+            heads.append(self.commit(f'u{n}'))
+            self.done(b, heads[-1])
+        return heads
+
+    def test_covers_takes_a_comma_list_and_a_correct_order_passes(self):
+        self.three_units()
+        out = self.run_sh('verify', str(self.store), '003', '--covers', '001,002')
+        self.assertIn('status: clean', out)
+        packet = (self.store / 'verdicts/003-u3-v1-packet.md').read_text()
+        self.assertIn('units: 001 002 003', packet)
+
+    def test_a_fix_named_before_the_units_it_covers_is_refused_with_both_heads(self):
+        heads = self.three_units()
+        out = self.run_sh('verify', str(self.store), '003', '--covers', '001', '002', code=2)
+        self.assertIn(f"unit 003's head {heads[2][:9]} is not in the checked-out head {heads[1][:9]} (unit 002)", out)
+        self.assertIn('name the unit that carries all the others last', out)
+        self.assertNotIn('verifier demo-verifier', out)
+        self.assertNotIn('verifying', self.state())
+
+    def test_the_head_check_runs_before_a_gates_only_verification(self):
+        heads = self.three_units(scope=('docs/**',))
+        out = self.run_sh('verify', str(self.store), '002', '--covers', '003', code=2)
+        self.assertIn(f"unit 003's head {heads[2][:9]} is not in the checked-out head {heads[1][:9]} (unit 002)", out)
+        self.assertNotIn('gates only', out)
+
+    def test_a_covered_unit_without_a_usable_head_passes_with_a_note(self):
+        self.three_units()
+        (self.store / 'reports/001-u1.md').write_text('# Report\n\nstatus: partial\nhead: x\n')
+        (self.store / 'reports/002-u2.md').unlink()
+        out = self.run_sh('verify', str(self.store), '003', '--covers', '001,002')
+        self.assertIn('note: unit 001 has no usable head; its inclusion was not checked', out)
+        self.assertIn('note: unit 002 has no usable head; its inclusion was not checked', out)
+
+    def test_covers_rejects_a_value_that_is_not_a_unit_number(self):
+        self.three_units()
+        self.assertIn("--covers takes unit numbers (NNN)", self.run_sh('verify', str(self.store), '003', '--covers', '001,x', code=1))
+
     def test_verify_returns_at_the_interval_and_resumes(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
