@@ -833,6 +833,59 @@ verifier_provider_error() {
 	printf '%s' "${line:0:240}"
 }
 
+# At the deadline a live verifier is asked, once, to write an inconclusive
+# verdict with what it proved and what it never reached, and given
+# KITCHEN_VERIFY_GRACE_S (default 600) to write it. The grace is part of the
+# attempt: its state is stored before the prompt is delivered, a later --wait
+# resumes the stored expiry and never prompts again, and while it runs the scratch
+# and the pane stay. A verdict already written wins and a provider error takes
+# the provider path before this runs. pi, claude and codex take the prompt
+# whether idle, done or working (their harnesses queue it); a working Devin does
+# not (Enter would cancel its command), so it is only waited on; a blocked or
+# unknown agent gets no prompt and no grace. $5 is this call's interval end.
+verify_grace() {
+	local store="$1" name="$2" kind="$3" verdict="$4" until="$5" state now delivery grace_until brief text
+	brief="$(field "$store" .verifying.brief)"
+	grace_until="$(field "$store" '.verifying.grace_until // empty')"
+	if [ -z "$grace_until" ]; then
+		state="$(agent_status "$name")"
+		case "$state" in blocked | unknown | absent) return 0 ;; esac
+		now="$(date +%s)"
+		grace_until=$(( now + ${KITCHEN_VERIFY_GRACE_S:-600} ))
+		delivery=prompted
+		if [ "$kind" = devin ] && [ "$state" = working ]; then delivery=skipped:devin-working; fi
+		json_update "$store" --argjson at "$now" --argjson until "$grace_until" --arg d "$delivery" \
+			'.verifying.grace_at = $at | .verifying.grace_until = $until | .verifying.grace_delivery = $d'
+		if [ "$delivery" = prompted ]; then
+			text="Deadline reached: write $verdict now with status inconclusive, listing what you proved (with its evidence) and what you never reached, then end your turn. Stop any process you started first, and write the file complete in one write: create it under a temporary name in the same directory, then rename it into place."
+			if herdr agent prompt "$name" "$text" >/dev/null 2>&1; then
+				submit_typed "$name" "$(basename "$verdict")"
+			else
+				delivery=skipped:prompt-failed
+				json_update "$store" --arg d "$delivery" '.verifying.grace_delivery = $d'
+			fi
+		fi
+		event "$store" master verify-grace "$brief" "$delivery"
+	fi
+	while :; do
+		{ [ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ]; } && return 0
+		state="$(agent_status "$name")"
+		[ "$state" != absent ] || return 0
+		now="$(date +%s)"
+		[ "$now" -lt "$grace_until" ] || return 0
+		case "$state" in
+		idle | "done") [ -z "$(verifier_provider_error "$store" "$name")" ] || return 0 ;;
+		esac
+		if [ "$now" -ge "$until" ]; then
+			printf 'verifying: units %s by %s, past its deadline; grace %ss left (%s), verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
+				"$(( grace_until - now ))" "$(field "$store" .verifying.grace_delivery)" "$state"
+			printf 'next: other work, then kitchen.sh verify %s --wait\n' "$store"
+			exit 4
+		fi
+		sleep "${KITCHEN_VERIFY_GRACE_POLL_S:-5}"
+	done
+}
+
 # Waits up to $2 minutes for the open verification's verdict. A verifier
 # still working at the interval leaves the verification open (exit 4, with
 # its progress); a verdict, a gone verifier, or the deadline closes it:
@@ -860,6 +913,11 @@ verify_wait() {
 		esac
 		sleep 10
 	done
+	# A verifier still alive at the deadline is asked once for what it proved.
+	if { [ ! -f "$verdict" ] || [ -z "$(header_field "$verdict" status)" ]; } && [ "$state" != absent ] &&
+		[ "$(date +%s)" -ge "$(field "$store" .verifying.deadline)" ] && [ -z "$(verifier_provider_error "$store" "$name")" ]; then
+		verify_grace "$store" "$name" "$kind" "$verdict" "$until"
+	fi
 	[ -f "$verdict" ] && sleep 3
 	local brief risk sample unit pane packet
 	packet="$(field "$store" .verifying.packet)"

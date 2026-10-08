@@ -740,21 +740,34 @@ Load*VERIFY*)
   verdict="$(sed -n 's/^verdict: //p' "$packet")"
   units="$(sed -n 's/^units: //p' "$packet")"
   mode="$(cat "$FAKE/verdict-mode" 2>/dev/null || echo clean)"
-  [ "$mode" = slow ] && exit 0
+  case "$mode" in slow | grace-writes) exit 0 ;; esac
+  # devin-working: the verifier is busy on a command when the deadline comes.
+  [ "$mode" = devin-working ] && {{ printf 'working devin\n' >"$FAKE/agents/$1"; exit 0; }}
+  # ratelimit-live: a pi verifier hit its provider but its pane is still up.
+  if [ "$mode" = ratelimit-live ] && [ "$(cut -d' ' -f2 "$FAKE/agents/$1")" = pi ]; then
+    printf '{{"type":"message","message":{{"role":"assistant","stopReason":"error","errorMessage":"Reached free model rate limit. Your limit will reset in 50 minutes (at 11:26 UTC)."}}}}\n' >>"$(cat "$FAKE/sessions/$1")"
+    exit 0
+  fi
   # gone: the verifier exits without a verdict and without a provider error.
   [ "$mode" = gone ] && {{ rm -f "$FAKE/agents/$1"; exit 0; }}
+  [ "$mode" = blocked ] && {{ printf 'blocked %s\\n' "$(cut -d' ' -f2 "$FAKE/agents/$1")" >"$FAKE/agents/$1"; exit 0; }}
   # ratelimit: a pi verifier stops on its provider and exits; another kind works.
   # ratelimit-all: every kind does.
   if {{ [ "$mode" = ratelimit ] && [ "$(cut -d' ' -f2 "$FAKE/agents/$1")" = pi ]; }} || [ "$mode" = ratelimit-all ]; then
     printf '{{"type":"message","message":{{"role":"assistant","stopReason":"error","errorMessage":"Reached free model rate limit. Your limit will reset in 50 minutes (at 11:26 UTC)."}}}}\n' >>"$(cat "$FAKE/sessions/$1")"
     rm -f "$FAKE/agents/$1"; exit 0
   fi
-  case "$mode" in clean | ratelimit) status=clean ;; inconclusive) status=inconclusive ;; *) status=reject ;; esac
+  case "$mode" in clean | ratelimit | ratelimit-live) status=clean ;; inconclusive) status=inconclusive ;; *) status=reject ;; esac
   {{ printf '# Verdict\\n\\nstatus: %s\\nunits: %s\\n\\n## Findings\\n\\n' "$status" "$units"
      [ "$status" = reject ] && printf '1. Acceptance broke: add returns 0\\n'
      printf '\\n## Evidence\\n\\n'
      [ "$mode" = noevidence ] || printf '```\\n$ python3 -c "print(1)"\\n1\\n```\\n'
   }} >"$verdict"
+  ;;
+Deadline*)
+  # The grace prompt: write the inconclusive verdict it names, complete, when the mode says so.
+  verdict="$(sed -n 's/^Deadline reached: write \\(.*\\) now with status.*/\\1/p' <<<"$2")"
+  [ "$(cat "$FAKE/verdict-mode" 2>/dev/null)" = grace-writes ] && printf '# Verdict\\n\\nstatus: inconclusive\\nunits: 001\\n\\n## Findings\\n\\nran out of time\\n\\n## Evidence\\n\\n```\\n$ ls\\nok\\n```\\n' >"$verdict"
   ;;
 Load*) printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;
 esac
@@ -1200,6 +1213,87 @@ esac
         self.verify_landing()
         self.assertEqual(self.packet_fields('landing-v1'), {'verifier-agent': 'claude --model claude-opus-5-5',
                                                             'verifier-class': 'landing', 'verifier-outcome': 'clean'})
+
+    def deadline_verify(self, mode, *extra, code=0, every=None, prompts_fail=False):
+        self.env.update({'KITCHEN_VERIFY_GRACE_S': '4', 'KITCHEN_VERIFY_GRACE_POLL_S': '1'})
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text(mode)
+        if prompts_fail:
+            (self.fake / 'prompt-fail').touch()
+        return self.run_sh('verify', str(self.store), '001', '--timeout', '0', *(['--every', every] if every else []), *extra, code=code)
+
+    def grace_prompts(self):
+        return [line for line in (self.fake / 'calls.log').read_text().splitlines() if line.startswith('agent prompt demo-verifier Deadline reached')]
+
+    def test_the_deadline_asks_once_for_an_inconclusive_verdict(self):
+        out = self.deadline_verify('grace-writes', code=2)
+        self.assertIn('status: inconclusive', out)
+        self.assertEqual(len(self.grace_prompts()), 1)
+        self.assertIn('write the file complete in one write', self.grace_prompts()[0])
+        self.assertEqual(self.packet_fields()['verifier-outcome'], 'inconclusive')
+        self.assertNotIn('verifying', self.state())
+
+    def test_no_verdict_after_the_grace_is_missing(self):
+        out = self.deadline_verify('slow', code=4)
+        self.assertIn('no verdict at', out)
+        self.assertEqual(len(self.grace_prompts()), 1)
+        self.assertEqual(self.packet_fields()['verifier-outcome'], 'missing')
+
+    def test_a_verdict_arriving_during_the_grace_wins(self):
+        verdict = self.store / 'verdicts/001-util-v1.md'
+        late = subprocess.Popen(['bash', '-c', f"sleep 1.5; printf '# V\\n\\nstatus: reject\\nunits: 001\\n\\n## Findings\\n\\n1. x\\n\\n## Evidence\\n\\n```\\na\\n```\\n' >{verdict}"])
+        self.addCleanup(late.wait)
+        out = self.deadline_verify('slow', code=2)
+        self.assertIn('status: reject', out)
+
+    def test_a_later_wait_resumes_the_same_grace_and_never_prompts_again(self):
+        self.env.update({'KITCHEN_VERIFY_GRACE_S': '8'})
+        out = self.deadline_verify('slow', code=4, every='0')
+        self.assertIn('past its deadline; grace', out)
+        v = self.state()['verifying']
+        self.assertEqual(v['grace_delivery'], 'prompted')
+        until = v['grace_until']
+        self.env['KITCHEN_VERIFY_GRACE_S'] = '600'
+        out = self.run_sh('verify', str(self.store), '--wait', '--every', '0', code=4)
+        self.assertIn('past its deadline; grace', out)
+        self.assertEqual(self.state()['verifying']['grace_until'], until)
+        self.assertEqual(len(self.grace_prompts()), 1)
+        time.sleep(max(0, until - time.time()) + 1)
+        out = self.run_sh('verify', str(self.store), '--wait', code=4)
+        self.assertIn('no verdict at', out)
+        self.assertEqual(len(self.grace_prompts()), 1)
+
+    def test_a_failed_delivery_is_recorded_and_the_grace_still_runs_out(self):
+        self.deadline_verify('slow', code=4, every='0', prompts_fail=True)
+        self.assertEqual(self.state()['verifying']['grace_delivery'], 'skipped:prompt-failed')
+        self.assertEqual(len(self.grace_prompts()), 1)
+
+    def test_a_blocked_or_absent_verifier_gets_no_grace(self):
+        for mode in ('blocked', 'gone'):
+            with self.subTest(mode):
+                self.setUp()
+                out = self.deadline_verify(mode, code=4)
+                self.assertIn('no verdict at', out)
+                self.assertEqual(self.grace_prompts(), [])
+                self.assertNotIn('past its deadline', out)
+
+    def test_a_working_devin_is_not_prompted_but_the_grace_still_waits(self):
+        self.set_roster('[verifier]\nkind = "devin"\n')
+        self.env.update({'KITCHEN_VERIFY_GRACE_S': '8'})
+        self.deadline_verify('devin-working', code=4, every='0')
+        self.assertEqual(self.state()['verifying']['grace_delivery'], 'skipped:devin-working')
+        self.assertEqual(self.grace_prompts(), [])
+
+    def test_a_provider_error_at_the_deadline_takes_the_fallback_not_the_grace(self):
+        self.set_roster('[verifier]\nkind = "pi"\n[verifier.fallback]\nkind = "devin"\n')
+        self.rate_limited_verifier()
+        out = self.deadline_verify('ratelimit-live', code=0)
+        self.assertIn('retry: verifying again on the fallback, devin', out)
+        self.assertEqual(self.grace_prompts(), [])
 
     def test_a_routine_verifier_defaults_to_the_sidekick(self):
         self.verify_app_unit('clean', 0)
