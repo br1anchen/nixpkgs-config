@@ -73,7 +73,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      the latest. Exit 2 with `reject`: run the `revise` command it prints,
      read the fix brief, dispatch it, and verify the fix together with the
      unit it fixes (`kitchen.sh verify <store> 007 --covers 003`): one
-     verdict at the fix's head covers both, and land-check accepts it. Never
+     verdict at the fix's head covers both, and land-check accepts it. A
+     rejected landing verdict gets one fix brief over the union of the
+     units' Scopes from the same `revise`; prove it with `verify --landing`
+     again. Never
      re-verify the rejected unit at its own head. A second rejection, an
      `inconclusive`, or an `invalid` verdict is yours: read the verdict and
      the unit before anything else.

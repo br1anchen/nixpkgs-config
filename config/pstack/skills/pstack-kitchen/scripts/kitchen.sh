@@ -1101,7 +1101,7 @@ verify_wait() {
 		local rejects
 		rejects="$(grep -l '^status: reject' "$store/verdicts/$unit"-v[0-9]*.md 2>/dev/null | grep -vc packet || true)"
 		if [ "$unit" = landing ]; then
-			printf 'next: brief a fix for each finding, then kitchen.sh verify %s --landing again\n' "$store"
+			printf 'next: kitchen.sh revise %s %s, then kitchen.sh verify %s --landing again\n' "$store" "$verdict" "$store"
 		elif [ "$rejects" -ge 2 ]; then
 			printf 'next: second rejection of %s; read the verdict and the unit yourself before another fix\n' "$unit"
 		else
@@ -1114,35 +1114,87 @@ verify_wait() {
 	esac
 }
 
+# A fix brief from a rejected verdict, with the Scope, Acceptance, Verify and
+# Forbidden of the briefs it fixes. A unit verdict fixes its last unit; a
+# landing verdict fixes the stack, so its brief takes the union of the units'
+# Scopes and is proved again with verify --landing.
 cmd_revise() {
 	[ $# -eq 2 ] || die "usage: kitchen.sh revise <store> <verdict-path>"
-	local store="$1" verdict="$2" last brief slug path
+	local store="$1" verdict="$2" units slug path b u landing=0
+	local -a briefs=()
 	[ -f "$verdict" ] || die "verdict not found: $verdict"
 	[ "$(header_field "$verdict" status)" = reject ] || die "only a rejected verdict needs a fix brief"
-	last="$(header_field "$verdict" units | awk '{print $NF}')"
-	brief="$(unit_brief "$store" "$last")"
-	slug="$(basename "$brief" .md | cut -c5- | sed -E 's/-fix[0-9]*$//')-fix"
+	units="$(header_field "$verdict" units)"
+	if [[ "$units" == landing* ]]; then
+		landing=1
+		for u in $(grep -oE '[0-9]{3}' <<<"$units" || true); do
+			b="$(unit_brief "$store" "$u")"
+			briefs+=("$b")
+		done
+		if [ "${#briefs[@]}" -eq 0 ]; then
+			for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
+				[ -f "$b" ] && ! is_landing "$b" && briefs+=("$b")
+			done
+		fi
+		[ "${#briefs[@]}" -gt 0 ] || die "no unit briefs to fix in $store/briefs"
+		slug=landing-fix
+	else
+		u="$(grep -oE '[0-9]{3}' <<<"$units" | tail -1 || true)"
+		[ -n "$u" ] || die "$verdict names no unit (units: $units)"
+		b="$(unit_brief "$store" "$u")"
+		briefs=("$b")
+		slug="$(basename "${briefs[0]}" .md | cut -c5- | sed -E 's/-fix[0-9]*$//')-fix"
+	fi
 	path="$(new_from_template "$store" "$slug" briefs brief-template.md)"
-	VERDICT="$verdict" BRIEF="$brief" python3 - "$path" <<'PY'
+	VERDICT="$verdict" STORE="$store" LANDING="$landing" python3 - "$path" "${briefs[@]}" <<'PY'
 import os, re, sys
-path, verdict, brief = sys.argv[1], os.environ['VERDICT'], os.environ['BRIEF']
-old, new = open(brief).read(), open(path).read()
+path, briefs = sys.argv[1], sys.argv[2:]
+verdict, store, landing = os.environ['VERDICT'], os.environ['STORE'], os.environ['LANDING'] == '1'
+olds, new = [open(b).read() for b in briefs], open(path).read()
 def section(text, name):
     m = re.search(rf'^## {name}\n(.*?)(?=^## |\Z)', text, re.M | re.S)
     return m.group(1) if m else ''
 def header(text, key):
     m = re.search(rf'^{key}: (.*)$', text, re.M)
     return m.group(1) if m else ''
+def union(lines):
+    return list(dict.fromkeys(lines))
+def scope(texts):
+    may, mustnot = [], []
+    for t in texts:
+        cur = None
+        for line in section(t, 'Scope').splitlines():
+            if line.startswith('may write:'):
+                cur = may
+            elif line.startswith('must not write:'):
+                cur = mustnot
+            elif cur is not None and line.startswith('- '):
+                cur.append(line)
+    return '\nmay write:\n' + '\n'.join(union(may)) + '\n\nmust not write:\n' + '\n'.join(union(mustnot) or ['- none']) + '\n\n'
+def lines(texts, name):
+    body = union(l for t in texts for l in section(t, name).strip('\n').splitlines() if l.strip())
+    return '\n' + '\n'.join(body) + '\n\n'
+last = olds[-1]
 new = re.sub(r'^playbook: .*$', 'playbook: bug-fix', new, count=1, flags=re.M)
-for key in ('timebox', 'commit', 'plan'):
-    new = re.sub(rf'^{key}: .*$', f'{key}: {header(old, key)}', new, count=1, flags=re.M)
-fills = {
-    'Goal': f'\nFix every finding in the verifier\'s verdict {verdict}, so a fresh verification of the same acceptance passes.\n\n',
-    'Steps': '\n1. One commit per finding in the verdict: the change, and the check that shows the finding is gone.\n\n',
-    'Context': f'\n- verdict: {verdict}\n- original brief: {brief}\n\n',
-}
-for name in ('Scope', 'Acceptance', 'Verify', 'Forbidden'):
-    fills[name] = section(old, name)
+for key in ('timebox', 'commit'):
+    new = re.sub(rf'^{key}: .*$', f'{key}: {header(last, key)}', new, count=1, flags=re.M)
+new = re.sub(r'^plan: .*$', f'plan: {"none" if landing else header(last, "plan")}', new, count=1, flags=re.M)
+if landing:
+    fills = {
+        'Goal': f'\nFix every finding in the landing verdict {verdict}, so a fresh `kitchen.sh verify {store} --landing` of the stack passes.\n\n',
+        'Steps': '\n1. One commit per finding in the verdict: the change, and the check that shows the finding is gone.\n\n',
+        'Context': f'\n- verdict: {verdict}\n' + ''.join(f'- unit brief: {b}\n' for b in briefs) + '\n',
+        'Scope': scope(olds), 'Acceptance': lines(olds, 'Acceptance'), 'Forbidden': lines(olds, 'Forbidden'),
+        'Verify': '\n' + ''.join(section(t, 'Verify').strip('\n') + '\n\n' for t in olds),
+    }
+else:
+    fills = {
+        'Goal': f'\nFix every finding in the verifier\'s verdict {verdict}, so a fresh verification of the same acceptance passes.\n\n',
+        'Steps': '\n1. One commit per finding in the verdict: the change, and the check that shows the finding is gone.\n\n',
+        'Context': f'\n- verdict: {verdict}\n- original brief: {briefs[0]}\n\n',
+    }
+    for name in ('Scope', 'Acceptance', 'Verify', 'Forbidden'):
+        fills[name] = section(last, name)
 for name, body in fills.items():
     new = re.sub(rf'(^## {name}\n)(.*?)(?=^## |\Z)', lambda m, b=body: m.group(1) + b, new, count=1, flags=re.M | re.S)
 open(path, 'w').write(new)

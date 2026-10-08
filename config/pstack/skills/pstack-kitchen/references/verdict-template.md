@@ -1,7 +1,7 @@
 # Verdict NNN: <slug>
 
 status: clean | reject | inconclusive
-units: <the unit numbers from the packet, space-separated>
+units: <the packet's units: line, copied as it is (`landing` for a landing packet)>
 range: <base>..<head> from the packet
 verifier: <your agent kind and model>
 verifier-agent: <copy the verifier-agent: line from the packet>

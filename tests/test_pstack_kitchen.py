@@ -1882,6 +1882,32 @@ esac
         self.assertIn('- src/** — scope', text)
         self.assertIn('playbook: bug-fix', text)
 
+    def rejected(self, name, units):
+        verdict = self.store / f'verdicts/{name}.md'
+        verdict.parent.mkdir(exist_ok=True)
+        verdict.write_text(f'# Verdict\n\nstatus: reject\nunits: {units}\n\n## Findings\n\n1. flaky\n')
+        return verdict
+
+    def test_a_rejected_landing_verdict_drafts_one_fix_over_the_units_scopes(self):
+        self.brief('001', 'util', ['src/**'])
+        self.brief('002', 'guide', ['docs/**'])
+        verdict = self.rejected('landing-v3', 'landing (001 002)')
+        fix = Path(self.run_sh('revise', str(self.store), str(verdict)).strip())
+        self.assertEqual(fix.name, '003-landing-fix.md')
+        text = fix.read_text()
+        self.assertIn('may write:\n- src/** — scope\n- docs/** — scope\n', text)
+        self.assertIn(f'`kitchen.sh verify {self.store} --landing`', text)
+        self.assertIn('plan: none\n', text)
+        self.assertIn('unit brief: ' + str(self.store / 'briefs/002-guide.md'), text)
+        verdict = self.rejected('landing-v4', 'landing')
+        text = Path(self.run_sh('revise', str(self.store), str(verdict)).strip()).read_text()
+        self.assertIn('- src/** — scope\n- docs/** — scope\n', text)
+
+    def test_revise_reads_the_last_unit_number_whatever_surrounds_it(self):
+        self.brief('001', 'util', ['src/**'])
+        verdict = self.rejected('001-util-v1', '(001)')
+        self.assertTrue(self.run_sh('revise', str(self.store), str(verdict)).strip().endswith('002-util-fix.md'))
+
     def test_a_verdict_without_evidence_is_invalid(self):
         _, out = self.verify_app_unit('noevidence', 2)
         self.assertIn('status: invalid (no command output under Evidence)', out)
