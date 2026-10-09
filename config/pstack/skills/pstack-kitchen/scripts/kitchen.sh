@@ -181,28 +181,34 @@ unit_range() {
 	printf '%s %s\n' "$base" "$head"
 }
 
+# A unit's head: its report's head:, else its last recorded step; empty when
+# neither names a commit. $1 store, $2 brief.
+unit_head() {
+	local root report file uhead=""
+	root="$(field "$1" .git_root)"
+	report="$(expected_report "$1" "$2")"
+	[ ! -f "$report" ] || uhead="$(git -C "$root" rev-parse --verify --quiet "$(header_field "$report" head)^{commit}" 2>/dev/null || true)"
+	if [ -z "$uhead" ]; then
+		file="$(steps_file "$1" "$2")"
+		[ ! -s "$file" ] || uhead="$(git -C "$root" rev-parse --verify --quiet "$(tail -1 "$file" | cut -f2)^{commit}" 2>/dev/null || true)"
+	fi
+	printf '%s' "$uhead"
+}
+
 # Every unit this verification names must be in the head it checks out, the
 # last unit's: a fix is named last (verify 015 --covers 010,011,013), or
 # the earlier units' work would be missing from what the verifier proves. A unit
 # is judged at its report's head, or for a covered unit with none, at its last
 # recorded step; one with no usable head passes with a note.
 unit_heads_in() {
-	local store="$1" head="$2" last unit report uhead brief file root
+	local store="$1" head="$2" last unit uhead brief root
 	shift 2
 	last="${*: -1}"
 	root="$(field "$store" .git_root)"
 	for unit in "$@"; do
 		[ "$unit" != "$last" ] || continue
 		brief="$(unit_brief "$store" "$unit")"
-		report="$(expected_report "$store" "$brief")"
-		uhead=""
-		if [ -f "$report" ]; then
-			uhead="$(git -C "$root" rev-parse --verify --quiet "$(header_field "$report" head)^{commit}" 2>/dev/null || true)"
-		fi
-		if [ -z "$uhead" ]; then
-			file="$(steps_file "$store" "$brief")"
-			[ ! -s "$file" ] || uhead="$(git -C "$root" rev-parse --verify --quiet "$(tail -1 "$file" | cut -f2)^{commit}" 2>/dev/null || true)"
-		fi
+		uhead="$(unit_head "$store" "$brief")"
 		if [ -z "$uhead" ]; then
 			printf 'note: unit %s has no usable head; its inclusion was not checked\n' "$unit" >&2
 			continue
@@ -1337,8 +1343,20 @@ cmd_resolve() {
 }
 
 land_check() {
-	# Prints one line per problem; returns 1 when there is any.
-	local store="$1" r seq brief verdict f problems=0 engine=none open
+	# Prints one line per problem; returns 1 when there is any. A unit with no
+	# clean verdict of its own is covered by the latest landing verdict when
+	# that one is clean and its range's head contains the unit's head.
+	local store="$1" r seq brief verdict f problems=0 engine=none open uhead
+	local landing_verdict="" landing_head="" lk best=0
+	for f in "$store"/verdicts/landing-v[0-9]*.md; do
+		[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
+		lk="${f##*-v}"
+		lk="${lk%.md}"
+		[ "$lk" -le "$best" ] || { best="$lk"; landing_verdict="$f"; }
+	done
+	if [ -n "$landing_verdict" ] && [ "$(header_field "$landing_verdict" status)" = clean ]; then
+		landing_head="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/.*\.\.//')^{commit}" 2>/dev/null || true)"
+	fi
 	for r in "$store"/reviews/[0-9][0-9][0-9]-*.md; do
 		[ -e "$r" ] || continue
 		[ "$(header_field "$r" verdict)" = accept ] || continue
@@ -1351,6 +1369,13 @@ land_check() {
 			[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
 			grep -qE "^units:(.* )?$seq( |$)" "$f" && [ "$(header_field "$f" status)" = clean ] && verdict="$f"
 		done
+		if [ -z "$verdict" ] && [ -n "$landing_head" ]; then
+			uhead="$(unit_head "$store" "$brief")"
+			if [ -n "$uhead" ] && git -C "$(field "$store" .git_root)" merge-base --is-ancestor "$uhead" "$landing_head" 2>/dev/null; then
+				verdict="$landing_verdict"
+				printf 'covered: unit %s by the clean landing verdict %s\n' "$seq" "$landing_verdict"
+			fi
+		fi
 		if [ -z "$verdict" ]; then
 			printf 'unverified: unit %s has no clean verdict (kitchen.sh verify %s %s)\n' "$seq" "$store" "$seq"
 			problems=$((problems + 1))
@@ -1358,13 +1383,6 @@ land_check() {
 	done
 	if ls "$store"/joo/*.json >/dev/null 2>&1; then engine=joo; fi
 	# A landing verification is reported, not required.
-	local landing_verdict="" lk best=0
-	for f in "$store"/verdicts/landing-v[0-9]*.md; do
-		[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
-		lk="${f##*-v}"
-		lk="${lk%.md}"
-		[ "$lk" -le "$best" ] || { best="$lk"; landing_verdict="$f"; }
-	done
 	if [ -n "$landing_verdict" ]; then
 		printf 'landing verification: %s (%s)\n' "$(header_field "$landing_verdict" status)" "$landing_verdict"
 	else

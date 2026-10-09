@@ -68,6 +68,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      open). One verification is open at a time. A partial or blocked unit can
      be verified or reviewed at the head its report names; the command notes
      it, and land-check still needs a clean verdict and an accepted review.
+     A clean landing verdict counts as that verdict for every unit whose head
+     its range contains (`covered:` in land-check); an inconclusive one is
+     still yours to settle.
      A `batch` unit may wait for the next done unit and verify together
      (`kitchen.sh verify <store> 004 005`); verify a batch before landing at
      the latest. Exit 2 with `reject`: run the `revise` command it prints,

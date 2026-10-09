@@ -1892,6 +1892,26 @@ esac
         self.assertIn('gate app behavioral', packet)
         self.assertIn('landing verification: clean', self.run_sh('land-check', str(self.store), code=0))
 
+    def test_a_clean_landing_verdict_covers_a_unit_inside_its_range(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.write('tests/test_app.py', 'x = 3\n')
+        head = self.commit('util')
+        self.done(b, head)
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        self.assertIn('unverified: unit 001', self.run_sh('land-check', str(self.store), code=2))
+        landing = self.store / 'verdicts/landing-v1.md'
+        landing.parent.mkdir(exist_ok=True)
+        for status, tip in (('inconclusive', head), ('clean', init)):
+            landing.write_text(f'# Verdict\n\nstatus: {status}\nunits: landing\nrange: {init}..{tip}\n')
+            self.assertIn('unverified: unit 001', self.run_sh('land-check', str(self.store), code=2))
+        landing.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init[:9]}..{head[:9]}\n')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn(f'covered: unit 001 by the clean landing verdict {landing}', out)
+        self.assertIn('land-check: pass', out)
+
     def test_rejected_verdict_drafts_the_fix_brief(self):
         _, out = self.verify_app_unit('reject', 2)
         self.assertIn('Acceptance broke', out)
