@@ -1983,6 +1983,31 @@ esac
         self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
         self.assertIn('blocking: none open', self.run_sh('review', str(self.store), '001'))
 
+    def test_a_later_round_marks_what_an_earlier_one_raised_and_how_it_was_resolved(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 4\n')
+        self.write('tests/test_app.py', 'x = 4\n')
+        self.done(b, self.commit('util'))
+        def finding(id, line, severity='medium', category='correctness'):
+            return {'id': id, 'severity': severity, 'status': 'actionable', 'filePath': 'src/util.py',
+                    'line': line, 'summary': 's', 'category': category}
+        artifact = self.fake / 'joo-artifact.json'
+        artifact.write_text(json.dumps({'kind': 'review-artifact', 'findings': [
+            finding('finding-a', 10), finding('finding-b', 40), finding('finding-c', 70, 'low')]}))
+        out = self.run_sh('review', str(self.store), '001')
+        self.assertNotIn('repeats:', out)
+        self.run_sh('resolve', str(self.store), 'finding-a', 'dismissed', 'by design')
+        artifact.write_text(json.dumps({'kind': 'review-artifact', 'findings': [
+            finding('finding-x', 12), finding('finding-b', 40), finding('finding-c', 70, 'low'),
+            finding('finding-y', 12, category='naming'), finding('finding-z', 90)]}))
+        out = self.run_sh('review', str(self.store), '001')
+        self.assertIn('repeats: 3 of an earlier round (1 low or info not listed)', out)
+        self.assertIn('finding-x medium src/util.py:12 repeats finding-a in 001-util-r1.json (dismissed: by design)', out)
+        self.assertIn('finding-b medium src/util.py:40 repeats finding-b in 001-util-r1.json (never resolved)', out)
+        self.assertNotIn('finding-y medium', out)
+        self.assertNotIn('finding-z medium', out)
+
     def test_retro_and_counters_agree_on_verified_units(self):
         for n, status, units in [('001-a-v1', 'clean', '001 002'), ('003-c-v1', 'reject', '003'), ('003-c-v2', 'clean', '003')]:
             (self.store / 'verdicts' / f'{n}.md').write_text(f'# V\n\nstatus: {status}\nunits: {units}\n')

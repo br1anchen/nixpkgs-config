@@ -140,6 +140,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      a binary add the reviewer cannot read: check `git diff --name-status
      <base>..<head>` for the reviewed range before dismissing it, and dismiss
      with that evidence (presence is not proof of the file's content).
+     A later round (a landing review above all) lists under `repeats:` the
+     medium and worse findings an earlier round of the run already raised,
+     with their resolution; a resolved one needs no new read. Resolve the
+     findings a fix brief closes, so the landing review can say so.
      Medium and lower findings are follow-ups unless you see otherwise. To read an artifact yourself, read `.findings[]`
      only: the blocking ones are `.findings[] | select((.severity ==
      "critical" or .severity == "high") and .status == "actionable")`, the

@@ -1315,6 +1315,7 @@ cmd_review() {
 	rm -f "$tmp" "$tmp.err"
 	printf 'artifact: %s\n' "$out"
 	jq -r '"findings: \(.findings | length) (" + ([.findings[] | .severity] | group_by(.) | map("\(.[0]) \(length)") | join(", ")) + ")"' "$out"
+	review_repeats "$store" "$out"
 	local open
 	open="$(blocking_findings "$store")"
 	if [ -n "$open" ]; then
@@ -1324,6 +1325,51 @@ cmd_review() {
 		exit 2
 	fi
 	printf 'blocking: none open\n'
+}
+
+# joo reviews each round fresh, so a later round (a landing review above all)
+# raises again what an earlier one raised and the kitchen already fixed or
+# dismissed, sometimes under a new id. Prints one line per medium or worse
+# finding of $2 that repeats one in an earlier artifact of the run (by id, or
+# by file, category and a line within five), with that finding's resolution
+# when it has one, and counts the minor repeats.
+review_repeats() {
+	python3 - "$1" "$2" <<'PY'
+import csv, json, sys
+from pathlib import Path
+store, out = Path(sys.argv[1]), Path(sys.argv[2])
+resolved = {}
+res = store / 'resolutions.tsv'
+if res.exists():
+    for row in csv.DictReader(res.open(), delimiter='\t'):
+        resolved[row['finding']] = f"{row['resolution']}: {row['note']}"
+prior = []
+for f in sorted((store / 'joo').glob('*.json')):
+    if f == out:
+        continue
+    try:
+        prior += [(f.name, x) for x in json.loads(f.read_text()).get('findings', [])]
+    except (OSError, ValueError):
+        continue
+def near(a, b):
+    return (a.get('filePath') and a.get('filePath') == b.get('filePath') and a.get('category') == b.get('category')
+            and isinstance(a.get('line'), int) and isinstance(b.get('line'), int) and abs(a['line'] - b['line']) <= 5)
+lines, minor = [], 0
+for x in json.loads(out.read_text()).get('findings', []):
+    same = [(n, p) for n, p in prior if p.get('id') == x.get('id')] or [(n, p) for n, p in prior if near(p, x)]
+    if not same:
+        continue
+    if x.get('severity') not in ('critical', 'high', 'medium'):
+        minor += 1
+        continue
+    hit = next(((n, p) for n, p in reversed(same) if p.get('id') in resolved), same[-1])
+    how = resolved.get(hit[1].get('id'), 'never resolved')
+    lines.append(f"  {x['id']} {x.get('severity')} {x.get('filePath')}:{x.get('line')} repeats {hit[1].get('id')} "
+                 f"in {hit[0]} ({how})")
+if lines or minor:
+    print(f'repeats: {len(lines) + minor} of an earlier round ({minor} low or info not listed); a resolved one needs no new read')
+    print('\n'.join(lines)) if lines else None
+PY
 }
 
 cmd_resolve() {
