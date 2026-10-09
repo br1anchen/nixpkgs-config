@@ -20,7 +20,11 @@ case "$1 $2" in
 	# $FAKE/sessions/<name>: the agent's session log path, as herdr reports pi's.
 	# The pane that hosts the agent, as real herdr reports it, is the one file under panes/ naming it.
 	pid="$(grep -lxF "$n" "$FAKE"/panes/* 2>/dev/null | head -1 | xargs -r basename)"
-	if [ -s "$FAKE/sessions/$n" ]; then
+	# $FAKE/session-ids/<name>: "<id> <cwd>", as herdr reports a Claude session.
+	if [ -s "$FAKE/session-ids/$n" ]; then
+		read -r sid scwd <"$FAKE/session-ids/$n"
+		printf '{"result":{"agent":{"agent_status":"%s","agent":"claude","name":"%s","pane_id":"%s","cwd":"%s","agent_session":{"kind":"id","source":"herdr:claude","value":"%s"}}}}\n' "$s" "$n" "$pid" "$scwd" "$sid"
+	elif [ -s "$FAKE/sessions/$n" ]; then
 		printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","name":"%s","pane_id":"%s","agent_session":{"kind":"path","value":"%s"}}}}\n' "$s" "$(kind_of "$n")" "$n" "$pid" "$(cat "$FAKE/sessions/$n")"
 	else printf '{"result":{"agent":{"agent_status":"%s","agent":"%s","name":"%s","pane_id":"%s"}}}\n' "$s" "$(kind_of "$n")" "$n" "$pid"; fi ;;
 "agent start")

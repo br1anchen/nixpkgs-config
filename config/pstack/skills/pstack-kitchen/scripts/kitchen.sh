@@ -899,12 +899,35 @@ verifier_args() {
 	[ "${#args[@]}" -eq 0 ] || printf '%s\n' "${args[@]}"
 }
 
-# The agent's own session log (pi writes one per session), so a verifier that
-# died on its provider can still say why after its pane is gone.
+# The agent's own session log, so a verifier that died on its provider or
+# never got its packet can still say why after its pane is gone. Herdr gives
+# pi's as a path and Claude's as an id, whose transcript Claude keeps under
+# ~/.claude/projects/ in a directory named for the working directory.
 record_verifier_session() {
-	local session
-	session="$(herdr agent get "$2" 2>/dev/null | jq -r '.result.agent.agent_session | select(.kind == "path") | .value' 2>/dev/null || true)"
+	local info session id cwd
+	info="$(herdr agent get "$2" 2>/dev/null)" || return 0
+	session="$(jq -r '.result.agent.agent_session | select(.kind == "path") | .value' <<<"$info" 2>/dev/null || true)"
+	if [ -z "$session" ]; then
+		id="$(jq -r '.result.agent | select(.agent == "claude") | .agent_session | select(.kind == "id") | .value' <<<"$info" 2>/dev/null || true)"
+		cwd="$(jq -r '.result.agent.cwd // empty' <<<"$info" 2>/dev/null || true)"
+		[ -n "$cwd" ] || cwd="$(readlink -f "$1/scratch/$(field "$1" '.verifying.scratch // empty')" 2>/dev/null || true)"
+		[ -z "$id" ] || [ -z "$cwd" ] || session="$HOME/.claude/projects/$(printf '%s' "$cwd" | sed 's/[^A-Za-z0-9-]/-/g')/$id.jsonl"
+	fi
 	[ -z "$session" ] || json_update "$1" --arg s "$session" '.verifying.session = $s'
+}
+
+# What the verifier's transcript says about an attempt that ended without a
+# clean or rejecting verdict: where it is, and whether the packet reached it.
+verifier_trail() {
+	local session="$1" packet="$2"
+	[ -n "$session" ] || return 0
+	printf 'transcript: %s\n' "$session"
+	[ -f "$session" ] || return 0
+	if grep -qF "VERIFY $packet" "$session"; then
+		printf 'packet: the verifier received it\n'
+	else
+		printf 'packet: never reached the verifier; this attempt says nothing about the work, so rerun it\n'
+	fi
 }
 
 # The verifier's latest provider error: from its screen while it is up, else
@@ -1023,8 +1046,9 @@ verify_wait() {
 		verify_grace "$store" "$name" "$kind" "$verdict" "$until"
 	fi
 	[ -f "$verdict" ] && sleep 3
-	local brief risk sample unit pane packet
+	local brief risk sample unit pane packet session
 	packet="$(field "$store" .verifying.packet)"
+	session="$(field "$store" '.verifying.session // empty')"
 	brief="$(field "$store" .verifying.brief)"
 	risk="$(field "$store" .verifying.risk)"
 	sample="$(field "$store" .verifying.sample)"
@@ -1057,6 +1081,7 @@ verify_wait() {
 		set_outcome "$packet" missing
 	fi
 	json_update "$store" 'del(.verifying)'
+	[ "$status" = clean ] || [ "$status" = reject ] || verifier_trail "$session" "$packet"
 	if [ ! -f "$verdict" ] && [ -n "$provider" ]; then
 		event "$store" master wake "$brief" "verify:provider"
 		printf 'verdict: none\nstatus: inconclusive (the verifier hit its provider, not the work)\nprovider_error: %s\n' "$provider"

@@ -1411,6 +1411,26 @@ esac
         self.assertEqual(len(self.grace_prompts()), 1)
         self.assertEqual(self.packet_fields()['verifier-outcome'], 'missing')
 
+    def claude_transcript(self, text):
+        (self.fake / 'session-ids').mkdir(exist_ok=True)
+        (self.fake / 'session-ids/demo-verifier').write_text('abc-123 /work/repo.git/v1\n')
+        path = Path(self.env['HOME']) / '.claude/projects/-work-repo-git-v1/abc-123.jsonl'
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+        return path
+
+    def test_a_verdict_less_attempt_names_the_transcript_and_whether_the_packet_arrived(self):
+        path = self.claude_transcript('{"type":"user","message":{"content":"Deadline reached: write it"}}\n')
+        out = self.deadline_verify('slow', code=4)
+        self.assertIn(f'transcript: {path}', out)
+        self.assertIn('packet: never reached the verifier', out)
+
+    def test_a_transcript_with_the_packet_says_it_arrived(self):
+        packet = self.store / 'verdicts/001-util-v1-packet.md'
+        self.claude_transcript(f'{{"type":"user","message":{{"content":"pstack-kitchen VERIFY {packet}"}}}}\n')
+        out = self.deadline_verify('slow', code=4)
+        self.assertIn('packet: the verifier received it', out)
+
     def test_a_verdict_arriving_during_the_grace_wins(self):
         verdict = self.store / 'verdicts/001-util-v1.md'
         packet = self.store / 'verdicts/001-util-v1-packet.md'

@@ -94,7 +94,10 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      its packet once more (`redelivered:`). One idle for
      `KITCHEN_VERIFY_IDLE_S` (600 s) with no verdict and no process of its
      own running in its pane does not sit out the deadline: `verify` closes
-     it as `stalled` and exits 4 with the command to rerun.
+     it as `stalled` and exits 4 with the command to rerun. Any attempt that
+     ends without a clean or rejecting verdict prints the verifier's
+     `transcript:` and whether the packet ever reached it; one that never got
+     its packet says nothing about the work, so rerun it.
    - `--covers` takes one unit per flag or a comma list, and the fix is named
      last: `verify 015 --covers 010,011,013` checks out 015's head. `verify`
      refuses a head that does not contain a named unit's head, and says which.
