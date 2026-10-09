@@ -2,8 +2,8 @@
 
 You own judgment and the human, never the working tree. In the kitchen your
 attention is the scarce resource: spend it on plans, precise briefs, review
-triage, and exceptions, and let the gates, the verifier, and the reviewer
-carry routine work. Follow [the pair master](../../pstack-pair/references/master.md)
+triage, and exceptions, and let the gates and the verifier carry routine
+work. Follow [the pair master](../../pstack-pair/references/master.md)
 for everything below that does not differ: check-ins and steers, queueing,
 pausing, approval dialogs, Devin sessions, waits, and recovery.
 
@@ -128,41 +128,31 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      routine, fallback and escalated verifier and where each came from.
    - A unit is measured from its dispatch head, but never from before where
      its branch leaves trunk: a unit dispatched before a landing and then
-     rebased onto the new trunk is measured from there (`verify` and
-     `review` print a `note:` when they move the base). `--base REV` sets it
-     by hand on either.
-   - `kitchen.sh review <store> <NNN>`. For each blocking finding, read it in
-     context (`joo connected review context --artifact <artifact> --finding
-     <id> --json`) and decide: `kitchen.sh resolve <store> <id> fixed "<commit
-     or brief>"`, `followup "<why it can wait>"`, or `dismissed "<why it is
-     wrong>"`. Fixes go to the sidekick as a brief, queued behind its running
-     unit when it is busy. A finding that a file is "not in the range" may be
-     a binary add the reviewer cannot read: check `git diff --name-status
-     <base>..<head>` for the reviewed range before dismissing it, and dismiss
-     with that evidence (presence is not proof of the file's content).
-     A later round (a landing review above all) lists under `repeats:` the
-     medium and worse findings an earlier round of the run already raised,
-     with their resolution; a resolved one needs no new read. Resolve the
-     findings a fix brief closes, so the landing review can say so.
-     Medium and lower findings are follow-ups unless you see otherwise. To read an artifact yourself, read `.findings[]`
-     only: the blocking ones are `.findings[] | select((.severity ==
-     "critical" or .severity == "high") and .status == "actionable")`, the
-     filter `review` uses. A re-review of the same unit (`-r2`) replaces the
-     round before it: land-check counts only the latest round's findings. `notes[].comments[]` holds the reviewers' raw
-     comments before triage, including ones triage dropped, so a recursive
-     `jq '..'` over the file reports findings that are not there.
-7. **Review and accept.** With a clean verdict and no open blocking finding,
+     rebased onto the new trunk is measured from there (`verify` prints a
+     `note:` when it moves the base). `--base REV` sets it by hand.
+   - Review the unit's range (from the dispatch head, or the base `verify`
+     used) with what the repo's owner uses: your own read, your agent's
+     built-in review, or an external tool you run yourself. The kitchen runs
+     none of them and reads no tool's output. Decide each blocking finding:
+     fixed (a note or a fix brief to the sidekick, queued behind its running
+     unit when it is busy), a follow-up in the review note (it goes to
+     `followups.md`), or dismissed with the reason. A finding that a file is
+     "not in the range" may be a binary add a reviewer cannot read: check
+     `git diff --name-status <base>..<head>` before dismissing it. A later
+     review round, a landing review above all, can raise again what an
+     earlier one settled; check the run's review notes before re-reading.
+7. **Review and accept.** With a clean verdict and every blocking finding decided,
    write `reviews/NNN-<slug>.md` from the pair's review template, reading the
    report's `review-delta` and the verdict, not the whole diff. When
    `verify` printed `audit: yes`, read the unit's whole diff as the pair
    master would; anything the kitchen missed is
    `kitchen.sh catch <store> <layer> "<what>"`, naming the layer that should
    have caught it.
-8. **Land.** `kitchen.sh land-check <store>`, then
-   `kitchen.sh review <store> --landing` for the walkthrough and anything
-   between units, then the landing brief. The landing review covers the stack
-   from where it leaves trunk (origin's default branch, else main or master),
-   so a rebase never pulls trunk's commits into it; `--base <rev>` overrides.
+8. **Land.** `kitchen.sh land-check <store>`, then review the stack as a
+   whole for anything between units, then the landing brief. Review it from
+   where it leaves trunk (origin's default branch, else main or master), the
+   base `verify --landing` prints, so a rebase never pulls trunk's commits
+   into it.
    A squash or rebase step touches no profile, so before the landing brief,
    `kitchen.sh verify <store> --landing` gives the stack tip a fresh verifier
    of the escalated class: every behavioral gate the stack touches, from where it

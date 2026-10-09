@@ -42,11 +42,10 @@ silently doing nothing.
 | `.paths` | `["**"]` | globs the rule applies to |
 | `.source` | `""` | the rule's origin, such as `AGENTS.md#rust` |
 | `[review]` | | |
-| `.engine` | `"none"` | `joo` runs Judge of Owls on every unit; `none` leaves review to the master's own read |
 | `.self` | `[]` | skills the sidekick runs on its diff before reporting done |
 | `.standards` | `[]` | doc sections (`path#anchor`) the review holds the diff to |
 | `.max_batch_diff` | `800` | a batch over this many diff lines verifies per unit instead |
-| `.routine` / `.escalated` / `.landing` | `standard`/4, `thorough`/8, `quick`/4 | `style` (quick, standard, thorough), `budget` (joo execution budget), `second_reviewer`, `walkthrough` (default only for landing) |
+| `.engine`, `.routine`, `.escalated`, `.landing` | unset | configured a reviewer the kitchen no longer runs (review is the master's step, with any tool or none); still parsed, ignored, and `validate` and `doctor` warn while the file sets them |
 | `[verify]` | | |
 | `.routine_kind`, `.escalated_kind` | unset | moved to the host roster's `[verifier]` and `[verifier.escalated]`; still parsed, ignored, and `validate` and `doctor` warn on stderr while the file sets them |
 | `[landing].mode` | `"commit"` | how far the kitchen goes: `commit`, `branch` (push), `stack` (a linear stack of PRs), `pr`. It never merges. A stack landed by a push that rewrites its commits (a squash; `jj checked-push` of an spr stack, whose PRs sit on synthetic merge heads) leaves its PRs open: the landing brief closes each with a pointer to its landed commit |

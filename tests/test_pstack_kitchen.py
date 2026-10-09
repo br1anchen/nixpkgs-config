@@ -138,8 +138,7 @@ class SchemaTests(KitchenTests):
     def test_reference_example_is_valid(self):
         k = kitchen.parse(tomllib.loads((skill / 'references/kitchen-example.toml').read_text()))
         self.assertEqual(list(k.profiles), ['ui', 'engine', 'docs'])
-        self.assertEqual(k.review['escalated']['budget'], 8)
-        self.assertTrue(k.review['landing']['walkthrough'])
+        self.assertEqual((k.review['self'], k.review['legacy']), (['no-comments'], []))
         self.assertEqual(k.scratch_setup, ['pnpm install --frozen-lockfile'])
 
     def test_validate_names_the_bad_key(self):
@@ -169,7 +168,7 @@ class ClassifyTests(KitchenTests):
         self.assertEqual((r['risk'], r['profiles'], r['escalate']), ('routine', ['app'], []))
         self.assertEqual(r['verify'], {'mode': 'batch', 'kind': 'routine'})
         self.assertEqual(r['sample'], 0.2)
-        self.assertEqual((r['review']['engine'], r['review']['style'], r['review']['budget']), ('none', 'standard', 4))
+        self.assertNotIn('review', r)
 
     def test_docs_only_change_needs_no_verifier(self):
         r = self.classify({'docs/guide.md': '# Guide\n\nMore.\n'})
@@ -189,7 +188,7 @@ class ClassifyTests(KitchenTests):
                 self.assertEqual(r['risk'], 'escalated')
                 self.assertIn(reason, r['escalate'])
                 self.assertEqual(r['verify'], {'mode': 'unit', 'kind': 'escalated'})
-                self.assertEqual((r['sample'], r['review']['style']), (1.0, 'thorough'))
+                self.assertEqual(r['sample'], 1.0)
                 self.base = self.git('rev-parse', 'HEAD')
 
     def test_scope_globs_expand_against_tracked_files(self):
@@ -607,13 +606,15 @@ class DoctorTests(KitchenTests):
         self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["true"]', 'fast = ["nosuchtool --x"]'))
         self.assertEqual(self.checks(code=3)['commands']['items'], ['contracts.fast: nosuchtool'])
 
-    def test_verification_skill_and_review_engine(self):
+    def test_verification_skill_and_a_legacy_reviewer_warns(self):
         self.write('.agents/skills/verify-demo/SKILL.md', '---\nname: verify-demo\n---\n')
-        self.write('.agents/kitchen.toml', KITCHEN + '\n[review]\nengine = "joo"\n')
+        self.write('.agents/kitchen.toml', KITCHEN + '\n[review]\nengine = "joo"\n[review.escalated]\nstyle = "thorough"\n')
         c = self.checks()
         self.assertEqual(c['verification skill'], {'check': 'verification skill', 'status': 'ok',
                                                    'detail': '.agents/skills/verify-demo', 'items': []})
-        self.assertIn(c['review engine']['status'], ('ok', 'warn'))
+        self.assertEqual(c['review']['status'], 'warn')
+        self.assertIn('review.engine, review.escalated', c['review']['detail'])
+        self.assertIn('the kitchen runs no reviewer', self.run_kitchen('validate'))
 
     def test_run_records_a_baseline_and_fails_on_red(self):
         c = self.checks('--run')
@@ -744,7 +745,7 @@ class FleetTests(unittest.TestCase):
 
 
 class KitchenScriptTests(unittest.TestCase):
-    """kitchen.sh against a fake herdr, a fake joo-dev, and a real repo and kitchen.py."""
+    """kitchen.sh against a fake herdr, and a real repo and kitchen.py."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -766,7 +767,7 @@ class KitchenScriptTests(unittest.TestCase):
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
         self.git('init', '-q')
         kitchen_toml = KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["test ! -e FAIL"]') \
-            + '\n[review]\nengine = "joo"\nself = ["no-comments"]\n'
+            + '\n[review]\nself = ["no-comments"]\n'
         for path, text in {**FILES, '.agents/kitchen.toml': kitchen_toml}.items():
             self.write(path, text)
         self.commit('init')
@@ -1039,7 +1040,7 @@ esac
         self.assertIn("note: unit 001's report is blocked; checking the head it names", out)
         self.assertIn('status: clean', out)
 
-    def test_landing_review_starts_where_the_stack_leaves_trunk(self):
+    def test_landing_verification_starts_where_the_stack_leaves_trunk(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         old_base = self.git('rev-parse', 'HEAD')
@@ -1049,14 +1050,12 @@ esac
         self.write('src/util.py', 'X = 41\n')
         self.write('tests/test_app.py', 'x = 41\n')
         self.done(b, self.commit('stacked on the new trunk'))
-        (self.fake / 'joo-artifact.json').write_text(json.dumps({'kind': 'review-artifact', 'findings': []}))
-        out = self.run_sh('review', str(self.store), '--landing')
+        out = self.run_sh('verify', str(self.store), '--landing')
         self.assertIn('landing base: merge-base of remotes/origin/main and HEAD', out)
-        log = (self.fake / 'joo.log').read_text()
-        self.assertIn(f'--range {trunk}..', log)
-        self.assertNotIn(f'--range {old_base}..', log)
-        self.run_sh('review', str(self.store), '--landing', '--base', old_base)
-        self.assertIn(f'--range {old_base}..', (self.fake / 'joo.log').read_text())
+        packet = (self.store / 'verdicts/landing-v1-packet.md').read_text()
+        self.assertIn(f'range: {trunk}..', packet)
+        self.run_sh('verify', str(self.store), '--landing', '--base', old_base)
+        self.assertIn(f'range: {old_base}..', (self.store / 'verdicts/landing-v2-packet.md').read_text())
 
     def test_gates_mode_verifies_without_a_verifier(self):
         b = self.brief('001', 'docs', ['docs/**'])
@@ -1866,17 +1865,6 @@ esac
         out = self.run_sh('verify', str(self.store), '001', '--base', init)
         self.assertIn(f'range: {init[:9]}..{head[:9]}', (self.store / 'verdicts/001-docs-v2.md').read_text())
 
-    def test_land_check_reads_only_the_latest_review_round(self):
-        joo = self.store / 'joo'
-        joo.mkdir(exist_ok=True)
-        high = {'id': 'f-old', 'severity': 'high', 'status': 'actionable', 'filePath': 'a', 'line': 1, 'summary': 's'}
-        (joo / '001-util-r1.json').write_text(json.dumps({'findings': [high]}))
-        self.assertIn('unresolved: f-old', self.run_sh('land-check', str(self.store), code=2))
-        (joo / '001-util-r2.json').write_text(json.dumps({'findings': []}))
-        out = self.run_sh('land-check', str(self.store))
-        self.assertIn('land-check: pass', out)
-        self.assertIn('landing verification: none', out)
-
     def test_a_pi_sidekick_that_exits_on_a_rate_limit_says_so(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
@@ -1973,59 +1961,20 @@ esac
         _, out = self.verify_app_unit('noevidence', 2)
         self.assertIn('status: invalid (no command output under Evidence)', out)
 
-    def test_review_resolve_and_land_check(self):
-        b = self.brief('001', 'util', ['src/**', 'tests/**'])
-        self.dispatch(b)
-        self.write('src/util.py', 'X = 4\n')
-        self.write('tests/test_app.py', 'x = 4\n')
-        head = self.commit('util')
-        self.done(b, head)
-        (self.fake / 'joo-artifact.json').write_text(json.dumps({'kind': 'review-artifact', 'findings': [
-            {'id': 'finding-a', 'severity': 'high', 'status': 'actionable', 'filePath': 'src/util.py',
-             'line': 1, 'summary': 'X changed meaning', 'category': 'correctness'},
-            {'id': 'finding-b', 'severity': 'low', 'status': 'actionable', 'filePath': 'src/util.py',
-             'line': 1, 'summary': 'name it better', 'category': 'naming'}]}))
-        out = self.run_sh('review', str(self.store), '001', code=2)
-        self.assertIn('finding-a high src/util.py:1 X changed meaning', out)
-        self.assertNotIn('finding-b', out.split('blocking without a resolution:')[1])
-        self.assertIn('--review-style standard --review-execution-budget 4 --no-second-reviewer --no-walkthrough',
-                      (self.fake / 'joo.log').read_text())
-        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
-        out = self.run_sh('land-check', str(self.store), code=2)
-        self.assertIn('unverified: unit 001', out)
-        self.assertIn('unresolved: finding-a', out)
-        landing = self.brief('002', 'land', ['src/**'], playbook='opening-a-pr')
-        self.assertIn('landing refused', self.dispatch(landing, code=2))
-        self.run_sh('verify', str(self.store), '001')
-        self.run_sh('resolve', str(self.store), 'finding-a', 'fixed', 'reverted in abc123')
-        self.run_sh('resolve', str(self.store), 'finding-zzz', 'fixed', 'x', code=1)
-        self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
-        self.assertIn('blocking: none open', self.run_sh('review', str(self.store), '001'))
-
-    def test_a_later_round_marks_what_an_earlier_one_raised_and_how_it_was_resolved(self):
+    def test_land_check_needs_a_verdict_for_every_accepted_unit_and_runs_no_reviewer(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         self.write('src/util.py', 'X = 4\n')
         self.write('tests/test_app.py', 'x = 4\n')
         self.done(b, self.commit('util'))
-        def finding(id, line, severity='medium', category='correctness'):
-            return {'id': id, 'severity': severity, 'status': 'actionable', 'filePath': 'src/util.py',
-                    'line': line, 'summary': 's', 'category': category}
-        artifact = self.fake / 'joo-artifact.json'
-        artifact.write_text(json.dumps({'kind': 'review-artifact', 'findings': [
-            finding('finding-a', 10), finding('finding-b', 40), finding('finding-c', 70, 'low')]}))
-        out = self.run_sh('review', str(self.store), '001')
-        self.assertNotIn('repeats:', out)
-        self.run_sh('resolve', str(self.store), 'finding-a', 'dismissed', 'by design')
-        artifact.write_text(json.dumps({'kind': 'review-artifact', 'findings': [
-            finding('finding-x', 12), finding('finding-b', 40), finding('finding-c', 70, 'low'),
-            finding('finding-y', 12, category='naming'), finding('finding-z', 90)]}))
-        out = self.run_sh('review', str(self.store), '001')
-        self.assertIn('repeats: 3 of an earlier round (1 low or info not listed)', out)
-        self.assertIn('finding-x medium src/util.py:12 repeats finding-a in 001-util-r1.json (dismissed: by design)', out)
-        self.assertIn('finding-b medium src/util.py:40 repeats finding-b in 001-util-r1.json (never resolved)', out)
-        self.assertNotIn('finding-y medium', out)
-        self.assertNotIn('finding-z medium', out)
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        self.assertIn('unverified: unit 001', self.run_sh('land-check', str(self.store), code=2))
+        landing = self.brief('002', 'land', ['src/**'], playbook='opening-a-pr')
+        self.assertIn('landing refused', self.dispatch(landing, code=2))
+        self.run_sh('verify', str(self.store), '001')
+        self.assertIn('land-check: pass\n', self.run_sh('land-check', str(self.store)))
+        self.run_sh('review', str(self.store), '001', code=1)
+        self.assertFalse((self.store / 'joo').exists())
 
     def test_retro_and_counters_agree_on_verified_units(self):
         for n, status, units in [('001-a-v1', 'clean', '001 002'), ('003-c-v1', 'reject', '003'), ('003-c-v2', 'clean', '003')]:

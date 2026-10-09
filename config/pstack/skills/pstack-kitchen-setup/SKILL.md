@@ -48,7 +48,8 @@ authority:
    their tests live.
 5. **Verification.** An existing `.agents/skills/verify-*` and its feature
    map, e2e suites, journey or smoke scripts.
-6. **Review.** `command -v joo-dev joo`.
+6. **Review.** The skills the sidekick should run on its own diff, and the
+   style sections a review holds the diff to.
 
 In a large monorepo, read CI and the runners yourself and fan out one
 read-only subagent per area for test locations and entry points, each
@@ -120,9 +121,10 @@ not in that set: give CI config an escalate path, and let manifests escalate.
   the pattern is a violation (scripts, code), not docs that may mention it. A
   rule that needs judgment stays in the docs; offer the `correct` skill for
   those.
-- **Review.** `engine = "joo"` when joo is installed. `standards` points at
-  the style sections the review should hold the diff to. Leave budgets at
-  their defaults until history shows a need.
+- **Review.** `self` lists the skills the sidekick runs on its diff;
+  `standards` points at the style sections the review should hold the diff
+  to. The kitchen runs no reviewer: how the master reviews (its own read, the
+  agent's built-in review, an external tool) is the owner's choice.
 - **Landing.** Take the mode from the repo's rules (a `jj spr` stack is
   `stack`, "commit only" is `commit`). Ask the human only when the rules do
   not say. The kitchen never merges.

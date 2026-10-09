@@ -97,14 +97,15 @@ Verifier: [references/verifier.md](references/verifier.md).
    unit's head and writes a verdict with evidence; a fix is verified with
    the unit it fixes (`--covers`). `verify` returns at an interval while the
    verifier works, so the master is never held in one long call.
-4. **Review.** `kitchen.sh review` runs Judge of Owls on the unit's range at
-   the risk class's style and budget. The master triages every critical or
-   high finding: fixed, follow-up, or dismissed, each recorded with
-   `kitchen.sh resolve`.
-5. **Accept.** The master's review is short when the verdict is clean and
-   the findings are resolved; a sampled unit (`audit: yes`) gets a full read.
-6. **Land.** `kitchen.sh land-check` passes only when every accepted unit is
-   verified and every blocking finding resolved; `kitchen.sh verify --landing`
+4. **Review.** The master reviews the unit's range with whatever the repo's
+   owner uses: its own read, the agent's built-in review, or an external
+   tool it runs itself. The kitchen runs no reviewer and reads no tool's
+   output; blocking findings become notes or a fix brief, follow-ups go to
+   `followups.md`.
+5. **Accept.** The master's review note is short when the verdict is clean;
+   a sampled unit (`audit: yes`) gets a full read.
+6. **Land.** `kitchen.sh land-check` passes only when every unit with an
+   accepted review note is verified; `kitchen.sh verify --landing`
    proves the stack tip with a fresh verifier; the landing brief goes as far
    as `[landing].mode` allows and never merges.
 7. **Learn.** `kitchen.sh retro` shows where the master was needed and what
@@ -138,8 +139,6 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `gates.tsv` | `kitchen.sh step` | one row per step check: time, unit, commit, pass or fail, profiles |
 | `verdicts/NNN-<slug>-v<k>.md` | verifier, or `verify` for gates mode | the verdict, from [the verdict template](references/verdict-template.md) |
 | `verdicts/NNN-<slug>-v<k>-packet.md` | `kitchen.sh verify` | what the verifier was given |
-| `joo/<unit or landing>-r<k>.json` | `kitchen.sh review` | the Judge of Owls review artifact |
-| `resolutions.tsv` | master via `kitchen.sh resolve` | one decision per finding |
 | `pair.json` `.escalations` | `kitchen.sh consultant` | why the consultant was started |
 
 Each store's `pair.json` `.skill_builds` lists the skills directories its commands ran from, stamped

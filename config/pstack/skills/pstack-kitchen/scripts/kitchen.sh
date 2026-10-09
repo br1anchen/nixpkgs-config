@@ -14,7 +14,7 @@ PAIR_SKILL=pstack-kitchen
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/runs"
 store_label=Kitchen
 roles=(sidekick verifier consultant)
-store_dirs=(plans briefs reports reviews progress steers consults advice scratch verdicts joo)
+store_dirs=(plans briefs reports reviews progress steers consults advice scratch verdicts)
 slug_max=20
 # shellcheck source-path=SCRIPTDIR source=../../pstack-pair/scripts/pair-core.sh
 . "$skill_root/../pstack-pair/scripts/pair-core.sh"
@@ -61,12 +61,7 @@ consult, advice. These differ or are new:
   verify <store> --wait [--every MIN]       wait again for the open verification: exit 4 while it runs, 5 when none
                                             is open
   revise <store> <verdict-path>             draft the fix brief for a rejected verdict
-  review <store> <NNN>... [--base REV] | --landing [--base REV]
-                                            Judge of Owls on the units' range, or for landing on the stack from
-                                            where it leaves trunk (or --base); prints blocking findings unresolved
-  resolve <store> <finding-id> fixed|followup|dismissed <note>
-                                            record the master's decision on a finding
-  land-check <store>                        every accepted unit verified and every blocking finding resolved
+  land-check <store>                        every accepted unit verified
   catch <store> <layer> <text>              record a miss found later (audit, human review): layer is
                                             gate, policy, self, verify, review, triage, or escalation
   close <store> [--force]                   end a finished run's sidekick, consultant and verifier and close
@@ -1233,166 +1228,11 @@ PY
 	printf '%s\n' "$path"
 }
 
-joo_bin() {
-	command -v joo-dev || command -v joo || die "review.engine is joo, but neither joo-dev nor joo is on PATH" 1
-}
-
-# The latest round of each review: joo/<label>-r<k>.json, highest k. A
-# re-review supersedes the round before it, whose findings no longer block.
-latest_reviews() {
-	local f b
-	for f in "$1"/joo/*.json; do
-		[ -e "$f" ] || continue
-		b="$(basename "$f" .json)"
-		printf '%s\t%s\t%s\n' "${b%-r*}" "${b##*-r}" "$f"
-	done | sort -t "$(printf '\t')" -k1,1 -k2,2n | awk -F '\t' '{last[$1] = $3} END {for (k in last) print last[k]}' | sort
-}
-
-blocking_findings() {
-	# Every critical or high actionable finding in the latest round of each
-	# review that has no resolution: id, severity, place, summary, artifact.
-	local store="$1" f
-	while IFS= read -r f; do
-		[ -n "$f" ] || continue
-		jq -r --arg a "$f" '.findings[]? | select((.severity == "critical" or .severity == "high") and .status == "actionable")
-			| [.id, .severity, "\(.filePath):\(.line)", (.summary // .rationale // "" | gsub("[\t\n]"; " ") | .[0:120]), $a] | @tsv' "$f"
-	done < <(latest_reviews "$store") | awk -F '\t' -v r="$store/resolutions.tsv" 'BEGIN{while ((getline l < r) > 0) {split(l, x, "\t"); done[x[2]] = 1}} !done[$1] && !seen[$1]++'
-}
-
-cmd_review() {
-	[ $# -ge 2 ] || die "usage: kitchen.sh review <store> <NNN>... [--base REV] | kitchen.sh review <store> --landing [--base REV]"
-	local store="$1" landing=0 units=() root base="" head json cls engine joo out k label tmp
-	shift
-	while [ $# -gt 0 ]; do
-		case "$1" in
-		--landing) landing=1; shift ;;
-		--base) base="$2"; shift 2 ;;
-		[0-9][0-9][0-9]) units+=("$1"); shift ;;
-		*) die "unknown option $1" ;;
-		esac
-	done
-	pair_file "$store" >/dev/null
-	root="$(field "$store" .git_root)"
-	if [ "$landing" -eq 1 ]; then
-		head="$(git -C "$root" rev-parse HEAD)"
-		# The stack is reviewed from where it leaves trunk. The run's first
-		# dispatch head is stale once the stack is rebased, and reviewing from
-		# it took trunk's own commits into the landing review.
-		if [ -z "$base" ]; then
-			landing_base "$root" "$head"
-			base="$landing_base_rev"
-		fi
-		base="$(git -C "$root" rev-parse --verify --quiet "$base^{commit}")" || die "--base is not a commit"
-		label=landing
-	else
-		[ "${#units[@]}" -gt 0 ] || die "name the units, or --landing"
-		range_base="$base"
-		read -r base head <<<"$(unit_range "$store" "${units[@]}")"
-		label="${units[-1]}-$(basename "$(unit_brief "$store" "${units[-1]}")" .md | cut -c5-)"
-	fi
-	json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
-	if [ "$landing" -eq 1 ]; then cls=landing; else cls="$(jq -r .risk <<<"$json")"; fi
-	engine="$(jq -r .review.engine <<<"$json")"
-	if [ "$engine" != joo ]; then
-		printf 'review: engine none; read %s..%s yourself (the review-delta for a unit with steps)\n' "${base:0:9}" "${head:0:9}"
-		exit 0
-	fi
-	local style budget second walk
-	joo="$(joo_bin)"
-	k="$(next_index "$store/joo" "$label" r)"
-	out="$store/joo/$label-r$k.json"
-	tmp="$(mktemp)"
-	read -r style budget second walk <<<"$(kpy "$store" --at "$head" --json review-settings "$cls")"
-	local -a flags=(--review-style "$style" --review-execution-budget "$budget")
-	[ "$second" = true ] || flags+=(--no-second-reviewer)
-	if [ "$walk" = true ]; then flags+=(--walkthrough); else flags+=(--no-walkthrough); fi
-	event "$store" master send-review - "$label:$cls"
-	printf 'joo %s review of %s..%s (%s, budget %s)\n' "$cls" "${base:0:9}" "${head:0:9}" "$style" "$budget"
-	"$joo" engine review --repo "$root" --range "$base..$head" --json "${flags[@]}" >"$tmp" 2>"$tmp.err" ||
-		{ cat "$tmp.err" >&2; rm -f "$tmp" "$tmp.err"; die "joo engine review failed" 2; }
-	jq -e '.ok == true and .result.kind == "review-artifact"' "$tmp" >/dev/null || { rm -f "$tmp" "$tmp.err"; die "joo returned no review artifact" 2; }
-	jq '.result' "$tmp" >"$out"
-	rm -f "$tmp" "$tmp.err"
-	printf 'artifact: %s\n' "$out"
-	jq -r '"findings: \(.findings | length) (" + ([.findings[] | .severity] | group_by(.) | map("\(.[0]) \(length)") | join(", ")) + ")"' "$out"
-	review_repeats "$store" "$out"
-	local open
-	open="$(blocking_findings "$store")"
-	if [ -n "$open" ]; then
-		printf 'blocking without a resolution:\n'
-		awk -F '\t' '{printf "  %s %s %s %s\n", $1, $2, $3, $4}' <<<"$open"
-		printf 'next: read each (joo connected review context --artifact %s --finding <id> --json), then kitchen.sh resolve %s <id> fixed|followup|dismissed "<why>"\n' "$out" "$store"
-		exit 2
-	fi
-	printf 'blocking: none open\n'
-}
-
-# joo reviews each round fresh, so a later round (a landing review above all)
-# raises again what an earlier one raised and the kitchen already fixed or
-# dismissed, sometimes under a new id. Prints one line per medium or worse
-# finding of $2 that repeats one in an earlier artifact of the run (by id, or
-# by file, category and a line within five), with that finding's resolution
-# when it has one, and counts the minor repeats.
-review_repeats() {
-	python3 - "$1" "$2" <<'PY'
-import csv, json, sys
-from pathlib import Path
-store, out = Path(sys.argv[1]), Path(sys.argv[2])
-resolved = {}
-res = store / 'resolutions.tsv'
-if res.exists():
-    for row in csv.DictReader(res.open(), delimiter='\t'):
-        resolved[row['finding']] = f"{row['resolution']}: {row['note']}"
-prior = []
-for f in sorted((store / 'joo').glob('*.json')):
-    if f == out:
-        continue
-    try:
-        prior += [(f.name, x) for x in json.loads(f.read_text()).get('findings', [])]
-    except (OSError, ValueError):
-        continue
-def near(a, b):
-    return (a.get('filePath') and a.get('filePath') == b.get('filePath') and a.get('category') == b.get('category')
-            and isinstance(a.get('line'), int) and isinstance(b.get('line'), int) and abs(a['line'] - b['line']) <= 5)
-lines, minor = [], 0
-for x in json.loads(out.read_text()).get('findings', []):
-    same = [(n, p) for n, p in prior if p.get('id') == x.get('id')] or [(n, p) for n, p in prior if near(p, x)]
-    if not same:
-        continue
-    if x.get('severity') not in ('critical', 'high', 'medium'):
-        minor += 1
-        continue
-    hit = next(((n, p) for n, p in reversed(same) if p.get('id') in resolved), same[-1])
-    how = resolved.get(hit[1].get('id'), 'never resolved')
-    lines.append(f"  {x['id']} {x.get('severity')} {x.get('filePath')}:{x.get('line')} repeats {hit[1].get('id')} "
-                 f"in {hit[0]} ({how})")
-if lines or minor:
-    print(f'repeats: {len(lines) + minor} of an earlier round ({minor} low or info not listed); a resolved one needs no new read')
-    print('\n'.join(lines)) if lines else None
-PY
-}
-
-cmd_resolve() {
-	[ $# -eq 4 ] || die "usage: kitchen.sh resolve <store> <finding-id> fixed|followup|dismissed <note>"
-	local store="$1" id="$2" kind="$3" note="$4" f found=""
-	case "$kind" in fixed | followup | dismissed) ;; *) die "resolution must be fixed, followup, or dismissed" ;; esac
-	[ -n "$note" ] || die "a resolution needs its reason: the fixing commit, the follow-up, or why it is wrong"
-	for f in "$store"/joo/*.json; do
-		[ -e "$f" ] && jq -e --arg id "$id" 'any(.findings[]?; .id == $id)' "$f" >/dev/null && found="$f"
-	done
-	[ -n "$found" ] || die "no finding $id in $store/joo"
-	[ -f "$store/resolutions.tsv" ] || printf 'ts\tfinding\tresolution\tnote\tartifact\n' >"$store/resolutions.tsv"
-	printf '%s\t%s\t%s\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$id" "$kind" "$(printf '%s' "$note" | tr '\t\n' '  ')" "$(basename "$found")" >>"$store/resolutions.tsv"
-	[ "$kind" != followup ] || printf -- '- %s (joo %s): %s\n' "$(jq -r --arg id "$id" '.findings[] | select(.id == $id) | .summary // .rationale' "$found" | head -1)" "$id" "$note" >>"$store/followups.md"
-	event "$store" master resolve - "$id:$kind"
-	printf 'resolved %s: %s\n' "$id" "$kind"
-}
-
 land_check() {
 	# Prints one line per problem; returns 1 when there is any. A unit with no
 	# clean verdict of its own is covered by the latest landing verdict when
 	# that one is clean and its range's head contains the unit's head.
-	local store="$1" r seq brief verdict f problems=0 engine=none open uhead
+	local store="$1" r seq brief verdict f problems=0 uhead
 	local landing_verdict="" landing_head="" lk best=0
 	for f in "$store"/verdicts/landing-v[0-9]*.md; do
 		[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
@@ -1427,20 +1267,14 @@ land_check() {
 			problems=$((problems + 1))
 		fi
 	done
-	if ls "$store"/joo/*.json >/dev/null 2>&1; then engine=joo; fi
 	# A landing verification is reported, not required.
 	if [ -n "$landing_verdict" ]; then
 		printf 'landing verification: %s (%s)\n' "$(header_field "$landing_verdict" status)" "$landing_verdict"
 	else
 		printf 'landing verification: none; kitchen.sh verify %s --landing proves the stack tip with a fresh verifier\n' "$store"
 	fi
-	open="$(blocking_findings "$store")"
-	if [ -n "$open" ]; then
-		awk -F '\t' '{printf "unresolved: %s %s %s %s\n", $1, $2, $3, $4}' <<<"$open"
-		problems=$((problems + $(grep -c . <<<"$open")))
-	fi
 	[ "$problems" -eq 0 ] || return 1
-	printf 'land-check: pass (review engine: %s)\n' "$engine"
+	printf 'land-check: pass\n'
 }
 
 cmd_land_check() {
@@ -1518,10 +1352,6 @@ cmd_retro() {
 		for f in "$store"/verdicts/*-v[0-9]*.md; do
 			[ -e "$f" ] && [[ "$f" != *packet* ]] && [ "$(header_field "$f" status)" = reject ] && printf '%s\t%s\treject\tverify\t%s\n' "$now" "$run" "$(basename "$f" .md)"
 		done
-		for f in "$store"/joo/*.json; do
-			[ -e "$f" ] && jq -r --arg t "$now" --arg r "$run" '.findings[]? | select(.status == "actionable") | [$t, $r, "finding", (.category // "uncategorized"), .severity] | @tsv' "$f"
-		done
-		[ -f "$store/resolutions.tsv" ] && awk -F '\t' -v t="$now" -v r="$run" 'NR > 1 && $3 == "dismissed" {printf "%s\t%s\tdismissed\treview\t%s\n", t, r, $2}' "$store/resolutions.tsv"
 		for f in "$store"/steers/*-s[0-9]*.md; do [ -e "$f" ] && printf '%s\t%s\tsteer\tbrief\t%s\n' "$now" "$run" "$(basename "$f" .md)"; done
 		[ -f "$store/events.tsv" ] && awk -F '\t' -v t="$now" -v r="$run" '$4 == "gate-flaky" {printf "%s\t%s\tgate-flaky\t%s\t%s\n", t, r, $6, $5}' "$store/events.tsv"
 	} >>"$ledger"
@@ -1535,8 +1365,6 @@ cmd_retro() {
 encode a repeated class at the highest level that works (the correct skill):
   gate-fail <profile>  a sharper brief, or a lint whose error names the fix
   gate-flaky <profile> a suite that fails under load: related tests per step, the full suite in behavioral
-  finding <category>   a lint or type for the pattern; joo reviewer skills for repo-specific taste
-  dismissed review     joo is wrong here repeatedly: tune its reviewer skills or config
   reject verify        acceptance the gates do not cover: add a behavioral command or test
   steer brief          briefs miss a decision the master keeps making: a standing order or plan template line
   catch <layer>        the layer that should have caught it gets the check

@@ -49,15 +49,9 @@ message = "parse with the zod schema from packages/contracts instead of casting"
 source = "AGENTS.md#typed-evidence"
 
 [review]
-engine = "joo"
 self = ["no-comments"]
 standards = ["AGENTS.md#coding-style"]
 max_batch_diff = 800
-
-[review.escalated]
-style = "thorough"
-budget = 8
-second_reviewer = true
 
 [landing]
 mode = "stack"

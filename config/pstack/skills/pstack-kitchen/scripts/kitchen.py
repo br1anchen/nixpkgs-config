@@ -32,7 +32,6 @@ STAGES = ('fast', 'behavioral', 'landing')
 VERIFY_MODES = ('gates', 'batch', 'unit')  # cheapest first
 VERIFY_KINDS = ('sidekick', 'master')
 LANDING_MODES = ('commit', 'branch', 'stack', 'pr')
-REVIEW_STYLES = ('quick', 'standard', 'thorough')
 NAME = re.compile(r'^[a-z][a-z0-9-]*$')
 
 
@@ -204,25 +203,17 @@ def parse(data: dict) -> Kitchen:
                           str(r.get('source', ''))))
 
     review = data.get('review', {})
-    _check_keys(review, 'review', {'engine', 'self', 'standards', 'max_batch_diff',
-                                   'routine', 'escalated', 'landing'})
+    # The kitchen runs no reviewer: review is the master's step, done with
+    # whatever the repo's owner chose (a read, the agent's own review, an
+    # external tool). These keys configured one and still parse, ignored.
+    legacy_review = {'engine', 'routine', 'escalated', 'landing'}
+    _check_keys(review, 'review', {'self', 'standards', 'max_batch_diff', *legacy_review})
     rev = {
-        'engine': _choice(review.get('engine', 'none'), 'review.engine', ('joo', 'none')),
         'self': _strings(review.get('self', []), 'review.self'),
         'standards': _strings(review.get('standards', []), 'review.standards'),
         'max_batch_diff': _int(review.get('max_batch_diff', 800), 'review.max_batch_diff', 1),
+        'legacy': sorted(legacy_review & set(review)),
     }
-    defaults = {'routine': ('standard', 4), 'escalated': ('thorough', 8), 'landing': ('quick', 4)}
-    for cls, (style, budget) in defaults.items():
-        t = review.get(cls, {})
-        where = f'review.{cls}'
-        _check_keys(t, where, {'style', 'budget', 'second_reviewer', 'walkthrough'})
-        rev[cls] = {
-            'style': _choice(t.get('style', style), f'{where}.style', REVIEW_STYLES),
-            'budget': _int(t.get('budget', budget), f'{where}.budget', 1),
-            'second_reviewer': _bool(t.get('second_reviewer', False), f'{where}.second_reviewer'),
-            'walkthrough': _bool(t.get('walkthrough', cls == 'landing'), f'{where}.walkthrough'),
-        }
 
     verify = data.get('verify', {})
     _check_keys(verify, 'verify', {'routine_kind', 'escalated_kind'})
@@ -405,7 +396,6 @@ def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: lis
     return {
         'risk': risk, 'escalate': reasons, 'profiles': sorted(touched), 'unmapped': unmapped,
         'diff_lines': diff_lines, 'verify': verify, 'sample': sample,
-        'review': {'engine': kitchen.review['engine'], **kitchen.review[risk]},
         'features': sorted({f for p in profiles for f in p.features}),
         'behavioral': [p.name for p in profiles if p.commands['behavioral']],
         'max_batch_diff': kitchen.review['max_batch_diff'],
@@ -892,9 +882,9 @@ def doctor(root: Path, kitchen: Kitchen, run: bool) -> list[dict]:
     add('verifier routine', 'ok', describe_verifier(routine))
     add('verifier fallback', 'ok', describe_verifier({**routine['fallback'], 'source': routine['source']}) if routine['fallback'] else 'none')
     add('verifier escalated', 'ok', describe_verifier(vr['verifier']['escalated']) + '; also used by verify --landing')
-    if kitchen.review['engine'] == 'joo':
-        joo = shutil.which('joo-dev') or shutil.which('joo')
-        add('review engine', 'ok' if joo else 'warn', joo or 'joo-dev and joo are not on PATH')
+    if kitchen.review['legacy']:
+        add('review', 'warn', f'review.{", review.".join(kitchen.review["legacy"])} configured a reviewer the kitchen no longer '
+            'runs; remove them from kitchen.toml')
     if run:
         dirty = git(root, 'status', '--porcelain').strip()
         if dirty:
@@ -1194,7 +1184,7 @@ def main(argv: list[str] | None = None) -> int:
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('validate', help='parse and check kitchen.toml')
     sub.add_parser('setup', help='run [scratch].setup in the repo root, inside the wrap')
-    c = sub.add_parser('classify', help='profiles, risk class, and verify/review settings for a change')
+    c = sub.add_parser('classify', help='profiles, risk class, and verify settings for a change')
     p = sub.add_parser('policy', help='forbid rules on added lines, and test-touch')
     for s in (c, p):
         s.add_argument('--base')
@@ -1217,8 +1207,6 @@ def main(argv: list[str] | None = None) -> int:
     h.add_argument('--last', type=int, default=20)
     d = sub.add_parser('doctor', help='check the kitchen against the repo')
     d.add_argument('--run', action='store_true', help='also run every fast gate on HEAD and record a baseline')
-    rs = sub.add_parser('review-settings', help='style budget second_reviewer walkthrough for a review class')
-    rs.add_argument('cls', choices=('routine', 'escalated', 'landing'))
     sub.add_parser('roster', help='the host roster: which agents fill the roles (no repo needed)')
     f = sub.add_parser('fleet', help='every run on the host and each skills build (no repo needed, read-only)')
     f.add_argument('--since', metavar='YYYY-MM-DD', help='only runs that started on or after this date')
@@ -1261,10 +1249,9 @@ def main(argv: list[str] | None = None) -> int:
         if kitchen.verify and args.cmd in ('validate', 'doctor'):
             print(f'kitchen: warning: [verify] {", ".join(sorted(kitchen.verify))} moved to the host roster\'s '
                   '[verifier]; remove it from kitchen.toml', file=sys.stderr)
-        if args.cmd == 'review-settings':
-            r = kitchen.review[args.cls]
-            print(r['style'], r['budget'], str(r['second_reviewer']).lower(), str(r['walkthrough']).lower())
-            return 0
+        if kitchen.review['legacy'] and args.cmd in ('validate', 'doctor'):
+            print(f'kitchen: warning: review.{", review.".join(kitchen.review["legacy"])} are ignored: the kitchen runs no '
+                  'reviewer; remove them from kitchen.toml', file=sys.stderr)
         if args.cmd == 'validate':
             emit({'ok': True, 'profiles': list(kitchen.profiles), 'self': kitchen.review['self'],
                   'landing': kitchen.landing}, args.json,
@@ -1282,8 +1269,7 @@ def main(argv: list[str] | None = None) -> int:
             r = classify(kitchen, changed, getattr(args, 'outside', []), args.escalate)
             text = [f'risk: {r["risk"]}', f'profiles: {", ".join(r["profiles"]) or "none"}',
                     f'diff_lines: {r["diff_lines"]}',
-                    f'verify: {r["verify"]["mode"]} by {r["verify"]["kind"]} verifier', f'sample: {r["sample"]}',
-                    f'review: {r["review"]["engine"]} {r["review"]["style"]} budget {r["review"]["budget"]}']
+                    f'verify: {r["verify"]["mode"]} by {r["verify"]["kind"]} verifier', f'sample: {r["sample"]}']
             text += [f'escalate: {x}' for x in r['escalate']]
             text += [f'unmapped: {x}' for x in r['unmapped']]
             text += [f'outside the repo: {x}' for x in r['outside']]
