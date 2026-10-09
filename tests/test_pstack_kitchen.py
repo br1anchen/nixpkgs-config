@@ -224,6 +224,25 @@ class ClassifyTests(KitchenTests):
         self.run_kitchen('--repo', str(wt), 'statedir')
         self.assertTrue(Path(main, 'ledger.tsv').exists())
 
+    def test_each_bare_repository_gets_its_own_statedir_and_keeps_the_shared_history(self):
+        import hashlib
+        t = Path(self.tmp.name)
+        parent = t / 'bare'
+        state = t / 'state/pstack/kitchen/repos'
+        shared = state / f"bare-{hashlib.sha256(str(parent).encode()).hexdigest()[:8]}"
+        shared.mkdir(parents=True)
+        (shared / 'timings.tsv').write_text('ts\tprofile\n1\tweb\n')
+        dirs = []
+        for name in ('a.git', 'b.git'):
+            git_dir = parent / name
+            subprocess.run(['git', 'clone', '-q', '--bare', str(self.repo), str(git_dir)], check=True)
+            wt = parent / f'{name[0]}-main'
+            subprocess.run(['git', '-C', str(git_dir), 'worktree', 'add', '-q', '--detach', str(wt)], check=True)
+            dirs.append(self.run_kitchen('--repo', str(wt), 'statedir').strip())
+            self.assertEqual(Path(dirs[-1]).name, f"{name}-{hashlib.sha256(str(git_dir).encode()).hexdigest()[:8]}")
+            self.assertEqual(Path(dirs[-1], 'timings.tsv').read_text(), 'ts\tprofile\n1\tweb\n')
+        self.assertNotEqual(dirs[0], dirs[1])
+
     def test_roster_and_statedir(self):
         roster = Path(self.tmp.name) / 'roster.toml'
         roster.write_text('[sidekick]\nkind = "pi"\nargs = ["--model", "devin/swe-2"]\n'

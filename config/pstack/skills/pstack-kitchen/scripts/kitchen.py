@@ -289,17 +289,29 @@ def load(root: Path, at: str | None, config: str | None) -> Kitchen:
 
 # One state directory per repository, keyed by its git common dir, so a
 # worktree (a verifier's scratch, a jj workspace) shares the main checkout's
-# ledger and logs instead of leaving a directory of its own. A ledger kept
-# under the older per-checkout key is copied over once.
+# ledger and logs instead of leaving a directory of its own. The key is the
+# checkout holding .git, or for a bare repository (name.git with worktrees
+# beside it) the git dir itself: keying a bare one on its parent put every
+# bare repository in that directory into one ledger and one timings file.
+# State kept under an older key (per checkout, or a bare repo's parent) is
+# copied over once.
 def state_dir(root: Path) -> Path:
     base = Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state') / 'pstack/kitchen/repos'
     common = git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir', check=False).strip()
-    main = Path(common).parent if common else root
-    d = base / f'{main.name}-{hashlib.sha256(str(main).encode()).hexdigest()[:8]}'
+    def key(p: Path) -> Path:
+        return base / f'{p.name}-{hashlib.sha256(str(p).encode()).hexdigest()[:8]}'
+    if not common:
+        main, older = root, []
+    elif Path(common).name == '.git':
+        main, older = Path(common).parent, []
+    else:
+        main, older = Path(common), [key(Path(common).parent)]
+    d = key(main)
     d.mkdir(parents=True, exist_ok=True)
-    old = base / f'{root.name}-{hashlib.sha256(str(root).encode()).hexdigest()[:8]}'
-    if old != d and (old / 'ledger.tsv').exists() and not (d / 'ledger.tsv').exists():
-        shutil.copy2(old / 'ledger.tsv', d / 'ledger.tsv')
+    for old in [key(root), *older]:
+        for name in ('ledger.tsv', TIMINGS):
+            if old != d and (old / name).exists() and not (d / name).exists():
+                shutil.copy2(old / name, d / name)
     return d
 
 
