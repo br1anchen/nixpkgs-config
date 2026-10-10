@@ -19,6 +19,7 @@
 #   programs.bat     -> bat/config   (Omarchy's BAT_THEME=ansi overrides it anyway)
 #   agent-workflow   -> nvim/after/plugin/herdr_nav.lua
 #   home-manager     -> environment.d/10-home-manager.conf, systemd/user/tray.target
+#   mise-plugins     -> ~/.local/share/mise/plugins/<name> (outside ~/.config; Omarchy's mise.sh only installs tools)
 #
 # The rule that matters is narrower than "nothing under ~/.config": no file that
 # Omarchy reads, writes, migrates or themes may be a home-manager symlink.

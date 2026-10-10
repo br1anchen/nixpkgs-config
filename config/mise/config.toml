@@ -15,6 +15,10 @@ gh = "latest"
 # `omarchy-mise-install pi`, and mise's install dirs sit AHEAD of
 # ~/.nix-profile/bin on PATH, so a nix-pinned pi would be silently shadowed.
 pi = "latest"
+# Prime Agent (PrimeIntellect-ai/prime-agent) has no registry entry; the local
+# plugin in config/mise/plugins/vfox-prime-agent (registered by
+# home-manager/mise-plugins.nix) installs its stable GitHub releases.
+prime-agent = "latest"
 
 # Language runtimes
 node = "26.8.1"
