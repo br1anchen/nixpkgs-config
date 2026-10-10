@@ -110,7 +110,9 @@ review, so the files for one unit sort together.
 | `pstack-trio STOP <store>` | master to sidekick and consultant | `pair.sh stop` | pause safely, write a stop report or advice |
 
 `discuss` returns when both agents settle, with one response path and status
-per role. `consult` returns when the consultant settles into `idle`, `done`, or
+per role. A sidekick busy on a unit does not hold a round up: the consultant
+gets the plan at once, the sidekick's half is `deferred` (exit 4), and running
+`discuss` again once the sidekick reports sends only that half. `consult` returns when the consultant settles into `idle`, `done`, or
 `blocked`. `dispatch` and `wait` return when the sidekick's reply lands, the
 report written since the message, or when it is `blocked`; a settle from
 `herdr` alone is not trusted: a Devin sidekick shows idle as a prompt arrives

@@ -843,6 +843,14 @@ Deadline*)
   verdict="$(sed -n 's/^Deadline reached: write \\(.*\\) now with status.*/\\1/p' <<<"$2")"
   [ "$(cat "$FAKE/verdict-mode" 2>/dev/null)" = grace-writes ] && printf '# Verdict\\n\\nstatus: inconclusive\\nunits: 001\\n\\n## Findings\\n\\nran out of time\\n\\n## Evidence\\n\\n```\\n$ ls\\nok\\n```\\n' >"$verdict"
   ;;
+*" PLAN "*)
+  # A plan round: the sidekick reports and the consultant advises, both agree.
+  plan="${{2##* PLAN }}"
+  case "$1" in
+  *consultant) mkdir -p '{self.store}/advice'; printf 'status: agree\\n' >"{self.store}/advice/$(basename "$plan")" ;;
+  *sidekick) printf 'status: agree\\n' >"{self.store}/reports/$(basename "$plan")" ;;
+  esac
+  ;;
 Load*) [ -e "$FAKE/no-ready" ] || printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;
 esac
 ''')
@@ -1891,11 +1899,37 @@ esac
         plan = self.store / 'plans/001-util.md'
         plan.parent.mkdir(exist_ok=True)
         plan.write_text('# Plan 001: util\n\nrisk: routine\n')
-        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1', code=4)
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
         self.assertIn('rotated: the pi sidekick starts this plan in a fresh session', out)
         self.assertNotIn('needs a fresh session', out)
         self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
         self.assertFalse(self.state()['sidekick'].get('rotation_required'))
+
+    def test_an_escalated_plan_reaches_the_consultant_while_the_sidekick_works(self):
+        state = self.state()
+        state['consultant'] = {'name': 'demo-consultant', 'kind': 'codex'}
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.fake / 'agents/demo-consultant').write_text('idle codex\n')
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        plan = self.store / 'plans/001-api.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text('# Plan 001: api\n\nrisk: escalated\n')
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1', code=4)
+        self.assertIn('sent PLAN 001-api.md to consultant', out)
+        self.assertNotIn('to sidekick', out)
+        self.assertIn('sidekick_response: deferred', out)
+        self.assertIn(f'consultant_response: {self.store}/advice/001-api.md', out)
+        (self.fake / 'agents/demo-sidekick').write_text('idle pi\n')
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        self.assertIn('sent PLAN 001-api.md to sidekick', out)
+        self.assertNotIn('to consultant', out)
+        self.assertIn('sidekick_status: agree', out)
+        self.assertIn('consultant_status: agree', out)
+        self.assertEqual((self.fake / 'calls.log').read_text().count('agent prompt demo-consultant pstack-kitchen PLAN'), 1)
+        (self.fake / 'agents/demo-consultant').write_text('working codex\n')
+        plan.write_text('# Plan 001: api\n\nrisk: escalated\n\nRevised.\n')
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1', code=5)
+        self.assertIn('consultant demo-consultant is working; wait for it before a plan round', out)
 
     def test_a_rotation_that_never_gets_ready_names_the_provider_error_and_the_failover(self):
         state = self.state()

@@ -23,12 +23,15 @@ spawn_consultant() {
 }
 
 # A plan round goes to the sidekick and the consultant at once; each answers
-# in its own file and the master merges. Both must be free to take input.
+# in its own file and the master merges. A sidekick busy on a unit does not
+# hold the round up: the consultant gets the plan now and the sidekick's half
+# waits (exit 4, sidekick_response: deferred) until discuss runs again once it
+# reports. A role whose answer is newer than the plan file is not asked again,
+# so the second discuss sends only the deferred half and returns both answers.
 discuss_with_consultant() {
 	in_herdr
 	[ $# -ge 2 ] || die "usage: pair.sh discuss <store> <plan-path> [--timeout MS]"
 	local store="$1" plan="$2" timeout=540000
-	require_fresh_session "$store"
 	shift 2
 	while [ $# -gt 0 ]; do
 		case "$1" in
@@ -41,48 +44,70 @@ discuss_with_consultant() {
 	plan="$(readlink -f "$plan")"
 	require_not_paused "$store"
 	require_filled "$plan"
-	local role name status seq
+	local role name status seq slug file deferred="" answered=""
+	local -a send=() wait_on=()
 	seq="$(basename "$plan" | cut -c1-3)"
+	slug="$(basename "$plan" .md | cut -c5-)"
 	for role in sidekick consultant; do
 		name="$(field "$store" ".$role.name")"
+		file="$(plan_answer "$store" "$role" "$seq" "$plan")"
+		if [ -n "$file" ]; then
+			answered="$answered $role"
+			wait_on+=("$role")
+			continue
+		fi
 		status="$(agent_status "$name")"
 		case "$status" in
-		idle | done) ;;
+		idle | done) send+=("$role") ;;
 		absent) die "$role $name is not live; run: pair.sh spawn $store --only $role --$role <kind>" 2 ;;
 		blocked) die "$role $name is blocked; inspect: herdr agent read $name --source visible --lines 60" 3 ;;
-		*) die "$role $name is $status; wait for it before a plan round" 5 ;;
+		*)
+			[ "$role" = sidekick ] || die "$role $name is $status; wait for it before a plan round" 5
+			deferred=sidekick ;;
 		esac
 	done
-	for role in sidekick consultant; do
+	[ -z "$deferred" ] || [[ " ${send[*]} $answered " == *" consultant "* ]] ||
+		die "sidekick $(field "$store" .sidekick.name) is working and the consultant has nothing to answer; wait for the sidekick before a plan round" 5
+	[[ " ${send[*]} " != *" sidekick "* ]] || require_fresh_session "$store"
+	for role in "${send[@]}"; do
 		name="$(field "$store" ".$role.name")"
 		herdr agent prompt "$name" "$PAIR_SKILL PLAN $plan" >/dev/null || die "herdr prompt failed for $name" 2
 		event "$store" master send-plan "$plan" "$role"
 		printf 'sent PLAN %s to %s %s\n' "$(basename "$plan")" "$role" "$name"
+		wait_on+=("$role")
 	done
-	local rc=0 out err code file
+	local rc=0 out code
 	for role in sidekick consultant; do
-		name="$(field "$store" ".$role.name")"
-		code=0
-		out="$(herdr agent wait "$name" --timeout "$timeout" 2>/dev/null)" || code=$?
-		status="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
-		[ "$code" -eq 0 ] || status="$(agent_status "$name")"
-		printf '%s_state: %s\n' "$role" "$status"
-		file=""
-		case "$role" in
-		sidekick) file="$(latest_report "$store" "$seq" || true)" ;;
-		consultant) file="$(latest_advice "$store" "$seq" || true)" ;;
-		esac
-		if [ -z "$file" ] && [ "$status" != blocked ]; then
-			printf '%s settled without a response; polling for the file\n' "$role"
-			case "$role" in
-			sidekick) await_file "$store/reports/$seq-$(basename "$plan" .md | cut -c5-).md" "$timeout" && file="$(latest_report "$store" "$seq" || true)" ;;
-			consultant) await_file "$store/advice/$seq-$(basename "$plan" .md | cut -c5-).md" "$timeout" && file="$(latest_advice "$store" "$seq" || true)" ;;
-			esac
+		if [ "$role" = "$deferred" ]; then
+			printf 'sidekick_response: deferred (it is working on a unit); run discuss again once it reports, to send it this plan\n'
+			event "$store" master defer-plan "$plan" sidekick
+			rc=4
+			continue
 		fi
+		[[ " ${wait_on[*]} " == *" $role "* ]] || continue
+		name="$(field "$store" ".$role.name")"
+		file="$(plan_answer "$store" "$role" "$seq" "$plan")"
+		status=answered
+		if [ -z "$file" ]; then
+			code=0
+			out="$(herdr agent wait "$name" --timeout "$timeout" 2>/dev/null)" || code=$?
+			status="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
+			[ "$code" -eq 0 ] || status="$(agent_status "$name")"
+			file="$(plan_answer "$store" "$role" "$seq" "$plan")"
+			if [ -z "$file" ] && [ "$status" != blocked ]; then
+				printf '%s settled without a response; polling for the file\n' "$role"
+				case "$role" in
+				sidekick) await_file "$store/reports/$seq-$slug.md" "$timeout" || true ;;
+				consultant) await_file "$store/advice/$seq-$slug.md" "$timeout" || true ;;
+				esac
+				file="$(plan_answer "$store" "$role" "$seq" "$plan")"
+			fi
+		fi
+		printf '%s_state: %s\n' "$role" "$status"
 		if [ -n "$file" ]; then
 			printf '%s_response: %s\n' "$role" "$file"
 			printf '%s_status: %s\n' "$role" "$(header_field "$file" status)"
-			event "$store" master wake "$plan" "$role:$(header_field "$file" status)"
+			[ "$status" = answered ] || event "$store" master wake "$plan" "$role:$(header_field "$file" status)"
 		else
 			printf '%s_response: missing\n' "$role"
 			rc=4
@@ -90,6 +115,18 @@ discuss_with_consultant() {
 		[ "$status" = blocked ] && rc=3
 	done
 	exit "$rc"
+}
+
+# The role's answer to this plan round: its latest report or advice for the
+# plan's number, when it was written after the plan file; else nothing.
+plan_answer() {
+	local store="$1" role="$2" seq="$3" plan="$4" file
+	case "$role" in
+	sidekick) file="$(latest_report "$store" "$seq" || true)" ;;
+	consultant) file="$(latest_advice "$store" "$seq" || true)" ;;
+	esac
+	[ -n "$file" ] && [ "$file" -nt "$plan" ] && printf '%s' "$file"
+	return 0
 }
 
 cmd_stop() {
