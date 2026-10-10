@@ -1185,6 +1185,10 @@ esac
         calls = (self.fake / 'calls.log').read_text()
         self.assertRegex(calls, r'pane send-keys p\d+ esc')
         self.assertNotRegex(calls, r'send-keys \S+ enter')
+        pane = re.search(r'pane send-keys (p\d+) esc', calls).group(1)
+        self.assertIn(f'pane close {pane}', calls)
+        self.assertNotIn('escalate', (self.store / 'events.tsv').read_text())
+        self.assertEqual(self.state().get('escalations', []), [])
 
     def test_spawned_claude_agents_load_no_mcp_servers(self):
         (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)

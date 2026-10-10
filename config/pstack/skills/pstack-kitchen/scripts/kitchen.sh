@@ -328,10 +328,12 @@ cmd_consultant() {
 		[ "${#native[@]}" -gt 0 ] || mapfile -t native < <(jq -r '.consultant.args[]' <<<"$roster")
 	fi
 	[ -n "$kind" ] || die "no --kind and no [consultant] kind in the host roster"
+	# The escalation is recorded once the consultant is up, so a start that
+	# fails (a trust prompt) and is retried counts it once.
+	spawn_consultant "$store" "$kind" "$permission" 60000 "${native[@]}"
 	json_update "$store" --arg why "$reason" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
 		'.escalations = ((.escalations // []) + [{reason: $why, at: $now}])'
 	event "$store" master escalate - "$reason"
-	spawn_consultant "$store" "$kind" "$permission" 60000 "${native[@]}"
 }
 
 # Why a brief is escalated beyond its paths, one line each: the master wrote

@@ -1173,9 +1173,11 @@ pick_direction() {
 # what to do. Claude's dialog defaults to "No, exit", so an Enter would quit.
 trust_re='trust this folder|project you created or one you trust|do you trust the (files|contents)'
 refuse_untrusted() {
-	local pane="$1" kind="$2" dir="$3"
+	local pane="$1" kind="$2" dir="$3" close="${4:-}"
 	grep -qiE "$trust_re" <<<"$(herdr pane read "$pane" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ')" || return 0
 	herdr pane send-keys "$pane" esc >/dev/null 2>&1 || true
+	# A pane split for this start holds nothing else; a retry opens its own.
+	[ -z "$close" ] || herdr pane close "$pane" >/dev/null 2>&1 || true
 	die "$kind asks whether to trust $dir, and that decision is yours: open $kind there once and trust the folder (or pick another kind), then rerun the spawn" 5
 }
 
@@ -1286,7 +1288,7 @@ spawn_role() {
 		new_pane "$store" "$role" "$anchor" "$direction" "$cwd"
 		pane="$new_pane_id"
 		herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" >/dev/null ||
-			{ refuse_untrusted "$pane" "$kind" "$cwd"; die "agent start failed in $pane; inspect: herdr pane read $pane --source visible" 2; }
+			{ refuse_untrusted "$pane" "$kind" "$cwd" close; die "agent start failed in $pane; inspect: herdr pane read $pane --source visible" 2; }
 	fi
 	local now
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
