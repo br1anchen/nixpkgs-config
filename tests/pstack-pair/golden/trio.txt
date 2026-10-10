@@ -111,10 +111,11 @@ kinds: master claude, sidekick devin, consultant codex
   herdr agent start demo-sidekick --kind devin --pane p1 --timeout 60000 -- --permission-mode dangerous --respect-workspace-trust false
   herdr agent prompt demo-sidekick Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the sidekick role (generation 1, pane p1). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write reports/000-ready.md, and reply READY. --wait --timeout 240000
   herdr pane get p1
+  herdr codex mcp list --json (cwd <T>/repo)
   herdr agent get demo-consultant
   herdr pane layout --pane p1
   herdr pane split --pane p1 --direction right --cwd <T>/repo --no-focus
-  herdr agent start demo-consultant --kind codex --pane p2 --timeout 60000 -- -a on-request -s workspace-write
+  herdr agent start demo-consultant --kind codex --pane p2 --timeout 60000 -- -a on-request -s workspace-write --disable plugins
   herdr agent prompt demo-consultant Load the pstack-trio skill from ~/.agents/skills/pstack-trio/SKILL.md and take the consultant role (generation 1, pane p2). Trio store: <T>/state/pstack/trio/demo. Follow its bootstrap steps, write advice/000-ready.md, and reply READY. --wait --timeout 240000
 
 $ pair.sh spawn <T>/state/pstack/trio/demo --sidekick claude --consultant claude
@@ -2520,7 +2521,9 @@ follow-up. `status: clear` with Blocking "- none" when nothing blocks.>
       "-a",
       "on-request",
       "-s",
-      "workspace-write"
+      "workspace-write",
+      "--disable",
+      "plugins"
     ],
     "generation": 1,
     "bootstrap_pending": false,

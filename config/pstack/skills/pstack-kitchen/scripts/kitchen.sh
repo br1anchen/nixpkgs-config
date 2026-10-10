@@ -759,13 +759,13 @@ cmd_verify() {
 	entry="$(verifier_entry "$store" "$class")"
 	if [ -n "$retry_entry" ]; then
 		kind="$(jq -r .kind <<<"$retry_entry")"
-		mapfile -t args < <(verifier_args "$kind" "$(jq -c '{kind, args}' <<<"$retry_entry")")
+		mapfile -t args < <(verifier_args "$kind" "$(jq -c '{kind, args}' <<<"$retry_entry")" "$(field "$store" .git_root)")
 	elif [ -n "$kind_override" ]; then
 		kind="$kind_override"
-		mapfile -t args < <(verifier_args "$kind" "$(jq -c --arg k "$kind" '[., .fallback][] | select(. != null and .kind == $k) | {kind, args}' <<<"$entry" | head -1)")
+		mapfile -t args < <(verifier_args "$kind" "$(jq -c --arg k "$kind" '[., .fallback][] | select(. != null and .kind == $k) | {kind, args}' <<<"$entry" | head -1)" "$(field "$store" .git_root)")
 	else
 		kind="$(jq -r .kind <<<"$entry")"
-		mapfile -t args < <(verifier_args "$kind" "$entry")
+		mapfile -t args < <(verifier_args "$kind" "$entry" "$(field "$store" .git_root)")
 	fi
 	[ -n "$kind" ] && [ "$kind" != null ] || die "cannot tell which agent kind verifies ($class)"
 	local identity vclass
@@ -907,10 +907,11 @@ set_outcome() {
 }
 
 # A verifier starts with its entry's arguments, then its kind's permission
-# default and trust flag when they are missing; $2 is the entry (or an empty
-# string for a kind the class does not name).
+# default, trust flag and MCP opt-out when they are missing; $2 is the entry
+# (or an empty string for a kind the class does not name), $3 the repo the
+# scratch is checked out from, whose MCP servers the opt-out names.
 verifier_args() {
-	local kind="$1" entry="$2" permission
+	local kind="$1" entry="$2" dir="${3:-}" permission
 	local -a args=()
 	[ -z "$entry" ] || mapfile -t args < <(jq -r '.args[]?' <<<"$entry")
 	if ! has_permission_arg "${args[@]}"; then
@@ -918,7 +919,7 @@ verifier_args() {
 		permission_args "$kind" "$permission"
 	fi
 	has_trust_arg "${args[@]}" || trust_args "$kind"
-	has_mcp_arg "${args[@]}" || mcp_args "$kind"
+	has_mcp_arg "${args[@]}" || mcp_args "$kind" "$dir"
 	[ "${#args[@]}" -eq 0 ] || printf '%s\n' "${args[@]}"
 }
 

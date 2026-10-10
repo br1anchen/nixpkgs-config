@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+# Fake codex for pair tests: `codex mcp list --json` prints $FAKE/codex-mcp.json
+# (the MCP servers configured where it runs), else none. Every call is logged.
+set -u
+: "${FAKE:?}"
+printf 'codex %s (cwd %s)\n' "$*" "$PWD" >>"$FAKE/calls.log"
+case "$*" in
+"mcp list --json") cat "$FAKE/codex-mcp.json" 2>/dev/null || printf '[]\n' ;;
+*) printf 'fake codex: unhandled %s\n' "$*" >&2; exit 2 ;;
+esac

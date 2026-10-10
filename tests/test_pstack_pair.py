@@ -211,7 +211,7 @@ esac
         state = self.state()
         self.assertEqual(state['sidekick']['start_args'], ['--permission-mode', 'smart', '--respect-workspace-trust', 'false'])
         self.assertEqual(state['consultant']['start_args'],
-                         ['-a', 'on-request', '-s', 'read-only'])
+                         ['-a', 'on-request', '-s', 'read-only', '--disable', 'plugins'])
 
 
 class RangeFloorTests(unittest.TestCase):

@@ -1213,6 +1213,24 @@ esac
         self.assertNotIn('--strict-mcp-config', vstart)
         self.assertIn('verifier demo-verifier (claude --model m)', out)
 
+    def test_spawned_codex_agents_turn_off_every_mcp_server_codex_reports(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        (self.fake / 'codex-mcp.json').write_text(json.dumps([
+            {'name': 'chrome-devtools', 'enabled': True}, {'name': 'railway', 'enabled': True},
+            {'name': 'off-already', 'enabled': False}, {'name': 'has.dot', 'enabled': True}]))
+        self.run_sh('consultant', str(self.store), '--reason', 'contract', '--kind', 'codex', code=4)
+        calls = (self.fake / 'calls.log').read_text()
+        start = [line for line in calls.splitlines() if line.startswith('agent start demo-consultant')][-1]
+        self.assertIn('--disable plugins -c mcp_servers.chrome-devtools.enabled=false -c mcp_servers.railway.enabled=false', start)
+        self.assertNotIn('off-already', start)
+        self.assertNotIn('has.dot', start)
+        self.assertIn(f'codex mcp list --json (cwd {self.repo})', calls)
+        self.set_roster('[verifier.escalated]\nkind = "codex"\nargs = ["-c", "mcp_servers.railway.enabled=true"]\n')
+        self.verify_landing()
+        (vstart,) = self.verifier_starts()
+        self.assertIn('mcp_servers.railway.enabled=true', vstart)
+        self.assertNotIn('chrome-devtools', vstart)
+
     def test_close_ends_the_roles_and_closes_their_panes(self):
         state = self.state()
         state['verifying'] = {'verdict': 'x', 'units': '001'}

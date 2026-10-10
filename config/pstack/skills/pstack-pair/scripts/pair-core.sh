@@ -1120,19 +1120,34 @@ trust_args() {
 
 # A spawned agent needs none of the human's MCP servers, and each one is a
 # process per session: the Railway server alone held 150-250 MB in every
-# sidekick and verifier on this host. Claude starts with an empty MCP
-# configuration unless the native arguments name one.
+# sidekick and verifier on this host, and a Codex consultant's set (Chrome
+# DevTools, Firebase, Railway, a repo's own) over 600 MB. Claude starts with an
+# empty MCP configuration unless the native arguments name one. Codex has no
+# such switch: it starts with plugins off (the account's curated plugins, such
+# as Firebase and OpenAI Developers, each bring MCP servers `codex mcp list`
+# does not show; pstack roles load their skills from ~/.agents/skills, not
+# plugins), and each server `codex mcp list` reports in $2 (the agent's
+# working directory: a repo can add its own) is turned off by name. A name
+# that is not a bare TOML key is left on, since Codex rejects a quoted one.
 pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 mcp_args() {
+	local name
 	case "$1" in
 	claude) printf -- '--strict-mcp-config\n--mcp-config\n%s\n' "$pair_core_dir/../references/no-mcp.json" ;;
+	codex)
+		printf -- '--disable\nplugins\n'
+		{ (cd "${2:-.}" 2>/dev/null && timeout 20 codex mcp list --json </dev/null 2>/dev/null) || true; } |
+			jq -r '.[]? | select(.enabled != false) | .name' 2>/dev/null |
+			while IFS= read -r name; do
+				[[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] && printf -- '-c\nmcp_servers.%s.enabled=false\n' "$name"
+			done ;;
 	esac
 }
 
 has_mcp_arg() {
 	local a
 	for a in "$@"; do
-		case "$a" in --mcp-config | --mcp-config=* | --strict-mcp-config) return 0 ;; esac
+		case "$a" in --mcp-config | --mcp-config=* | --strict-mcp-config | mcp_servers.* | --config=mcp_servers.*) return 0 ;; esac
 	done
 	return 1
 }
@@ -1246,7 +1261,7 @@ spawn_role() {
 		fi
 	fi
 	has_trust_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(trust_args "$kind")
-	has_mcp_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(mcp_args "$kind")
+	has_mcp_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(mcp_args "$kind" "$(field "$store" .cwd)")
 	set -- "${agent_args[@]}" "$@"
 	if fresh_per_brief "$kind"; then
 		local arg
