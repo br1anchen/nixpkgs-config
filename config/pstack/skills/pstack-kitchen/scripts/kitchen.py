@@ -406,19 +406,51 @@ def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: lis
     }
 
 
-def acquire_slot(lock_dir: Path, prefix: str, slots: int):
+QUEUE_STALE_S = 60
+
+
+def acquire_slot(lock_dir: Path, prefix: str, slots: int, on_wait=None):
     """Holds one of `slots` machine-wide locks named <prefix>-<i>.lock; returns
-    the open file and the seconds spent waiting for it."""
+    the open file and the seconds spent waiting for it. Waiters queue in
+    arrival order: each keeps a ticket in <prefix>-queue/, named for when it
+    arrived and touched while it waits, and only the `slots` oldest tickets
+    try the locks, so a gate that came later never takes a slot first. A
+    ticket untouched for QUEUE_STALE_S belongs to a waiter that died and is
+    dropped. on_wait(position, waiting) is called when the position changes."""
     start = time.monotonic()
-    while True:
-        for i in range(slots):
-            f = open(lock_dir / f'{prefix}-{i}.lock', 'w')  # noqa: SIM115 - held open as the slot until the gate ends
-            try:
-                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                return f, round(time.monotonic() - start, 1)
-            except BlockingIOError:
-                f.close()
-        time.sleep(2)
+    queue = lock_dir / f'{prefix}-queue'
+    queue.mkdir(parents=True, exist_ok=True)
+    ticket = queue / f'{time.time_ns():020d}-{os.getpid()}'
+    ticket.touch()
+    last = None
+    try:
+        while True:
+            ticket.touch()
+            now = time.time()
+            live = []
+            for t in sorted(queue.iterdir()):
+                try:
+                    if t != ticket and now - t.stat().st_mtime > QUEUE_STALE_S:
+                        t.unlink(missing_ok=True)
+                        continue
+                except OSError:
+                    continue
+                live.append(t)
+            pos = live.index(ticket) if ticket in live else 0
+            if pos < slots:
+                for i in range(slots):
+                    f = open(lock_dir / f'{prefix}-{i}.lock', 'w')  # noqa: SIM115 - held open as the slot until the gate ends
+                    try:
+                        fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        return f, round(time.monotonic() - start, 1)
+                    except BlockingIOError:
+                        f.close()
+            if on_wait and pos != last:
+                on_wait(pos + 1, len(live))
+                last = pos
+            time.sleep(2)
+    finally:
+        ticket.unlink(missing_ok=True)
 
 
 # Heavy profiles share max_parallel_heavy slots across every kitchen on the
@@ -584,7 +616,8 @@ TIMINGS = 'timings.tsv'
 def record_timing(root: Path, profile: str, stage: str, role: str, g: dict) -> None:
     """One row per whole gate run, so verify can size its timeout."""
     secs = round(sum(c['seconds'] for c in g['commands']), 1)
-    row = [str(int(time.time())), profile, stage, role, 'pass' if g['passed'] else 'fail', str(secs)]
+    row = [str(int(time.time())), profile, stage, role, 'pass' if g['passed'] else 'fail', str(secs),
+           str(round(g.get('waited', 0.0), 1))]
     try:
         with open(state_dir(root) / TIMINGS, 'a') as f:
             f.write('\t'.join(row) + '\n')
@@ -621,7 +654,7 @@ def setup_timing(root: Path) -> float | None:
     if path.exists():
         for line in path.read_text().splitlines():
             f = line.split('\t')
-            if len(f) == 6 and f[1] == '-' and f[2] == 'setup' and f[4] == 'pass':
+            if len(f) >= 6 and f[1] == '-' and f[2] == 'setup' and f[4] == 'pass':
                 last = float(f[5])
     return last
 
@@ -665,7 +698,7 @@ def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> 
     if path.exists():
         for line in path.read_text().splitlines():
             f = line.split('\t')
-            if len(f) == 6 and f[1] in runs and f[2] == stage and f[4] == 'pass':
+            if len(f) >= 6 and f[1] in runs and f[2] == stage and f[4] == 'pass':
                 runs[f[1]].append(float(f[5]))
     slowest = {p: max(r[-last:]) for p, r in runs.items() if r}
     return {'stage': stage, 'profiles': slowest, 'seconds': round(sum(slowest.values()), 1),
@@ -677,7 +710,10 @@ def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str
     pool, waited = (None, 0.0)
     if commands and not inside:
         slots = machine_gate_slots()
-        pool, waited = acquire_slot(state_dir(root).parent, 'gate', slots)
+        def queued(pos, n):
+            print(f'kitchen: queued {pos} of {n} for {slots} machine gate slot{"s" if slots > 1 else ""}',
+                  file=sys.stderr, flush=True)
+        pool, waited = acquire_slot(state_dir(root).parent, 'gate', slots, queued)
         if waited >= 2:
             print(f'kitchen: waited {waited:.0f}s for one of {slots} machine gate slots', file=sys.stderr)
     if wrap and commands and not inside:

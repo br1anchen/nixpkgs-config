@@ -392,6 +392,36 @@ class GateTests(KitchenTests):
         results = [json.loads(p.communicate()[0]) for p in procs]
         self.assertEqual(sorted(r['waited'] >= 1.5 for r in results), [False, True])
 
+    def test_gate_slots_go_to_waiters_in_arrival_order_and_skip_dead_tickets(self):
+        import threading
+        lock_dir = Path(self.tmp.name) / 'slots'
+        lock_dir.mkdir()
+        queue = lock_dir / 'gate-queue'
+        queue.mkdir()
+        dead = queue / f'{1:020d}-999999'
+        dead.touch()
+        os.utime(dead, (time.time() - 3600, time.time() - 3600))
+        holder, _ = kitchen.acquire_slot(lock_dir, 'gate', 1)
+        self.assertFalse(dead.exists())
+        order, seen = [], {}
+        def wait(name):
+            f, _ = kitchen.acquire_slot(lock_dir, 'gate', 1, lambda pos, n: seen.setdefault(name, (pos, n)))
+            order.append(name)
+            time.sleep(0.5)
+            f.close()
+        first = threading.Thread(target=wait, args=('first',))
+        first.start()
+        time.sleep(0.5)
+        second = threading.Thread(target=wait, args=('second',))
+        second.start()
+        time.sleep(0.5)
+        holder.close()
+        first.join(20)
+        second.join(20)
+        self.assertEqual(order, ['first', 'second'])
+        self.assertEqual(seen, {'first': (1, 1), 'second': (2, 2)})
+        self.assertEqual(list(queue.iterdir()), [])
+
     def test_unknown_profile(self):
         self.assertIn('no profile web', self.run_kitchen('gate', 'web', 'fast', code=1))
 
@@ -987,6 +1017,25 @@ esac
         self.env['KITCHEN_STEP_SLICE_S'] = '30'
         self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'slow'))
         self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
+
+    def test_a_step_waiting_for_a_gate_slot_says_where_it_stands(self):
+        self.env.update({'PSTACK_KITCHEN_GATE_SLOTS': '1', 'KITCHEN_STEP_SLICE_S': '4'})
+        repos = self.store.parent.parent / 'repos'
+        repos.mkdir(parents=True, exist_ok=True)
+        held, _ = kitchen.acquire_slot(repos, 'gate', 1)
+        self.addCleanup(held.close)
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.write('src/util.py', 'X = 4\n')
+        self.write('tests/test_app.py', 'x = 4\n')
+        sha = self.commit('step')
+        out = self.run_sh('step', str(self.store), sha, 'waits', code=4)
+        self.assertIn('gates: queued 1 of 1 for 1 machine gate slot, behind gates from other kitchens', out)
+        held.close()
+        self.env['KITCHEN_STEP_SLICE_S'] = '30'
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'waits'))
+        rows = (Path(self.env['XDG_STATE_HOME']) / 'pstack/kitchen/repos').glob('*/timings.tsv')
+        waited = [float(line.split('\t')[6]) for f in rows for line in f.read_text().splitlines() if line.split('\t')[3] == 'sidekick']
+        self.assertTrue(any(w >= 2 for w in waited), waited)
 
     def test_quiet_wait_skips_unflagged_check_ins(self):
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))

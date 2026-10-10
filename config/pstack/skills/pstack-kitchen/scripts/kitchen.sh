@@ -551,6 +551,8 @@ cmd_step() {
 	until [ -f "$job/rc" ]; do
 		if [ "$(date +%s)" -ge "$deadline" ]; then
 			printf 'gates: still running for %s (%ss so far; log: %s)\n' "${full:0:9}" "$(( $(date +%s) - $(file_mtime "$job/base") ))" "$job/out"
+			# A gate still waiting for a machine slot says where it stands.
+			grep -E '^kitchen: (queued|waited) ' "$job/out" 2>/dev/null | tail -1 | sed -n 's/^kitchen: \(queued .*\)/gates: \1, behind gates from other kitchens/p' || true
 			printf 'next: this step is not recorded yet; do not end your turn. Run the same command again now, in the foreground, until it records: kitchen.sh step %s %s "%s"\n' "$store" "$sha" "$3"
 			exit 4
 		fi

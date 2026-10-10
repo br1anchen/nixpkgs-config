@@ -53,6 +53,11 @@ differs.
    gate_slots = 1   # gates running at once across every kitchen on this host
    ```
 
+   Gates waiting for a slot take it in arrival order, whichever kitchen
+   they come from; a step still waiting prints its place (`gates: queued 2
+   of 3 for 1 machine gate slot`), and `timings.tsv` records each gate's
+   wait in its last column.
+
    Without `[verifier]`, a routine unit is verified by the sidekick now
    implementing the run (its kind and arguments from `pair.json`, so after a
    failover it is the fallback), and an escalated unit or `verify --landing`
