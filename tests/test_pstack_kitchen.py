@@ -843,7 +843,7 @@ Deadline*)
   verdict="$(sed -n 's/^Deadline reached: write \\(.*\\) now with status.*/\\1/p' <<<"$2")"
   [ "$(cat "$FAKE/verdict-mode" 2>/dev/null)" = grace-writes ] && printf '# Verdict\\n\\nstatus: inconclusive\\nunits: 001\\n\\n## Findings\\n\\nran out of time\\n\\n## Evidence\\n\\n```\\n$ ls\\nok\\n```\\n' >"$verdict"
   ;;
-Load*) printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;
+Load*) [ -e "$FAKE/no-ready" ] || printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;
 esac
 ''')
         hook.chmod(0o755)
@@ -1896,6 +1896,20 @@ esac
         self.assertNotIn('needs a fresh session', out)
         self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
         self.assertFalse(self.state()['sidekick'].get('rotation_required'))
+
+    def test_a_rotation_that_never_gets_ready_names_the_provider_error_and_the_failover(self):
+        state = self.state()
+        state['sidekick']['rotation_required'] = True
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.fake / 'no-ready').touch()
+        (self.fake / 'screen').mkdir(exist_ok=True)
+        (self.fake / 'screen/demo-sidekick').write_text('Error: Reached free model rate limit. Your limit will reset in 8 minutes.\n')
+        out = self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']), code=4)
+        self.assertIn('rotating the sidekick before this brief failed', out)
+        self.assertIn('provider_error: ', out)
+        self.assertIn('rate limit', out)
+        self.assertIn(f'next: pair.sh failover {self.store} --reason provider-error', out)
+        self.assertIn('pi:unready', (self.store / 'events.tsv').read_text())
 
     def test_a_running_command_is_not_a_stale_log(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])

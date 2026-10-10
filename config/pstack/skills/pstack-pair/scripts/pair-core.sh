@@ -940,8 +940,10 @@ agent_session_error() {
 # A sidekick that settles without a report may have hit its model provider,
 # not the task: a capacity or auth error on screen, or an agent that exited.
 # Prints the evidence and the way out, failover when a fallback is recorded.
+# $2 bootstrap: the sidekick never became ready, so the way out is failover,
+# not another prompt.
 provider_hint() {
-	local store="$1" name kind fallback line
+	local store="$1" phase="${2:-}" name kind fallback line
 	name="$(field "$store" .sidekick.name)"
 	kind="$(field "$store" .sidekick.kind)"
 	fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
@@ -961,7 +963,12 @@ provider_hint() {
 	[ -n "$line" ] || line="$logged"
 	[ -n "$line" ] || return 0
 	printf 'provider_error: %s\n' "$line"
-	[ -z "$fallback" ] || printf 'next: prompt the sidekick once to continue; on a second provider error, pair.sh failover %s --reason provider-error\n' "$store"
+	[ -n "$fallback" ] || return 0
+	if [ "$phase" = bootstrap ]; then
+		printf 'next: pair.sh failover %s --reason provider-error\n' "$store"
+	else
+		printf 'next: prompt the sidekick once to continue; on a second provider error, pair.sh failover %s --reason provider-error\n' "$store"
+	fi
 }
 
 cmd_init() {
@@ -1340,6 +1347,10 @@ spawn_role() {
 		event "$store" "$role" spawn - "$kind:ready"
 	else
 		printf '%s settled but %s is missing; state=%s. Read the pane before prompting again.\n' "$role" "$ready" "$(agent_status "$name")" >&2
+		# A provider stop (a rate limit) is the usual cause, and it shows only
+		# in the pane or the agent's session log.
+		[ "$role" != sidekick ] || provider_hint "$store" bootstrap >&2
+		event "$store" "$role" spawn - "$kind:unready"
 		return 4
 	fi
 }
