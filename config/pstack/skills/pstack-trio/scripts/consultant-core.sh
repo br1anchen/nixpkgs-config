@@ -86,9 +86,13 @@ discuss_with_consultant() {
 		fi
 		[[ " ${wait_on[*]} " == *" $role "* ]] || continue
 		name="$(field "$store" ".$role.name")"
-		file="$(plan_answer "$store" "$role" "$seq" "$plan")"
+		# Only a role that had answered before this call skips the wait; one
+		# sent the plan now is waited on, however fast its answer lands.
+		file=""
 		status=answered
-		if [ -z "$file" ]; then
+		if [[ " $answered " == *" $role "* ]]; then
+			file="$(plan_answer "$store" "$role" "$seq" "$plan")"
+		else
 			code=0
 			out="$(herdr agent wait "$name" --timeout "$timeout" 2>/dev/null)" || code=$?
 			status="$(printf '%s' "$out" | jq -r '.result.agent.agent_status // "settled"' 2>/dev/null || printf 'settled')"
