@@ -907,6 +907,27 @@ esac
         self.run_sh('init', 'demo')
         self.assertEqual((self.store / 'standing-orders.md').read_text(), orders)
 
+    def test_init_prepares_a_linked_worktree_with_the_scratch_setup_as_the_sidekick(self):
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + '\n[scratch]\nsetup = ["printf %s \\"$PSTACK_KITCHEN_ROLE\\" > installed"]\n')
+        self.commit('declare setup')
+        self.assertNotIn('worktree:', self.run_sh('init', 'demo'))
+        self.assertFalse((self.repo / 'installed').exists())
+        wt = Path(self.tmp.name) / 'wt'
+        self.git('worktree', 'add', '-q', '--detach', str(wt), 'HEAD')
+        def init(slug):
+            return subprocess.run([str(self.script), 'init', slug], cwd=wt, env=self.env, capture_output=True, text=True)
+        r = init('wt')
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn('worktree: prepared with [scratch].setup (setup: ok (1 commands', r.stdout)
+        self.assertEqual((wt / 'installed').read_text(), 'sidekick')
+        timings = list((Path(self.env['XDG_STATE_HOME']) / 'pstack/kitchen/repos').glob('*/timings.tsv'))
+        self.assertFalse(any('\tsetup\t' in f.read_text() for f in timings))
+        (wt / '.agents/kitchen.toml').write_text(toml.read_text().replace('> installed', '; exit 3'))
+        r = init('wt2')
+        self.assertEqual(r.returncode, 2, r.stdout + r.stderr)
+        self.assertIn('this run is in a linked worktree and its [scratch].setup failed', r.stderr)
+
     def test_spawn_takes_the_roster_and_classify_stamps_the_brief(self):
         sidekick = self.state()['sidekick']
         self.assertEqual((sidekick['kind'], sidekick['fallback']['kind']), ('pi', 'devin'))

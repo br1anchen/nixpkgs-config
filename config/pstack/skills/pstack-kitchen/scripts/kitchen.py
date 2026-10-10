@@ -590,9 +590,10 @@ def run_gate(root: Path, kitchen: Kitchen, profile: str, stage: str, log_dir: Pa
     return out
 
 
-def run_setup(root: Path, kitchen: Kitchen) -> dict:
+def run_setup(root: Path, kitchen: Kitchen, role: str = 'verifier') -> dict:
     """Prepare a bare worktree the repo's way: [scratch].setup, in order, inside the wrap entered
-    once, from the repo root, as the verifier. Fail-fast. No gate slot, retry, or timing sample."""
+    once, from the repo root, as `role`. Fail-fast. No gate slot or retry; only a verifier's run
+    is a timing sample, since it is the one the verifier's deadline budgets for."""
     log_dir = state_dir(root) / 'logs'
     log_dir.mkdir(parents=True, exist_ok=True)
     log = log_dir / f'setup-{time.strftime("%Y%m%dT%H%M%S")}-{os.getpid()}.log'
@@ -603,9 +604,10 @@ def run_setup(root: Path, kitchen: Kitchen) -> dict:
     start = time.monotonic()
     with open(log, 'w') as out:
         code = subprocess.run(['bash', '-c', f'{kitchen.wrap} {inner}' if kitchen.wrap else inner], cwd=root, stdout=out,
-                              stderr=subprocess.STDOUT, env={**os.environ, ROLE: 'verifier'}, check=False).returncode
+                              stderr=subprocess.STDOUT, env={**os.environ, ROLE: role}, check=False).returncode
     seconds = round(time.monotonic() - start, 1)
-    record_setup_timing(root, code == 0, seconds)
+    if role == 'verifier':
+        record_setup_timing(root, code == 0, seconds)
     return {'passed': code == 0, 'commands': kitchen.scratch_setup, 'exit': code, 'seconds': seconds,
             'log': str(log), 'tail': [] if code == 0 else log.read_text(errors='replace').splitlines()[-20:]}
 
@@ -1219,7 +1221,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument('--json', action='store_true', help='machine-readable output')
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('validate', help='parse and check kitchen.toml')
-    sub.add_parser('setup', help='run [scratch].setup in the repo root, inside the wrap')
+    su = sub.add_parser('setup', help='run [scratch].setup in the repo root, inside the wrap')
+    su.add_argument('--role', choices=('verifier', 'sidekick'), default='verifier')
     c = sub.add_parser('classify', help='profiles, risk class, and verify settings for a change')
     p = sub.add_parser('policy', help='forbid rules on added lines, and test-touch')
     for s in (c, p):
@@ -1290,11 +1293,11 @@ def main(argv: list[str] | None = None) -> int:
                   'reviewer; remove them from kitchen.toml', file=sys.stderr)
         if args.cmd == 'validate':
             emit({'ok': True, 'profiles': list(kitchen.profiles), 'self': kitchen.review['self'],
-                  'landing': kitchen.landing}, args.json,
+                  'landing': kitchen.landing, 'setup': kitchen.scratch_setup}, args.json,
                  f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})')
             return 0
         if args.cmd == 'setup':
-            r = run_setup(root, kitchen)
+            r = run_setup(root, kitchen, args.role)
             emit(r, args.json, (f'setup: ok ({len(r["commands"])} commands' + (f', log {r["log"]}' if r['log'] else '') + ')')
                  if r['passed'] else f'setup: FAIL exit {r["exit"]} (log {r["log"]})\n' + '\n'.join(f'  | {t}' for t in r['tail']))
             return 0 if r['passed'] else 2

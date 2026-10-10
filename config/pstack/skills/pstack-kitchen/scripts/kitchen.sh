@@ -255,6 +255,24 @@ cmd_init() {
 			"$(jq -r '.self | join(", ")' <<<"$json")" >>"$orders"
 	grep -q 'kitchen.toml landing.mode' "$orders" ||
 		printf '17. Landing goes as far as `%s` (kitchen.toml landing.mode) and never merges.\n' "$(jq -r .landing <<<"$json")" >>"$orders"
+	worktree_setup "$store" "$json"
+}
+
+# A run in a linked worktree (git worktree add, a jj workspace) starts without
+# the main checkout's untracked dependencies, so its gates would run whatever
+# tool the PATH has instead of the repo's pinned one. init prepares it once
+# the way verifier scratches are prepared: the repo's [scratch].setup, as the
+# sidekick. A failed setup stops init with its log. $2 is validate's JSON.
+worktree_setup() {
+	local store="$1" root out rc=0
+	root="$(field "$store" .git_root)"
+	[ "$(jq '.setup | length' <<<"$2")" -gt 0 ] || return 0
+	[ "$(git -C "$root" rev-parse --path-format=absolute --git-dir)" != "$(git -C "$root" rev-parse --path-format=absolute --git-common-dir)" ] || return 0
+	out="$(kpy "$store" setup --role sidekick 2>&1)" || rc=$?
+	event "$store" master setup - "$([ "$rc" -eq 0 ] && echo pass || echo fail)"
+	[ "$rc" -eq 0 ] || die "this run is in a linked worktree and its [scratch].setup failed:
+$out" 2
+	printf 'worktree: prepared with [scratch].setup (%s)\n' "$out"
 }
 
 cmd_spawn() {
