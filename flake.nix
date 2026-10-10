@@ -164,7 +164,6 @@
           inherit (pkgs)
             pi-coding-agent
             plannotator-pi-extension
-            prime-agent
             vim-herdr-navigation
             ;
         }

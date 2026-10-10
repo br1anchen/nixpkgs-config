@@ -80,7 +80,6 @@
       ncdu
       pandoc
       procs
-      prime-agent
       protobuf
       ripgrep # grep replacement written in Rust
       rtk
