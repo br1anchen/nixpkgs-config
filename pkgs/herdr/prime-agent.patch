@@ -1,0 +1,446 @@
+--- a/src/detect/mod.rs
++++ b/src/detect/mod.rs
+@@ -42,6 +42,7 @@
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ pub enum Agent {
+     Pi,
++    PrimeAgent,
+     Claude,
+     Codex,
+     Gemini,
+@@ -68,8 +69,9 @@
+ }
+
+ impl Agent {
+-    pub const ALL: [Self; 24] = [
++    pub const ALL: [Self; 25] = [
+         Self::Pi,
++        Self::PrimeAgent,
+         Self::Claude,
+         Self::Codex,
+         Self::Gemini,
+@@ -124,6 +126,7 @@
+ pub fn agent_label(agent: Agent) -> &'static str {
+     match agent {
+         Agent::Pi => "pi",
++        Agent::PrimeAgent => "prime-agent",
+         Agent::Claude => "claude",
+         Agent::Codex => "codex",
+         Agent::Gemini => "gemini",
+@@ -153,6 +156,7 @@
+ pub fn interactive_agent_executable(agent: Agent) -> &'static str {
+     match agent {
+         Agent::Pi => "pi",
++        Agent::PrimeAgent => "prime-agent",
+         Agent::Claude => "claude",
+         Agent::Codex => "codex",
+         Agent::Gemini => "gemini",
+@@ -199,6 +203,7 @@
+     let name = path_basename(name);
+     match name {
+         "pi" => Some(Agent::Pi),
++        "prime-agent" => Some(Agent::PrimeAgent),
+         "claude" | "claude-code" => Some(Agent::Claude),
+         "codex" => Some(Agent::Codex),
+         "gemini" => Some(Agent::Gemini),
+@@ -324,6 +329,7 @@
+     matches!(
+         (source, agent_label),
+         ("herdr:pi", "pi")
++            | ("herdr:pi", "prime-agent")
+             | ("herdr:omp", "omp")
+             | ("herdr:mastracode", "mastracode")
+             | ("herdr:opencode", "opencode")
+@@ -875,6 +881,19 @@
+ mod tests {
+     use super::*;
+
++    #[test]
++    fn prime_agent_has_its_own_identity_and_builtin_authority() {
++        assert_eq!(parse_agent_label("prime-agent"), Some(Agent::PrimeAgent));
++        assert_eq!(identify_agent("prime-agent"), Some(Agent::PrimeAgent));
++        assert_eq!(
++            interactive_agent_executable(Agent::PrimeAgent),
++            "prime-agent"
++        );
++        assert!(full_lifecycle_hook_authority("herdr:pi", "prime-agent"));
++        assert!(!full_lifecycle_hook_authority("custom:pi", "prime-agent"));
++        assert!(!full_lifecycle_hook_authority("herdr:pi", "unrelated"));
++    }
++
+     fn foreground_process(
+         pid: u32,
+         name: &str,
+--- a/src/config/sound.rs
++++ b/src/config/sound.rs
+@@ -123,6 +123,7 @@
+     pub fn for_agent(&self, agent: Option<Agent>) -> AgentSoundSetting {
+         match agent {
+             Some(Agent::Pi) => self.pi,
++            Some(Agent::PrimeAgent) => AgentSoundSetting::Default,
+             Some(Agent::Claude) => self.claude,
+             Some(Agent::Codex) => self.codex,
+             Some(Agent::Gemini) => self.gemini,
+--- a/src/agent_resume.rs
++++ b/src/agent_resume.rs
+@@ -123,7 +123,7 @@
+         return None;
+     }
+
+-    if agent == "pi" || agent == "omp" {
++    if matches!(agent, "pi" | "omp" | "prime-agent") {
+         return _agent_session_path
+             .and_then(AgentSessionRef::path)
+             .or_else(|| agent_session_id.and_then(AgentSessionRef::id));
+@@ -185,7 +185,7 @@
+         return None;
+     }
+     let session_ref = match (agent, kind) {
+-        ("pi" | "omp", AgentSessionRefKind::Path) => AgentSessionRef::path(value)?,
++        ("pi" | "omp" | "prime-agent", AgentSessionRefKind::Path) => AgentSessionRef::path(value)?,
+         (_, AgentSessionRefKind::Id) => AgentSessionRef::id(value)?,
+         _ => return None,
+     };
+@@ -234,6 +234,9 @@
+         ("herdr:pi", "pi", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
+             vec!["pi".into(), "--session".into(), session_ref.value.clone()]
+         }
++        ("herdr:pi", "prime-agent", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
++            vec!["prime-agent".into(), "--resume".into(), session_ref.value.clone()]
++        }
+         ("herdr:omp", "omp", AgentSessionRefKind::Path | AgentSessionRefKind::Id) => {
+             // omp resume is `-r, --resume=<value>` (ID prefix or path); it has no
+             // `--session` flag, unlike pi.
+@@ -337,6 +340,7 @@
+             | ("herdr:omp", "omp")
+             | ("herdr:mastracode", "mastracode")
+             | ("herdr:pi", "pi")
++            | ("herdr:pi", "prime-agent")
+             | ("herdr:hermes", "hermes")
+             | ("herdr:opencode", "opencode")
+             | ("herdr:qodercli", "qodercli")
+@@ -451,6 +455,24 @@
+     }
+
+     #[test]
++    fn prime_agent_session_paths_survive_snapshot_and_resume() {
++        let path = absolute_test_path("prime-session.jsonl");
++        let session =
++            session_ref_from_report("herdr:pi", "prime-agent", None, Some(path.clone())).unwrap();
++        let restored =
++            session_ref_from_snapshot("herdr:pi", "prime-agent", session.kind, &session.value)
++                .unwrap();
++        assert_eq!(restored.session_ref, session);
++        assert_eq!(
++            plan(&restored.source, &restored.agent, &session)
++                .unwrap()
++                .argv,
++            vec!["prime-agent", "--resume", path.as_str()]
++        );
++        assert!(session_ref_from_report("custom:pi", "prime-agent", None, Some(path)).is_none());
++    }
++
++    #[test]
+     fn planner_allows_supported_agents() {
+         let pi_session = absolute_test_path("pi-session.jsonl");
+         let omp_session = absolute_test_path("omp-session.jsonl");
+--- a/src/terminal/state.rs
++++ b/src/terminal/state.rs
+@@ -994,15 +994,35 @@
+             }
+         }
+
+-        if process_present
+-            && session_anchored
+-            && !self
++        // Prime combines session identity and state in its first report.
++        // Require a fresh reference after exit, or an explicitly resumed
++        // session, and wait for its real foreground client before activation.
++        let prime_session_start = (source, agent_label) == ("herdr:pi", "prime-agent")
++            && self.hook_authority.is_none()
++            && session_ref.is_some()
++            && seq.is_some()
++            && (self
+                 .suppressed_full_lifecycle_hook_reports
+-                .contains_key(source)
++                .get(source)
++                .is_none_or(|suppressed| suppressed.session_ref.as_ref() != session_ref.as_ref())
++                || self
++                    .managed_agent_launch_session
++                    .as_ref()
++                    .is_some_and(|session| {
++                        session.source == source
++                            && session.agent == agent_label
++                            && Some(&session.session_ref) == session_ref.as_ref()
++                    }));
++        if process_present
++            && (prime_session_start
++                || session_anchored
++                    && !self
++                        .suppressed_full_lifecycle_hook_reports
++                        .contains_key(source))
+         {
+             return FullLifecycleHookReportRoute::Accept {
+-                reanchor_sequence: self
+-                    .full_lifecycle_hook_report_has_fresh_session_after_stale_session(
++                reanchor_sequence: prime_session_start
++                    || self.full_lifecycle_hook_report_has_fresh_session_after_stale_session(
+                         source,
+                         agent_label,
+                         session_ref,
+@@ -1040,6 +1060,9 @@
+                 replacement_session_ref: None,
+                 pending_replacement_report: None,
+             });
++        if prime_session_start {
++            suppressed.replacement_session_ref = Some(session_ref.clone());
++        }
+         let replace_pending = suppressed
+             .pending_replacement_report
+             .as_ref()
+@@ -2208,6 +2231,11 @@
+             return false;
+         };
+         let known_agent = self.effective_known_agent();
++        let input_ready = (self.state == AgentState::Idle
++            && (managed.kind != Agent::PrimeAgent || self.full_lifecycle_hook_authority_active()))
++            || managed.kind == Agent::Codex
++                && self.state == AgentState::Unknown
++                && self.codex_prompt_ready;
+         let observed_expected = match managed.phase {
+             ManagedAgentPhase::Pending {
+                 observed_expected, ..
+@@ -2224,12 +2252,7 @@
+             return true;
+         }
+         if managed.phase == ManagedAgentPhase::Blocked {
+-            if known_agent == Some(managed.kind)
+-                && (self.state == AgentState::Idle
+-                    || managed.kind == Agent::Codex
+-                        && self.state == AgentState::Unknown
+-                        && self.codex_prompt_ready)
+-            {
++            if known_agent == Some(managed.kind) && input_ready {
+                 self.managed_agent = Some(ManagedAgent {
+                     kind: managed.kind,
+                     phase: ManagedAgentPhase::Active,
+@@ -2257,12 +2280,7 @@
+                 return true;
+             }
+             if ready_after.is_none_or(|ready_after| now >= ready_after) {
+-                if known_agent == Some(managed.kind)
+-                    && (self.state == AgentState::Idle
+-                        || managed.kind == Agent::Codex
+-                            && self.state == AgentState::Unknown
+-                            && self.codex_prompt_ready)
+-                {
++                if known_agent == Some(managed.kind) && input_ready {
+                     self.managed_agent = Some(ManagedAgent {
+                         kind: managed.kind,
+                         phase: ManagedAgentPhase::Active,
+@@ -2482,6 +2500,205 @@
+     }
+
+     #[test]
++    fn prime_agent_reports_drive_readiness_and_release() {
++        let mut terminal = test_terminal();
++        let now = Instant::now();
++        terminal.begin_managed_agent(
++            "sidekick".into(),
++            Agent::PrimeAgent,
++            now,
++            Duration::from_millis(100),
++            Duration::from_secs(1),
++        );
++        terminal.set_detected_state(Some(Agent::PrimeAgent), AgentState::Idle);
++        terminal.reconcile_managed_agent_at(now + Duration::from_millis(101), false);
++        assert!(terminal.managed_agent_launch_pending());
++        assert!(!terminal.managed_agent_interactive_ready());
++        let session = crate::agent_resume::AgentSessionRef::path(test_session_path("prime.jsonl"));
++        terminal.set_hook_authority_with_session_ref(
++            "herdr:pi".into(),
++            "prime-agent".into(),
++            AgentState::Idle,
++            None,
++            session.clone(),
++            Some(1),
++        );
++        terminal.reconcile_managed_agent_at(now + Duration::from_millis(101), false);
++        assert!(terminal.managed_agent_interactive_ready());
++        assert_eq!(terminal.effective_known_agent(), Some(Agent::PrimeAgent));
++        for (seq, state) in [
++            (2, AgentState::Working),
++            (3, AgentState::Blocked),
++            (4, AgentState::Idle),
++        ] {
++            terminal.set_hook_authority_with_session_ref(
++                "herdr:pi".into(),
++                "prime-agent".into(),
++                state,
++                None,
++                session.clone(),
++                Some(seq),
++            );
++            assert_eq!(terminal.state, state);
++        }
++        terminal.set_hook_authority_with_session_ref(
++            "herdr:pi".into(),
++            "prime-agent".into(),
++            AgentState::Working,
++            None,
++            session,
++            Some(2),
++        );
++        assert_eq!(terminal.state, AgentState::Idle);
++        assert!(terminal
++            .release_agent_with_mutation("herdr:pi", "prime-agent", Some(5))
++            .is_some());
++        assert!(!terminal.full_lifecycle_hook_authority_active());
++        terminal.set_detected_state_with_screen_signals_at(
++            Some(Agent::PrimeAgent),
++            AgentState::Unknown,
++            false,
++            false,
++            false,
++            true,
++            now + Duration::from_secs(1),
++        );
++        terminal.reconcile_managed_agent_at(now + Duration::from_secs(1), true);
++        assert_eq!(terminal.agent_name, None);
++    }
++
++    #[test]
++    fn prime_agent_initial_report_waits_for_foreground_detection() {
++        let mut terminal = test_terminal();
++        let now = Instant::now();
++        terminal.begin_managed_agent(
++            "sidekick".into(),
++            Agent::PrimeAgent,
++            now,
++            Duration::from_millis(100),
++            Duration::from_secs(1),
++        );
++        let session =
++            crate::agent_resume::AgentSessionRef::path(test_session_path("early-prime.jsonl"));
++        terminal.set_hook_authority_with_session_ref(
++            "herdr:pi".into(),
++            "prime-agent".into(),
++            AgentState::Idle,
++            None,
++            session,
++            Some(1),
++        );
++        assert!(!terminal.full_lifecycle_hook_authority_active());
++        terminal.set_detected_agent_process_at(Agent::PrimeAgent, now + Duration::from_millis(101));
++        assert!(terminal.full_lifecycle_hook_authority_active());
++        terminal.reconcile_managed_agent_at(now + Duration::from_millis(101), false);
++        assert!(terminal.managed_agent_interactive_ready());
++    }
++
++    #[test]
++    fn prime_agent_new_session_replaces_exited_generation() {
++        for report_first in [false, true] {
++            let mut terminal = test_terminal();
++            let now = Instant::now();
++            let old =
++                crate::agent_resume::AgentSessionRef::path(test_session_path("old-prime.jsonl"));
++            terminal.set_detected_state(Some(Agent::PrimeAgent), AgentState::Idle);
++            terminal.set_hook_authority_with_session_ref(
++                "herdr:pi".into(),
++                "prime-agent".into(),
++                AgentState::Idle,
++                None,
++                old.clone(),
++                Some(20),
++            );
++            terminal.set_detected_state_with_screen_signals_at(
++                Some(Agent::PrimeAgent),
++                AgentState::Unknown,
++                false,
++                false,
++                false,
++                true,
++                now,
++            );
++            terminal.begin_managed_agent(
++                "sidekick".into(),
++                Agent::PrimeAgent,
++                now,
++                Duration::from_millis(100),
++                Duration::from_secs(1),
++            );
++            let fresh =
++                crate::agent_resume::AgentSessionRef::path(test_session_path("fresh-prime.jsonl"));
++            if !report_first {
++                terminal.set_detected_agent_process_at(
++                    Agent::PrimeAgent,
++                    now + Duration::from_millis(101),
++                );
++            }
++            terminal.set_hook_authority_with_session_ref(
++                "herdr:pi".into(),
++                "prime-agent".into(),
++                AgentState::Idle,
++                None,
++                fresh.clone(),
++                Some(1),
++            );
++            if report_first {
++                assert!(!terminal.full_lifecycle_hook_authority_active());
++                terminal.set_detected_agent_process_at(
++                    Agent::PrimeAgent,
++                    now + Duration::from_millis(101),
++                );
++            }
++            terminal.reconcile_managed_agent_at(now + Duration::from_millis(101), false);
++            assert!(terminal.managed_agent_interactive_ready());
++            assert_eq!(terminal.hook_authority.as_ref().unwrap().session_ref, fresh);
++            terminal.set_hook_authority_with_session_ref(
++                "herdr:pi".into(),
++                "prime-agent".into(),
++                AgentState::Working,
++                None,
++                old,
++                Some(100),
++            );
++            assert_eq!(terminal.state, AgentState::Idle);
++        }
++    }
++
++    #[test]
++    fn prime_agent_resume_report_can_precede_foreground_detection() {
++        let mut terminal = test_terminal();
++        let now = Instant::now();
++        terminal.begin_managed_agent(
++            "sidekick".into(),
++            Agent::PrimeAgent,
++            now,
++            Duration::from_millis(100),
++            Duration::from_secs(1),
++        );
++        let session =
++            crate::agent_resume::AgentSessionRef::path(test_session_path("resume-prime.jsonl"))
++                .unwrap();
++        terminal.set_managed_agent_launch_session(crate::agent_resume::PersistedAgentSession {
++            source: "herdr:pi".into(),
++            agent: "prime-agent".into(),
++            session_ref: session.clone(),
++        });
++        terminal.set_hook_authority_with_session_ref(
++            "herdr:pi".into(),
++            "prime-agent".into(),
++            AgentState::Idle,
++            None,
++            Some(session),
++            Some(1),
++        );
++        assert!(!terminal.full_lifecycle_hook_authority_active());
++        terminal.set_detected_agent_process_at(Agent::PrimeAgent, now + Duration::from_millis(101));
++        terminal.reconcile_managed_agent_at(now + Duration::from_millis(101), false);
++        assert!(terminal.managed_agent_interactive_ready());
++    }
++
++    #[test]
+     fn managed_agent_readiness_tracks_detection_state() {
+         let mut terminal = test_terminal();
+         let now = Instant::now();

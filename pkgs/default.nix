@@ -7,6 +7,9 @@
 {
   # example = pkgs.callPackage ./example { };
   jj-spr = pkgs.callPackage ./jj-spr { };
+  herdr = pkgs.callPackage ./herdr {
+    upstream = inputs.herdr.packages.${pkgs.stdenv.hostPlatform.system}.herdr;
+  };
   pi-coding-agent = pkgs.callPackage ./pi-coding-agent { };
   plannotator = pkgs.callPackage ./plannotator { };
   plannotator-pi-extension = pkgs.callPackage ./plannotator-pi-extension { };

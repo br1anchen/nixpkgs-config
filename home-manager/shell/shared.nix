@@ -24,11 +24,6 @@
     imise = "mise install";
     dots = "dotfiles-sync";
 
-    # A kitchen master session without the human's MCP servers: their tool
-    # schemas put about 65k tokens in front of every model call, and a master
-    # re-reads its whole context on each of 27-31 calls per unit.
-    kmaster = "claude --strict-mcp-config --mcp-config ~/.agents/skills/pstack-pair/references/no-mcp.json";
-
     # Aikido Safe Chain wraps the package managers it supports.
     npm = "aikido-npm";
     npx = "aikido-npx";

@@ -19,7 +19,7 @@
 
     # Agent workflow
     herdr = {
-      url = "git+https://github.com/herdrdev/herdr?ref=refs/tags/v0.8.2&submodules=1";
+      url = "git+https://github.com/herdrdev/herdr?ref=refs/tags/v0.9.3&submodules=1";
       # Follow our nixpkgs deliberately. herdr pins an older nixpkgs whose Rust
       # crate fetcher still uses https://crates.io/api/v1/..., and crates.io now
       # returns 403 to curl's default User-Agent, so vendoring fails outright.
@@ -168,7 +168,7 @@
             ;
         }
         // nixpkgs.lib.optionalAttrs herdrSupported {
-          herdr = inputs.herdr.packages.${system}.herdr;
+          herdr = pkgs.herdr;
         }
         // nixpkgs.lib.optionalAttrs plannotatorSupported {
           inherit (pkgs) plannotator;
