@@ -177,6 +177,39 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    landed and whether a maintainer session or the human was told. Repo
    classes stay with pstack-kitchen-setup's maintain path.
 
+## Rotate yourself
+
+Your session is the run's largest cost. Every model call re-reads all of
+it, and on this host a master that served several runs re-read 500-900k
+tokens per call, 27-31 calls per unit, which was 55-65% of the run's
+dollars. The fix is a fresh session at a unit boundary, with a handoff in
+place of the history:
+
+- One master session per run. Never carry a session into the next run;
+  start a new one, and start it without the human's MCP servers (an MCP-free
+  master's first call is about 52k tokens; one with them, about 117k):
+  `claude --strict-mcp-config --mcp-config ~/.agents/skills/pstack-pair/references/no-mcp.json`.
+- After every `KITCHEN_MASTER_ROTATE_UNITS` (5) clean unit verdicts,
+  `verify` prints `master: N units verified since your last handoff`. At
+  that boundary, with no dispatch you must answer this turn:
+  `kitchen.sh new-handoff <store>` writes `session-handoff.md` from
+  [the template](handoff-template.md) with every unit's state filled in.
+  Fill Goal, Decisions and Next, correct Units, then
+  `kitchen.sh rotate-master <store>` and end your turn with no further
+  commands. The kitchen exits this session once it is idle and starts the
+  next generation in your pane, MCP-free, with your permission mode and
+  model, prompted to read the handoff first. Open dispatches, queued briefs
+  and open verifications survive: the new master runs `wait` or
+  `verify --wait` on them.
+- `rotate-master` records the session it closes under `pair.json`
+  `.master.sessions`, so a human can `claude --resume <id>` it.
+
+On `pstack-kitchen MASTER <store>`: you are that next generation. Read
+`session-handoff.md`, `standing-orders.md` and `pair.json` (the dispatch,
+queue and verifying fields), then the files the handoff points at, and
+continue from its Next section. Do not re-run `init` or `spawn`; the roles
+are live.
+
 ## Briefs for a cheaper sidekick
 
 The sidekick is the largest pool and often not the strongest model. A

@@ -851,6 +851,7 @@ Deadline*)
   *sidekick) printf 'status: agree\\n' >"{self.store}/reports/$(basename "$plan")" ;;
   esac
   ;;
+Load*MASTER*) printf '%s\\n' "$2" >"$FAKE/master-bootstrap" ;;
 Load*) [ -e "$FAKE/no-ready" ] || printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;
 esac
 ''')
@@ -1230,6 +1231,62 @@ esac
         (vstart,) = self.verifier_starts()
         self.assertIn('mcp_servers.railway.enabled=true', vstart)
         self.assertNotIn('chrome-devtools', vstart)
+
+    def test_new_handoff_lists_the_units_and_rotate_master_restarts_the_master_in_its_pane(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        self.run_sh('verify', str(self.store), '001')
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        self.brief('002', 'next', ['docs/**'])
+        out = self.run_sh('new-handoff', str(self.store))
+        handoff = self.store / 'session-handoff.md'
+        self.assertEqual(out.splitlines()[0], str(handoff))
+        text = handoff.read_text()
+        self.assertIn('# Handoff: demo (master generation 1)', text)
+        self.assertIn('| 001 util | done | clean | accept |', text)
+        self.assertIn('| 002 next | - | - | - |', text)
+        self.assertIn('still has unfilled placeholders', self.run_sh('rotate-master', str(self.store), code=1))
+        text = re.sub(r'\{\{.*?\}\}', '', text, flags=re.S)
+        text = text.replace('## Goal\n', '## Goal\n\nShip util.\n').replace('## Next\n', '## Next\n\n1. kitchen.sh dispatch 002\n')
+        handoff.write_text(text)
+        (self.fake / 'session-ids').mkdir(exist_ok=True)
+        (self.fake / 'session-ids/demo-master').write_text('m-gen1 /work\n')
+        self.env['KITCHEN_ROTATE_POLL_S'] = '0.2'
+        out = self.run_sh('rotate-master', str(self.store))
+        self.assertIn('handoff recorded: ' + str(self.store / 'sessions/master-1-handoff.md') + ' (generation 1, session m-gen1)', out)
+        self.assertIn('claude --resume m-gen1', out)
+        state = self.state()
+        self.assertEqual(state['master']['generation'], 2)
+        self.assertEqual(state['master']['units_since_handoff'], 0)
+        self.assertEqual(state['master']['sessions'][0]['session'], 'm-gen1')
+        for _ in range(100):
+            if (self.fake / 'master-bootstrap').exists():
+                break
+            time.sleep(0.2)
+        bootstrap = (self.fake / 'master-bootstrap').read_text()
+        self.assertIn(f'pstack-kitchen MASTER {self.store} (generation 2). Read {self.store}/session-handoff.md first.', bootstrap)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertIn('agent prompt demo-master /exit', calls)
+        start = [line for line in calls.splitlines() if line.startswith('agent start demo-master')][-1]
+        self.assertIn('--kind claude --pane p0', start)
+        self.assertIn('--strict-mcp-config --mcp-config', start)
+        self.assertIn('--permission-mode', start)
+        events = (self.store / 'events.tsv').read_text()
+        self.assertIn('\tmaster\thandoff\t-\tgeneration:1', events)
+        self.assertIn('\tmaster\tspawn\t-\tclaude:generation:2', events)
+        self.assertEqual((self.store / 'sessions/master-1-handoff.md').read_text(), handoff.read_text())
+
+    def test_verify_nudges_a_handoff_after_the_configured_number_of_units(self):
+        self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'
+        heads = self.three_units()
+        out = self.run_sh('verify', str(self.store), '001')
+        self.assertNotIn('since your last handoff', out)
+        out = self.run_sh('verify', str(self.store), '002')
+        self.assertIn('master: 2 units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff', out)
+        self.assertEqual(self.state()['master']['units_since_handoff'], 2)
 
     def test_close_ends_the_roles_and_closes_their_panes(self):
         state = self.state()

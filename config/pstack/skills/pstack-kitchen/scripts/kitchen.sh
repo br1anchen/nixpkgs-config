@@ -64,6 +64,12 @@ consult, advice. These differ or are new:
   land-check <store>                        every accepted unit verified
   catch <store> <layer> <text>              record a miss found later (audit, human review): layer is
                                             gate, policy, self, verify, review, triage, or escalation
+  new-handoff <store>                       write session-handoff.md from the template, with every unit's state
+  rotate-master <store> [--model M] [--after MIN]
+                                            record the filled handoff and this master's session, then once its
+                                            turn ends exit it and start the next generation in the same pane
+                                            (MCP-free, same permission mode and model); nudged by verify after
+                                            KITCHEN_MASTER_ROTATE_UNITS (5) verified units
   close <store> [--force]                   end a finished run's sidekick, consultant and verifier and close
                                             their panes; refuses while a verification is open or the sidekick
                                             works (--force overrides); the master's own pane stays
@@ -443,7 +449,7 @@ cmd_wait() {
 	quiet_wait "$@"
 }
 
-# A sidekick that starts fresh per brief (pi, devin) is rotated before the
+# A sidekick that starts fresh per brief (pi, prime-agent, devin) is rotated before the
 # next brief or plan once its last unit is done, so the rotation costs the
 # master no extra wake. Partial or blocked work never sets rotation_required
 # and keeps its session. $1 store, $2 what comes next (brief or plan).
@@ -811,7 +817,9 @@ cmd_verify() {
 	[ -n "$anchor" ] && herdr pane get "$anchor" >/dev/null 2>&1 || anchor="$(field "$store" .master.pane_id)"
 	new_pane "$store" verifier "$anchor" "" "$scratch" >/dev/null
 	pane="$new_pane_id"
-	if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 -- "${args[@]}" >/dev/null; then
+	local start_failed=0
+	herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 -- "${args[@]}" >/dev/null || start_failed=1
+	if [ "$start_failed" -eq 1 ] && [ "$kind" != prime-agent ]; then
 		local why="verifier start failed in $pane"
 		if grep -qiE "$trust_re" <<<"$(herdr pane read "$pane" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ')"; then
 			why="$kind asks whether to trust $scratch, and that decision is yours: open $kind in the repo once and trust it, or verify with another kind"
@@ -831,11 +839,22 @@ cmd_verify() {
 		--argjson started "$started_at" --argjson deadline "$(( started_at + timeout_m * 60 ))" \
 		--arg class "$class" --argjson entry "$entry" --argjson retried "$(if [ -n "$retry_entry" ]; then echo true; else echo false; fi)" \
 		--argjson argv "$(jq -cn '$ARGS.positional' --args -- "${argv[@]}")" \
+		--argjson native "$(jq -cn '$ARGS.positional' --args -- "${args[@]}")" \
+		--arg launch_cwd "$scratch" \
 		'.verifier.pane_id = $pane | .verifier.kind = $kind
+		 | if $kind == "prime-agent" then .verifier.start_args = $native | .verifier.session = null | .verifier.session_stopped = false | .verifier.closed = false | .verifier.launch_cwd = $launch_cwd else . end
 		 | .verifying = {verdict: $verdict, packet: $packet, brief: $brief, scratch: $scratch, units: $units,
 		                 risk: $risk, sample: $sample, unit: $unit, started: $started, deadline: $deadline,
 		                 class: $class, entry: $entry, retried: $retried, argv: $argv}'
 	set_outcome "$packet" running
+	if [ "$kind" = prime-agent ]; then
+		if [ "$start_failed" -eq 1 ]; then
+			set_outcome "$packet" start-failed
+			record_prime_session "$store" verifier || true
+			die "Prime verifier start failed in $pane; its pane and scratch stay for inspection (verify-wait can resume cleanup once its session is reported)" 5
+		fi
+		record_prime_session "$store" verifier || die "Prime verifier did not report its session; its pane and scratch stay for inspection" 5
+	fi
 	event "$store" master send-verify "$brief" "$kind:${all[*]:-landing}"
 	record_verifier_session "$store" "$name"
 	printf 'verifier %s (%s) in %s on %s..%s\n' "$name" "$identity" "$pane" "${base:0:9}" "${head:0:9}"
@@ -958,6 +977,10 @@ verifier_trail() {
 # from the error stop its session log recorded. Empty when there is none.
 verifier_provider_error() {
 	local store="$1" name="$2" line="" session
+	if [ "$(field "$store" .verifier.kind)" = prime-agent ]; then
+		prime_role_error "$store" verifier
+		return 0
+	fi
 	[ "$(agent_status "$name")" = absent ] ||
 		line="$(grep -oiE ".{0,60}($provider_error_re).{0,100}" <<<"$(pane_text "$name")" | tail -1 || true)"
 	session="$(field "$store" '.verifying.session // empty')"
@@ -1011,7 +1034,7 @@ verify_grace() {
 		now="$(date +%s)"
 		[ "$now" -lt "$grace_until" ] || return 0
 		case "$state" in
-		idle | "done") [ -z "$(verifier_provider_error "$store" "$name")" ] || return 0 ;;
+		idle | "done" | blocked) [ -z "$(verifier_provider_error "$store" "$name")" ] || return 0 ;;
 		esac
 		if [ "$now" -ge "$until" ]; then
 			printf 'verifying: units %s by %s, past its deadline; grace %ss left (%s), verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
@@ -1050,6 +1073,11 @@ verify_wait() {
 		# A verifier that ended its turn on a provider error will not write.
 		idle_since="$(field "$store" '.verifying.idle_since // empty')"
 		case "$state" in
+		blocked)
+			if [ "$(field "$store" .verifier.kind)" = prime-agent ] && [ -n "$(verifier_provider_error "$store" "$name")" ]; then
+				break
+			fi
+			[ -z "$idle_since" ] || json_update "$store" 'del(.verifying.idle_since)' ;;
 		idle | "done")
 			[ -z "$(verifier_provider_error "$store" "$name")" ] || break
 			if [ -n "$(busy_command "$(field "$store" .verifier.pane_id)" "$(field "$store" .verifying.started)")" ]; then
@@ -1084,10 +1112,15 @@ verify_wait() {
 	fallback="$(field "$store" '.verifying.entry.fallback // empty' | jq -c . 2>/dev/null || true)"
 	retried="$(field "$store" '.verifying.retried // false')"
 	mapfile -t argv < <(jq -r '.verifying.argv[]?' "$store/pair.json")
-	herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
-	local gone=$(( $(date +%s) + 15 ))
-	while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
+	if [ "$kind" = prime-agent ]; then
+		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5
+	else
+		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
+		local gone=$(( $(date +%s) + 15 ))
+		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
+	fi
 	herdr pane close "$pane" >/dev/null 2>&1 || true
+	[ "$kind" != prime-agent ] || json_update "$store" '.verifier.closed = true'
 	cmd_scratch "$store" "$(field "$store" .verifying.scratch)" --remove >/dev/null
 	# The attempt's outcome is written to its packet before .verifying goes and
 	# before any fallback starts, so fleet can tell attempts apart.
@@ -1144,6 +1177,7 @@ verify_wait() {
 		else
 			printf 'audit: no\n'
 		fi
+		handoff_due "$store" "$unit"
 		exit 0 ;;
 	reject)
 		awk '/^## Findings/{p=1; next} /^## /{p=0} p' "$verdict" | sed '/^$/d' | head -20
@@ -1167,6 +1201,17 @@ verify_wait() {
 # Forbidden of the briefs it fixes. A unit verdict fixes its last unit; a
 # landing verdict fixes the stack, so its brief takes the union of the units'
 # Scopes and is proved again with verify --landing.
+# Every clean unit verdict counts toward the master's next handoff; after
+# KITCHEN_MASTER_ROTATE_UNITS (default 5) the verdict says to rotate.
+handoff_due() {
+	local store="$1" n
+	[ "$2" != landing ] || return 0
+	json_update "$store" '.master.units_since_handoff = ((.master.units_since_handoff // 0) + 1)'
+	n="$(field "$store" .master.units_since_handoff)"
+	[ "$n" -ge "${KITCHEN_MASTER_ROTATE_UNITS:-5}" ] || return 0
+	printf 'master: %s units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff %s, fill it, kitchen.sh rotate-master %s\n' "$n" "$store" "$store"
+}
+
 cmd_revise() {
 	[ $# -eq 2 ] || die "usage: kitchen.sh revise <store> <verdict-path>"
 	local store="$1" verdict="$2" units slug path b u landing=0
@@ -1358,6 +1403,155 @@ cmd_close() {
 		close_role "$store" "$role" || rc=1
 	done
 	[ "$rc" -eq 0 ] || exit 5
+}
+
+# The master's own session grows with every diff and file it reads, and
+# every model call re-reads all of it: on this host a master that served
+# several runs re-read 500-900k tokens per call, at 27-31 calls per unit. A
+# handoff lets the master end its session at a unit boundary and start a
+# fresh one in the same pane, which reads the handoff and the store instead
+# of the history. new-handoff writes the template with the units' state
+# filled in; rotate-master records the filled handoff and the session it
+# closes, then restarts the master once its turn ends.
+cmd_new_handoff() {
+	[ $# -eq 1 ] || die "usage: kitchen.sh new-handoff <store>"
+	local store="$1" path gen units
+	pair_file "$store" >/dev/null
+	path="$store/session-handoff.md"
+	gen="$(field "$store" '.master.generation // 1')"
+	units="$(handoff_units "$store")"
+	UNITS="$units" python3 - "$skill_root/references/handoff-template.md" "$path" "$(field "$store" .slug)" "$store" "$gen" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" <<'PY'
+import os, sys
+src, dst, slug, store, gen, now = sys.argv[1:7]
+text = open(src).read()
+for k, v in {'SLUG': slug, 'STORE': store, 'GENERATION': gen, 'WRITTEN': now, 'UNITS': os.environ['UNITS']}.items():
+    text = text.replace('{{' + k + '}}', v)
+open(dst, 'w').write(text)
+PY
+	printf '%s\n' "$path"
+	printf 'next: fill it (Goal, Decisions, Next; correct Units), then kitchen.sh rotate-master %s\n' "$store"
+}
+
+# One row per unit: brief, report status, latest verdict, review verdict.
+handoff_units() {
+	local store="$1" b seq slug report rstatus verdict vstatus review rv
+	printf '| unit | report | verdict | review |\n|---|---|---|---|\n'
+	for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
+		[ -e "$b" ] || continue
+		seq="$(basename "$b" | cut -c1-3)"
+		slug="$(basename "$b" .md | cut -c5-)"
+		rstatus=-
+		report="$(ls -t "$store"/reports/"$seq"-*.md 2>/dev/null | head -1 || true)"
+		[ -z "$report" ] || rstatus="$(header_field "$report" status)"
+		vstatus=-
+		verdict="$(ls -t "$store"/verdicts/"$seq"-*-v[0-9]*.md 2>/dev/null | grep -v packet | head -1 || true)"
+		[ -z "$verdict" ] || vstatus="$(header_field "$verdict" status)"
+		rv=-
+		review="$store/reviews/$seq-$slug.md"
+		[ ! -f "$review" ] || rv="$(header_field "$review" verdict)"
+		printf '| %s %s | %s | %s | %s |\n' "$seq" "$slug" "${rstatus:--}" "${vstatus:--}" "${rv:--}"
+	done
+	[ -z "$(field "$store" '.dispatch.brief // empty')" ] || printf '\ndispatched: %s\n' "$(basename "$(field "$store" .dispatch.brief)")"
+	[ -z "$(field "$store" '.verifying.unit // empty')" ] || printf 'verifying: %s\n' "$(field "$store" .verifying.unit)"
+	[ -z "$(queued_brief "$store")" ] || printf 'queued: %s\n' "$(basename "$(queued_brief "$store")")"
+}
+
+# The --model the master's own Claude was started with, so the next
+# generation runs the same model; empty when none is on its command line.
+detect_model_arg() {
+	local pid=$$ ppid comm args depth=0
+	while [ "$pid" -gt 1 ] && [ "$depth" -lt 12 ]; do
+		ppid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')" || break
+		[ -n "$ppid" ] || break
+		comm="$(basename "$(ps -o comm= -p "$pid" 2>/dev/null)")"
+		args="$(ps -o args= -p "$pid" 2>/dev/null)"
+		case "$comm" in node | bun) case "$args" in *claude*) comm=claude ;; esac ;; esac
+		if [ "$comm" = claude ]; then
+			sed -nE 's/.*--model[= ]([^ ]+).*/\1/p' <<<"$args"
+			return 0
+		fi
+		pid="$ppid"
+		depth=$((depth + 1))
+	done
+}
+
+cmd_rotate_master() {
+	in_herdr
+	[ $# -ge 1 ] || die "usage: kitchen.sh rotate-master <store> [--model MODEL] [--after MIN]"
+	local store="$1" model="" after="${KITCHEN_ROTATE_AFTER_M:-15}" name pane kind gen session handoff permission
+	shift
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--model) model="$2"; shift 2 ;;
+		--after) after="$2"; shift 2 ;;
+		*) die "unknown option $1" ;;
+		esac
+	done
+	pair_file "$store" >/dev/null
+	handoff="$store/session-handoff.md"
+	[ -f "$handoff" ] || die "no handoff; write one first: kitchen.sh new-handoff $store" 5
+	require_filled "$handoff"
+	for s in Goal Next; do
+		[ -n "$(awk -v h="## $s" '$0 == h {p=1; next} /^## /{p=0} p && NF' "$handoff")" ] || die "$handoff: the $s section is empty" 5
+	done
+	name="$(field "$store" .master.name)"
+	pane="$(field "$store" .master.pane_id)"
+	[ "$(agent_status "$name")" != absent ] || die "master $name is not live in $pane; run this from the master's own session" 5
+	kind="$(agent_kind "$name")"
+	[ "$kind" = claude ] || die "rotate-master restarts a Claude master; $name is $kind" 5
+	[ -n "$model" ] || model="$(detect_model_arg)"
+	gen="$(field "$store" '.master.generation // 1')"
+	session="$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_session.value // empty' 2>/dev/null || true)"
+	mkdir -p "$store/sessions"
+	cp "$handoff" "$store/sessions/master-$gen-handoff.md"
+	permission="$(field "$store" '.master.permission_mode // empty')"
+	[ -n "$permission" ] || permission="$(detect_permission_mode)"
+	local -a args=()
+	mapfile -t args < <(permission_args claude "$permission")
+	[ -z "$model" ] || args+=(--model "$model")
+	mapfile -t -O "${#args[@]}" args < <(mcp_args claude)
+	json_update "$store" --arg s "$session" --arg h "$store/sessions/master-$gen-handoff.md" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson g "$gen" \
+		'.master.generation = ($g + 1) | .master.units_since_handoff = 0
+		 | .master.sessions = ((.master.sessions // []) + [{generation: $g, session: $s, handoff: $h, at: $now}])'
+	event "$store" master handoff - "generation:$gen"
+	local log="$store/sessions/master-rotate-$gen.log"
+	# The watcher outlives this command and the master's session: it waits
+	# for the master's turn to end, exits it, and starts the next generation
+	# in the same pane with the handoff bootstrap.
+	KITCHEN_ROTATE_POLL_S="${KITCHEN_ROTATE_POLL_S:-5}" setsid bash -c '
+		name="$1"; pane="$2"; store="$3"; gen="$4"; after="$5"; skill="$6"; shift 6
+		poll="${KITCHEN_ROTATE_POLL_S:-5}"
+		row() { printf "%s\t%s\tmaster\t%s\t-\t%s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date +%s)" "$1" "$2" >>"$store/events.tsv"; }
+		status() { local s; s="$(herdr agent get "$name" 2>/dev/null | jq -r ".result.agent.agent_status // \"unknown\"" 2>/dev/null)"; printf "%s" "${s:-absent}"; }
+		deadline=$(( $(date +%s) + after * 60 ))
+		until s="$(status)"; [ "$s" = idle ] || [ "$s" = done ] || [ "$s" = absent ]; do
+			[ "$(date +%s)" -lt "$deadline" ] || { echo "master still $s after ${after}m; rotation abandoned"; row rotate-abandoned "generation:$gen"; exit 1; }
+			sleep "$poll"
+		done
+		if [ "$s" != absent ]; then
+			herdr agent prompt "$name" /exit >/dev/null 2>&1 || true
+			gone=$(( $(date +%s) + 60 ))
+			until [ "$(status)" = absent ]; do
+				[ "$(date +%s)" -lt "$gone" ] || { echo "master did not exit"; row rotate-abandoned "generation:$gen"; exit 1; }
+				sleep "$poll"
+			done
+		fi
+		echo "generation $gen ended; starting $((gen + 1)) in $pane with: $*"
+		herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 -- "$@" >/dev/null 2>&1 ||
+			{ echo "agent start failed; start the master by hand in $pane"; row rotate-failed "generation:$((gen + 1))"; exit 1; }
+		row spawn "claude:generation:$((gen + 1))"
+		herdr agent prompt "$name" "Load the $skill skill from ~/.agents/skills/$skill/SKILL.md and take the master role: $skill MASTER $store (generation $((gen + 1))). Read $store/session-handoff.md first." \
+			--wait --until working --timeout 30000 >/dev/null 2>&1 || true
+		sleep "$poll"
+		if herdr agent read "$name" --source visible --lines 12 2>/dev/null | tr -d "\n │" | grep -qF "session-handoff.md"; then
+			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+		fi
+		echo "generation $((gen + 1)) started"
+	' kitchen-rotate "$name" "$pane" "$store" "$gen" "$after" "$PAIR_SKILL" "${args[@]}" >"$log" 2>&1 </dev/null &
+	disown 2>/dev/null || true
+	printf 'handoff recorded: %s (generation %s, session %s)\n' "$store/sessions/master-$gen-handoff.md" "$gen" "${session:-unknown}"
+	printf 'next: end your turn now, with no further commands. Once this session is idle the kitchen exits it and starts generation %s in %s (log: %s); resume this one later with: claude --resume %s\n' \
+		"$((gen + 1))" "$pane" "$log" "${session:-<id>}"
 }
 
 cmd_retro() {
