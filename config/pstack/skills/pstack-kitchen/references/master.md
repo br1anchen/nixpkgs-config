@@ -15,7 +15,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
 1. **Frame.** As in the pair: route through poteto-mode, stop before any
    code write, state the done predicate, split the work into units that each
    end in a verifiable state.
-2. **Open the store.** `kitchen.sh init <slug>`. Put the human's constraints
+2. **Open the store.** `kitchen.sh init <slug>` from a fresh, MCP-free
+   session (see Rotate yourself). Put the human's constraints
    and the landing policy in `standing-orders.md`. Check the kitchen:
    `kitchen.py validate`; a missing or failing kitchen goes to
    pstack-kitchen-setup first.
@@ -209,6 +210,20 @@ On `pstack-kitchen MASTER <store>`: you are that next generation. Read
 queue and verifying fields), then the files the handoff points at, and
 continue from its Next section. Do not re-run `init` or `spawn`; the roles
 are live.
+
+## Delegated reads
+
+What you read stays in your context for the rest of the session, and the
+reads that fill it are diffs and files for review: `git show`, `git diff`,
+`sed -n`, `cat`, `Read`, a few thousand tokens each, hundreds per run. Read
+directly only what you act on in this turn (a verdict's Findings, a
+report's review-delta, a digest). For everything else, delegate the read to
+a subagent of your harness (Claude Code: the Agent tool, Explore type) with
+a bounded question and a bounded answer: "read range A..B for unit NNN
+against its Acceptance; report findings as file:line and one sentence each,
+at most ten; say `none` otherwise". Only the answer enters your context; the
+subagent's reading is discarded with it. The same holds for an audit read
+(`audit: yes`), a landing review and a consultant's prototype.
 
 ## Briefs for a cheaper sidekick
 
