@@ -1,6 +1,6 @@
 ---
 name: pstack-kitchen
-description: "Run coding work as a kitchen in one Herdr session: a master that plans, briefs, triages code review, and decides; a sidekick on the cheapest capable model that implements under the repo's own deterministic gates; a consultant started only when a unit escalates; and a fresh verifier pane that proves each unit on the real surface. The master is woken by exceptions, not by every step. Needs the repo's .agents/kitchen.toml (pstack-kitchen-setup writes it). Use for /pstack-kitchen, 'kitchen mode', 'run the kitchen', a `pstack-kitchen PLAN|BRIEF|STEER|CONSULT|VERIFY|REPORT|ADVICE|FEEDBACK|STOP` message, 'be the sidekick/consultant/verifier' in a kitchen, or sustained delegated work that should not need the master on every step. Requires HERDR_ENV=1."
+description: "Run coding work as a kitchen in one Herdr session: a master that plans, briefs, triages code review, and decides; a sidekick on the cheapest capable model that implements under the repo's own deterministic gates; a consultant started only when a unit escalates; and a fresh verifier pane that proves each unit on the real surface. The master is woken by exceptions, not by every step. Needs the repo's .agents/kitchen.toml (pstack-kitchen-setup writes it). Use for /pstack-kitchen, 'kitchen mode', 'run the kitchen', a `pstack-kitchen PLAN|BRIEF|STEER|CONSULT|VERIFY|REPORT|ADVICE|FEEDBACK|MASTER|STOP` message, 'be the sidekick/consultant/verifier' in a kitchen, or sustained delegated work that should not need the master on every step. Requires HERDR_ENV=1."
 ---
 
 Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. Its runtime mappings apply to all referenced playbooks and scripts.
@@ -17,7 +17,7 @@ woken by exceptions, not by routine steps. What keeps going wrong becomes a
 rule in the kitchen, not another correction.
 
 Everything [pstack-pair](../pstack-pair/SKILL.md) says about the store, the
-messages, plans, check-ins, steers, the queue, notes, pausing, Devin and Pi
+messages, plans, check-ins, steers, the queue, notes, pausing, Devin, Pi, and Prime
 sidekicks, and shared rules holds here, with `kitchen.sh` in place of
 `pair.sh` and `pstack-kitchen` in every message. This file covers what
 differs.
@@ -67,6 +67,12 @@ differs.
    Every gate takes one of the machine's slots, so parallel kitchens queue
    their test suites instead of overloading the machine. The default is one
    slot per eight cores.
+
+To use Prime Agent, set `kind = "prime-agent"` in `[sidekick]`,
+`[consultant]`, or a verifier entry, with Prime-native `args`. Read
+[the Prime adapter](../pstack-pair/references/prime-sidekick.md). Each verifier
+stops its exact daemon session before its scratch worktree is removed; failed
+cleanup preserves both the pane and scratch for inspection.
 
 ## Roles and quota
 
@@ -145,6 +151,8 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `verdicts/NNN-<slug>-v<k>.md` | verifier, or `verify` for gates mode | the verdict, from [the verdict template](references/verdict-template.md) |
 | `verdicts/NNN-<slug>-v<k>-packet.md` | `kitchen.sh verify` | what the verifier was given |
 | `pair.json` `.escalations` | `kitchen.sh consultant` | why the consultant was started |
+| `session-handoff.md` | master via `kitchen.sh new-handoff` | the running master's handoff to its next generation, from [the handoff template](references/handoff-template.md) |
+| `sessions/master-<g>-handoff.md`, `pair.json` `.master.sessions` | `kitchen.sh rotate-master` | each closed master generation: its handoff and resumable session id |
 
 Each store's `pair.json` `.skill_builds` lists the skills directories its commands ran from, stamped
 at `init`; a run from before stamps has none and counts as `unknown`. `pstack/builds.tsv`, written at

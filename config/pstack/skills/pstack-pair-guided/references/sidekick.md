@@ -91,7 +91,7 @@ and the decision stays with the master.
    fast checks (format, lint, typecheck) passing on the commit. Those are what
    reviews and landings most often send back. Anything less is `partial`,
    `blocked`, or `failed`, with the reason.
-5. Run `pair.sh finish <store> <report>` and follow its output. A Devin
+5. Run `pair.sh finish <store> <report>` and follow its output. A Devin, Pi, or Prime
    `done` report requires a fresh session for the next task: end the turn with
    the REPORT line and leave the queue for the master. Other agent kinds may
    start the queued brief it names in the same turn. Partial, blocked, or failed

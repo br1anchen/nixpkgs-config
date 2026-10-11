@@ -30,6 +30,10 @@ need() {
 need herdr
 need jq
 
+pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+# shellcheck source=prime-agent.sh
+. "$pair_core_dir/prime-agent.sh"
+
 in_herdr() {
 	[ "${HERDR_ENV:-}" = 1 ] || die "not running inside Herdr (HERDR_ENV != 1)"
 }
@@ -907,7 +911,7 @@ finish_wait() {
 		printf 'report: missing\n'
 	fi
 	case "$state" in
-	blocked) event "$store" master wake "$running" "${why:-blocked}"; exit 3 ;;
+	blocked) event "$store" master wake "$running" "${why:-blocked}"; provider_hint "$store"; exit 3 ;;
 	esac
 	if [ "$(agent_status "$(field "$store" .sidekick.name)")" = working ] || [ -n "$activity" ]; then
 		event "$store" master wake "$running" "${why:-checkin}"
@@ -949,7 +953,10 @@ provider_hint() {
 	fallback="$(field "$store" '.sidekick.fallback.kind // empty')"
 	[ -n "$fallback" ] && [ "$fallback" != "$kind" ] || fallback=""
 	local logged=""
-	[ "$kind" != pi ] || logged="$(agent_session_error "" "$(field "$store" .cwd)")"
+	case "$kind" in
+	pi) logged="$(agent_session_error "" "$(field "$store" .cwd)")" ;;
+	prime-agent) logged="$(prime_role_error "$store" sidekick)" ;;
+	esac
 	if [ "$(agent_status "$name")" = absent ]; then
 		if [ -n "$logged" ]; then
 			printf 'provider_error: the %s sidekick exited on: %s\n' "$kind" "$logged"
@@ -959,12 +966,15 @@ provider_hint() {
 		[ -z "$fallback" ] || printf 'next: pair.sh failover %s --reason exited\n' "$store"
 		return 0
 	fi
-	line="$(grep -oiE ".{0,60}($provider_error_re).{0,60}" <<<"$(pane_text "$name")" | tail -1 || true)"
+	line=""
+	if [ "$kind" != prime-agent ]; then
+		line="$(grep -oiE ".{0,60}($provider_error_re).{0,60}" <<<"$(pane_text "$name")" | tail -1 || true)"
+	fi
 	[ -n "$line" ] || line="$logged"
 	[ -n "$line" ] || return 0
 	printf 'provider_error: %s\n' "$line"
 	[ -n "$fallback" ] || return 0
-	if [ "$phase" = bootstrap ]; then
+	if [ "$phase" = bootstrap ] || [ "$kind" = prime-agent ]; then
 		printf 'next: pair.sh failover %s --reason provider-error\n' "$store"
 	else
 		printf 'next: prompt the sidekick once to continue; on a second provider error, pair.sh failover %s --reason provider-error\n' "$store"
@@ -1101,10 +1111,10 @@ permission_args() {
 	esac
 }
 
-# pi asks before no tool call, so it needs no permission arguments; it cannot
-# run read-only, so plan stays untranslated for it.
+# Pi and Prime ask before no tool call, so they need no permission arguments;
+# they cannot enforce read-only execution, so plan stays untranslated.
 asks_no_approvals() {
-	[ "$1" = pi ] && [ "$2" != plan ]
+	case "$1" in pi | prime-agent) [ "$2" != plan ] ;; *) return 1 ;; esac
 }
 
 # Native arguments that skip the kind's prompt to trust the working folder.
@@ -1129,7 +1139,6 @@ trust_args() {
 # plugins), and each server `codex mcp list` reports in $2 (the agent's
 # working directory: a repo can add its own) is turned off by name. A name
 # that is not a bare TOML key is left on, since Codex rejects a quoted one.
-pair_core_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 mcp_args() {
 	local name
 	case "$1" in
@@ -1271,7 +1280,7 @@ spawn_role() {
 			esac
 		done
 	fi
-	local name cwd status ready
+	local name cwd status ready prime_start_failed=0
 	case "$role" in
 	consultant) ready="advice/000-ready.md" ;;
 	*) ready="reports/000-ready.md" ;;
@@ -1303,14 +1312,20 @@ spawn_role() {
 		else
 			refuse_untrusted "$pane" "$kind" "$cwd"
 			printf 'pane %s unavailable for agent start: %s\n' "$pane" "$started" >&2
-			pane=""
+			if [ "$kind" = prime-agent ]; then prime_start_failed=1; else pane=""; fi
 		fi
 	fi
 	if [ -z "$pane" ]; then
 		new_pane "$store" "$role" "$anchor" "$direction" "$cwd"
 		pane="$new_pane_id"
-		herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" >/dev/null ||
-			{ refuse_untrusted "$pane" "$kind" "$cwd" close; die "agent start failed in $pane; inspect: herdr pane read $pane --source visible" 2; }
+		if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" >/dev/null; then
+			if [ "$kind" = prime-agent ]; then
+				prime_start_failed=1
+			else
+				refuse_untrusted "$pane" "$kind" "$cwd" close
+				die "agent start failed in $pane; inspect: herdr pane read $pane --source visible" 2
+			fi
+		fi
 	fi
 	local now
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -1322,6 +1337,15 @@ spawn_role() {
 		 | .[$role].start_args = $args | .[$role].generation = ((.[$role].generation // 0) + 1)
 		 | .[$role].bootstrap_pending = true
 		 | .[$role].permission_mode = $perm | .master.permission_mode = $mperm'
+	if [ "$kind" = prime-agent ]; then
+		json_update "$store" --arg role "$role" --arg cwd "$cwd" \
+			'.[$role].session = null | .[$role].session_stopped = false | .[$role].closed = false | .[$role].launch_cwd = $cwd'
+		if [ "$prime_start_failed" -eq 1 ]; then
+			record_prime_session "$store" "$role" || true
+			die "Prime start failed in $pane; its pane and recorded launch stay for inspection" 5
+		fi
+		record_prime_session "$store" "$role" || die "Prime did not report its session; inspect $name before prompting" 5
+	fi
 	printf '%s %s (%s) started in %s with permission %s (master: %s)\n' "$role" "$name" "$kind" "$pane" "$permission" "$master_mode"
 	local bootstrap generation
 	generation="$(field "$store" ".$role.generation")"
@@ -1354,6 +1378,7 @@ spawn_role() {
 		printf '%s bootstrap did not settle: %s\n' "$role" "$err" >&2
 		printf 'inspect: herdr agent read %s --source visible --lines 60\n' "$name" >&2
 		event "$store" "$role" spawn - "$kind:failed"
+		[ "$role" != sidekick ] || [ "$kind" != prime-agent ] || provider_hint "$store" bootstrap >&2
 		return 3
 	fi
 	if [ -f "$store/$ready" ]; then
@@ -1371,10 +1396,10 @@ spawn_role() {
 }
 
 # Kinds whose sidekick starts a fresh conversation for each completed brief:
-# Devin, and pi, whose one compacted conversation would otherwise carry every
+# Devin, Pi, and Prime, whose compacted conversation would otherwise carry every
 # earlier brief into the next. The master rotates them; the queue waits.
 fresh_per_brief() {
-	case "$1" in devin | pi) return 0 ;; esac
+	case "$1" in devin | pi | prime-agent) return 0 ;; esac
 	return 1
 }
 
@@ -1389,7 +1414,7 @@ require_fresh_session() {
 preflight_timeout_s="${PAIR_PREFLIGHT_TIMEOUT:-90}"
 
 has_preflight() {
-	[ "$1" = pi ]
+	case "$1" in pi | prime-agent) return 0 ;; *) return 1 ;; esac
 }
 
 # Proves a kind's model answers before a pane starts. pi reaches some models
@@ -1401,6 +1426,7 @@ preflight_kind() {
 	local kind="$1" out arg
 	shift
 	has_preflight "$kind" || return 0
+	[ "$kind" != prime-agent ] || { preflight_prime "$@"; return $?; }
 	local -a args=()
 	for arg in "$@"; do
 		case "$arg" in --approve | -a | --no-approve | -na) ;; *) args+=("$arg") ;; esac
@@ -1469,7 +1495,7 @@ record_fallback() {
 
 exit_command() {
 	case "$1" in
-	pi | codex) printf '/quit\n' ;;
+	pi | prime-agent | codex) printf '/quit\n' ;;
 	*) printf '/exit\n' ;;
 	esac
 }
@@ -1487,6 +1513,9 @@ close_role() {
 	[ -n "$name" ] && [ -n "$pane" ] || return 0
 	[ "$(field "$store" ".$role.closed // false")" != true ] || return 0
 	kind="$(field "$store" ".$role.kind // empty")"
+	if [ "$kind" = prime-agent ]; then
+		stop_prime_role "$store" "$role" || return 1
+	fi
 	if [ "$(agent_status "$name")" != absent ]; then
 		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
 		deadline=$(( $(date +%s) + 15 ))
@@ -1537,7 +1566,9 @@ cmd_failover() {
 		herdr agent send-keys "$name" esc >/dev/null 2>&1 || true
 		sleep 2
 	fi
-	if [ "$status" != absent ]; then
+	if [ "$kind" = prime-agent ]; then
+		stop_prime_role "$store" sidekick || die "Prime session cleanup failed; no fallback was started" 5
+	elif [ "$status" != absent ]; then
 		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
 		deadline=$(($(date +%s) + 15))
 		while [ "$(agent_status "$name")" != absent ]; do
@@ -1567,24 +1598,29 @@ cmd_rotate() {
 	require_not_paused "$store"
 	local kind
 	kind="$(field "$store" '.sidekick.kind')"
-	fresh_per_brief "$kind" || die "rotate is for a sidekick that starts fresh per brief (devin, pi), not $kind" 5
+	fresh_per_brief "$kind" || die "rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not $kind" 5
 	[ "$(field "$store" '.sidekick.rotation_required // false')" = true ] || die "rotation requires a completed task; partial or blocked work keeps its session" 5
 	jq -e '.sidekick.start_args | type == "array"' "$store/pair.json" >/dev/null || die "no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags" 5
 	name="$(field "$store" .sidekick.name)"
 	status="$(agent_status "$name")"
 	case "$status" in
 	idle | "done")
-		err="$(herdr agent prompt "$name" "$(exit_command "$kind")" 2>&1)" || code=$?
-		if [ "$code" -ne 0 ] && ! grep -qE 'agent_prompt_stalled|agent_not_found|not_found' <<<"$err"; then
-			die "$kind exit failed: $err" 2
+		if [ "$kind" = prime-agent ]; then
+			stop_prime_role "$store" sidekick || die "Prime session cleanup failed; no new session was started" 5
+		else
+			err="$(herdr agent prompt "$name" "$(exit_command "$kind")" 2>&1)" || code=$?
+			if [ "$code" -ne 0 ] && ! grep -qE 'agent_prompt_stalled|agent_not_found|not_found' <<<"$err"; then
+				die "$kind exit failed: $err" 2
+			fi
+			deadline=$(($(date +%s) + 15))
+			while [ "$(agent_status "$name")" != absent ]; do
+				[ "$(date +%s)" -lt "$deadline" ] || die "$kind has not exited; inspect $name before retrying rotate" 5
+				sleep 1
+			done
 		fi
-		deadline=$(($(date +%s) + 15))
-		while [ "$(agent_status "$name")" != absent ]; do
-			[ "$(date +%s)" -lt "$deadline" ] || die "$kind has not exited; inspect $name before retrying rotate" 5
-			sleep 1
-		done
 		;;
-	absent) ;;
+	absent)
+		[ "$kind" != prime-agent ] || stop_prime_role "$store" sidekick || die "Prime session cleanup failed; no new session was started" 5 ;;
 	*) die "sidekick $name is $status; wait for its report and turn to end before rotating" 5 ;;
 	esac
 	local -a args
@@ -2388,6 +2424,9 @@ cmd_steer() {
 			# store; the sidekick's next step, notes, or progress prints it.
 			json_update "$store" --arg s "$steer" '.notice_steers = ((.notice_steers // []) + [$s] | unique)'
 			printf 'steer %s left for %s: it lands at the sidekick'"'"'s next pair.sh step, notes, or progress, between tool calls; the ack lands in the progress log. Use --interrupt only to cancel the running command.\n' "$steer" "$name"
+		elif [ "$(field "$store" .sidekick.kind)" = prime-agent ] && [ "$interrupt" -eq 0 ]; then
+			prime_steer "$store" "$PAIR_SKILL STEER $steer" || die "Prime steer failed for $name" 2
+			printf 'steered %s with %s; Prime queues it between tool calls without cancelling the running command\n' "$name" "$steer"
 		else
 			herdr agent prompt "$name" "$PAIR_SKILL STEER $steer" >/dev/null || die "herdr prompt failed for $name" 2
 			printf 'steered %s with %s; its harness hands it over between tool calls and the ack lands in the progress log\n' "$name" "$steer"

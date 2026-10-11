@@ -13,8 +13,9 @@ Identify the active agent from its session context, not from which executables
 happen to be installed. Use `claude`, `codex`, `pi`, `grok`, or `generic` as the
 runtime key. Read `~/.config/pstack/models/<runtime>.md` if present. Substitute
 that key for the literal `<runtime>` in workflow paths. Missing roles inherit
-the parent model. Read the budget comment and per-role reasoning annotations
-when present. Pass a reasoning override only through a supported host field,
+the parent model. Prime Agent uses `generic` and its exposed native tools;
+Pi extensions and their APIs do not apply. Read the budget comment and
+per-role reasoning annotations when present. Pass a reasoning override only through a supported host field,
 within its allowed values and permissions; a budget never changes inherited
 parent settings. Treat every upstream model slug as a role suggestion, never
 as evidence that the model is available.

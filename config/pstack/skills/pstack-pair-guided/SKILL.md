@@ -198,11 +198,20 @@ not continuously, and corrects direction, not keystrokes.
 - Two fresh steers per brief. A third means the brief was wrong: stop the
   unit and re-brief.
 
-## Devin and pi task sessions
+## Devin, pi, and Prime task sessions
 
-For a Devin or pi sidekick, the shared helper requires rotation after a completed
-brief. Follow [the Devin session lifecycle](../pstack-pair/references/devin-sessions.md)
-in place of same-turn queue pickup. Partial work keeps its session.
+For a Devin, pi, or Prime sidekick, the shared helper requires rotation after a completed
+brief, in place of same-turn queue pickup. Follow
+[the Devin session lifecycle](../pstack-pair/references/devin-sessions.md) for Devin or Pi,
+or [the Prime adapter](../pstack-pair/references/prime-sidekick.md) for Prime.
+Partial work keeps its session.
+
+## Prime Agent
+
+Use `--kind prime-agent` for the sidekick. Read [the Prime
+Agent adapter](../pstack-pair/references/prime-sidekick.md) for native model arguments, preflight,
+steering, exact daemon-session cleanup, and provider failover. Prime uses the
+shared store protocol and requires rotation after each completed brief.
 
 ## Pi sidekick and fallback
 

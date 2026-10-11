@@ -92,7 +92,7 @@ default, and the decision stays with the master.
    fast checks (format, lint, typecheck) passing on the commit. Those are what
    reviews and landings most often send back. Anything less is `partial`,
    `blocked`, or `failed`, with the reason.
-5. Run `pair.sh finish <store> <report>` and follow its output. A Devin
+5. Run `pair.sh finish <store> <report>` and follow its output. A Devin, Pi, or Prime
    `done` report requires a fresh session for the next task: end the turn with
    the REPORT line and leave the queue for the master. Other agent kinds may
    start the queued brief it names in the same turn. Partial, blocked, or failed
@@ -157,3 +157,8 @@ report as `partial` with what is verified and what is next, and end the turn.
 - Leave panes, tabs, and workspaces as you found them.
 - Progress lines are for the master's check-in: one line each, no output
   pasted. Evidence goes in the report.
+
+For `kind = "prime-agent"`, read [the Prime adapter](../../pstack-pair/references/prime-sidekick.md).
+The master rotates completed briefs; partial or blocked work keeps its session.
+Prime steers use its daemon API. `/quit` detaches the UI, so the helper stops
+only the recorded daemon session before replacing the agent.

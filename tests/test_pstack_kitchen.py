@@ -813,6 +813,11 @@ Load*VERIFY*)
   units="$(sed -n 's/^units: //p' "$packet")"
   mode="$(cat "$FAKE/verdict-mode" 2>/dev/null || echo clean)"
   case "$mode" in slow | grace-writes) exit 0 ;; esac
+  if [ "$mode" = prime-ratelimit ] && [ "$(cut -d' ' -f2 "$FAKE/agents/$1")" = prime-agent ]; then
+    printf '{{"type":"message","message":{{"role":"assistant","stopReason":"error","errorMessage":"Error: capacity issues"}}}}\n' >>"$(cat "$FAKE/sessions/$1")"
+    printf 'blocked prime-agent\n' >"$FAKE/agents/$1"
+    exit 0
+  fi
   # swallow: a startup screen eats the first packet prompt whole.
   [ "$mode" = swallow ] && [ ! -e "$FAKE/swallowed" ] && {{ touch "$FAKE/swallowed"; exit 0; }}
   # devin-working: the verifier is busy on a command when the deadline comes.
@@ -831,7 +836,7 @@ Load*VERIFY*)
     printf '{{"type":"message","message":{{"role":"assistant","stopReason":"error","errorMessage":"Reached free model rate limit. Your limit will reset in 50 minutes (at 11:26 UTC)."}}}}\n' >>"$(cat "$FAKE/sessions/$1")"
     rm -f "$FAKE/agents/$1"; exit 0
   fi
-  case "$mode" in clean | swallow | ratelimit | ratelimit-live) status=clean ;; inconclusive) status=inconclusive ;; *) status=reject ;; esac
+  case "$mode" in clean | swallow | ratelimit | ratelimit-live | prime-ratelimit) status=clean ;; inconclusive) status=inconclusive ;; *) status=reject ;; esac
   {{ printf '# Verdict\\n\\nstatus: %s\\nunits: %s\\n\\n## Findings\\n\\n' "$status" "$units"
      [ "$status" = reject ] && printf '1. Acceptance broke: add returns 0\\n'
      printf '\\n## Evidence\\n\\n'
@@ -851,6 +856,7 @@ Deadline*)
   *sidekick) printf 'status: agree\\n' >"{self.store}/reports/$(basename "$plan")" ;;
   esac
   ;;
+Load*MASTER*) printf '%s\\n' "$2" >"$FAKE/master-bootstrap" ;;
 Load*) [ -e "$FAKE/no-ready" ] || printf 'status: done\\n' >'{self.store}/reports/000-ready.md' ;;
 esac
 ''')
@@ -1172,6 +1178,42 @@ esac
         self.assertIn('gate app behavioral', packet)
         self.assertIn('## Acceptance', packet)
 
+    def test_prime_verifier_stops_worker_before_removing_scratch(self):
+        self.set_roster('[verifier]\nkind = "prime-agent"\nargs = ["--model", "devin/swe-2", "--daemon-socket", "/tmp/verifier.sock"]\n')
+        _, out = self.verify_app_unit('clean', 0)
+        self.assertIn('status: clean', out)
+        calls = [json.loads(line) for line in (self.fake / 'prime.log').read_text().splitlines()]
+        self.assertIn(['stop', 'live-1', '--json', '--socket', '/tmp/verifier.sock'], calls)
+        self.assertEqual(json.loads((self.fake / 'prime-sessions.json').read_text()), [])
+        self.assertEqual(list((self.store / 'scratch').iterdir()), [])
+        self.assertEqual(len(list((self.fake / 'prime-transcripts').iterdir())), 1)
+
+    def test_prime_blocked_provider_verifier_retries_on_fallback(self):
+        self.set_roster('[verifier]\nkind = "prime-agent"\n[verifier.fallback]\nkind = "devin"\n')
+        _, out = self.verify_app_unit('prime-ratelimit', 0)
+        self.assertIn('capacity issues', out)
+        self.assertIn('retry: verifying again on the fallback, devin', out)
+        self.assertIn('status: clean', out)
+        self.assertEqual(len(self.verifier_starts()), 2)
+        self.assertEqual(json.loads((self.fake / 'prime-sessions.json').read_text()), [])
+
+    def test_prime_verifier_failed_stop_preserves_scratch_and_prevents_fallback(self):
+        self.set_roster('[verifier]\nkind = "prime-agent"\n[verifier.fallback]\nkind = "devin"\n')
+        (self.fake / 'prime-stop-fail').touch()
+        self.verify_app_unit('prime-ratelimit', 5)
+        self.assertEqual(len(self.verifier_starts()), 1)
+        verifying = self.state()['verifying']
+        self.assertTrue((self.store / 'scratch' / verifying['scratch']).is_dir())
+        self.assertTrue((self.fake / 'panes' / self.state()['verifier']['pane_id']).exists())
+
+    def test_prime_verifier_failed_start_preserves_its_scratch(self):
+        self.set_roster('[verifier]\nkind = "prime-agent"\n')
+        (self.fake / 'trust-dialog').touch()
+        _, out = self.verify_app_unit('clean', 5)
+        self.assertIn('Prime verifier start failed', out)
+        self.assertTrue((self.store / 'scratch' / self.state()['verifying']['scratch']).is_dir())
+        self.assertTrue((self.fake / 'panes' / self.state()['verifier']['pane_id']).exists())
+
     def test_scratch_lives_inside_the_repo_git_dir_and_leaves_no_trace(self):
         path = Path(self.run_sh('scratch', str(self.store), '001-x-review').splitlines()[0])
         git_dir = self.repo / '.git' / 'pstack-scratch'
@@ -1230,6 +1272,62 @@ esac
         (vstart,) = self.verifier_starts()
         self.assertIn('mcp_servers.railway.enabled=true', vstart)
         self.assertNotIn('chrome-devtools', vstart)
+
+    def test_new_handoff_lists_the_units_and_rotate_master_restarts_the_master_in_its_pane(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        self.run_sh('verify', str(self.store), '001')
+        (self.store / 'reviews/001-util.md').write_text('verdict: accept\n')
+        self.brief('002', 'next', ['docs/**'])
+        out = self.run_sh('new-handoff', str(self.store))
+        handoff = self.store / 'session-handoff.md'
+        self.assertEqual(out.splitlines()[0], str(handoff))
+        text = handoff.read_text()
+        self.assertIn('# Handoff: demo (master generation 1)', text)
+        self.assertIn('| 001 util | done | clean | accept |', text)
+        self.assertIn('| 002 next | - | - | - |', text)
+        self.assertIn('still has unfilled placeholders', self.run_sh('rotate-master', str(self.store), code=1))
+        text = re.sub(r'\{\{.*?\}\}', '', text, flags=re.S)
+        text = text.replace('## Goal\n', '## Goal\n\nShip util.\n').replace('## Next\n', '## Next\n\n1. kitchen.sh dispatch 002\n')
+        handoff.write_text(text)
+        (self.fake / 'session-ids').mkdir(exist_ok=True)
+        (self.fake / 'session-ids/demo-master').write_text('m-gen1 /work\n')
+        self.env['KITCHEN_ROTATE_POLL_S'] = '0.2'
+        out = self.run_sh('rotate-master', str(self.store))
+        self.assertIn('handoff recorded: ' + str(self.store / 'sessions/master-1-handoff.md') + ' (generation 1, session m-gen1)', out)
+        self.assertIn('claude --resume m-gen1', out)
+        state = self.state()
+        self.assertEqual(state['master']['generation'], 2)
+        self.assertEqual(state['master']['units_since_handoff'], 0)
+        self.assertEqual(state['master']['sessions'][0]['session'], 'm-gen1')
+        for _ in range(100):
+            if (self.fake / 'master-bootstrap').exists():
+                break
+            time.sleep(0.2)
+        bootstrap = (self.fake / 'master-bootstrap').read_text()
+        self.assertIn(f'pstack-kitchen MASTER {self.store} (generation 2). Read {self.store}/session-handoff.md first.', bootstrap)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertIn('agent prompt demo-master /exit', calls)
+        start = [line for line in calls.splitlines() if line.startswith('agent start demo-master')][-1]
+        self.assertIn('--kind claude --pane p0', start)
+        self.assertIn('--strict-mcp-config --mcp-config', start)
+        self.assertIn('--permission-mode', start)
+        events = (self.store / 'events.tsv').read_text()
+        self.assertIn('\tmaster\thandoff\t-\tgeneration:1', events)
+        self.assertIn('\tmaster\tspawn\t-\tclaude:generation:2', events)
+        self.assertEqual((self.store / 'sessions/master-1-handoff.md').read_text(), handoff.read_text())
+
+    def test_verify_nudges_a_handoff_after_the_configured_number_of_units(self):
+        self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'
+        heads = self.three_units()
+        out = self.run_sh('verify', str(self.store), '001')
+        self.assertNotIn('since your last handoff', out)
+        out = self.run_sh('verify', str(self.store), '002')
+        self.assertIn('master: 2 units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff', out)
+        self.assertEqual(self.state()['master']['units_since_handoff'], 2)
 
     def test_close_ends_the_roles_and_closes_their_panes(self):
         state = self.state()

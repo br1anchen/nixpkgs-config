@@ -210,9 +210,10 @@ and waits for it to settle. Two rounds per steer; when the second still draws
 an objection, withdraw it or `pair.sh stop` and take the disagreement to a
 plan round. Log a row per round.
 
-## Devin and pi session lifecycle
+## Devin, pi, and Prime session lifecycle
 
-When the sidekick is Devin or pi, follow [the session lifecycle](../../pstack-pair/references/devin-sessions.md).
+For Devin or Pi, follow [the session lifecycle](../../pstack-pair/references/devin-sessions.md).
+For Prime, follow [the Prime adapter](../../pstack-pair/references/prime-sidekick.md).
 After its `done` report and settled turn, write the handoff, run `pair.sh rotate`,
 verify the new READY report, and dispatch the next task. Keep partial work in
 its session. Storage cleanup requires a coordinated pause and recovery handoff.
@@ -221,7 +222,7 @@ its session. Storage cleanup requires a coordinated pause and recovery handoff.
 
 The queue is how the sidekick never waits for you. At a check-in, draft the
 next unit's brief and `pair.sh queue <store> <brief>`: dispatch's checks
-apply. A Devin or pi `done` report leaves it queued until you rotate the sidekick
+apply. A Devin, pi, or Prime `done` report leaves it queued until you rotate the sidekick
 and dispatch it. Other kinds take it with `pair.sh next` in the same turn. Queue a unit only when it does not hinge on the
 running unit's review; when it does, wait for the report. One slot:
 `--replace` swaps it, `pair.sh queue <store> --clear` empties it, and `stop`
@@ -280,3 +281,8 @@ Poteto-mode's reply rules apply. Include the predicate and the count against
 it from `status.md`, the verdict per unit, which advice was followed and
 which overruled, what was abandoned and why, open gates, the store path, the `pair.sh metrics` summary, and the show-me-your-work
 Attention section.
+
+For `kind = "prime-agent"`, read [the Prime adapter](../../pstack-pair/references/prime-sidekick.md).
+The master rotates completed briefs; partial or blocked work keeps its session.
+Prime steers use its daemon API. `/quit` detaches the UI, so the helper stops
+only the recorded daemon session before replacing the agent.

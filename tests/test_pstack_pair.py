@@ -626,7 +626,7 @@ class ReadinessTests(unittest.TestCase):
 
 
 class PiSidekickTests(unittest.TestCase):
-    """A pi sidekick, its print-mode preflight, and failover to a fallback kind."""
+    """Pi and Prime sidekicks, preflight, rotation, and provider failover."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -671,6 +671,169 @@ esac
         brief = self.store / 'briefs/001-first.md'
         brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
         return brief, self.run_command('dispatch', str(self.store), str(brief), '--timeout', '1', code=4)
+
+    def spawn_prime(self, *fallback, code=0):
+        return self.run_command('spawn', str(self.store), '--kind', 'prime-agent', '--permission', 'auto',
+                                *fallback, '--', '--model', 'devin/swe-2', '--thinking', 'high',
+                                '--daemon-socket', '/tmp/owned-prime.sock', code=code)
+
+    def prime_calls(self, command):
+        return [json.loads(line) for line in (self.fake / 'prime.log').read_text().splitlines()
+                if json.loads(line)[0] == command]
+
+    def complete_prime(self, status='done'):
+        brief, _ = self.dispatch()
+        report = self.store / 'reports' / brief.name
+        report.write_text(f'status: {status}\nhead: abc123\n')
+        self.run_command('finish', str(self.store), str(report))
+        return report
+
+    def test_prime_launch_uses_native_flags_and_records_exact_session(self):
+        self.spawn_prime()
+        role = self.state()['sidekick']
+        self.assertEqual(role['kind'], 'prime-agent')
+        self.assertEqual(role['start_args'], ['--model', 'devin/swe-2', '--thinking', 'high',
+                                             '--daemon-socket', '/tmp/owned-prime.sock'])
+        self.assertTrue(Path(role['session']['value']).is_file())
+        preflight = json.loads((self.fake / 'prime.log').read_text().splitlines()[0])
+        self.assertIn('--no-session', preflight)
+        self.assertIn('--no-prompt-templates', preflight)
+        self.assertNotEqual(preflight[preflight.index('--cwd') + 1], str(self.cwd))
+        self.assertNotIn('--approve', preflight)
+
+    def test_prime_failed_preflight_uses_fallback_or_starts_nothing(self):
+        (self.fake / 'prime-fail').write_text('Error: capacity issues\n')
+        self.spawn_prime(code=2)
+        self.assertFalse((self.fake / 'prime-sessions.json').exists())
+        self.spawn_prime('--fallback', 'devin')
+        self.assertEqual(self.state()['sidekick']['kind'], 'devin')
+        self.assertIn('preflight: prime-agent 0.10.0', self.state()['sidekick']['failovers'][0]['reason'])
+
+    def test_prime_preflight_retries_once(self):
+        (self.fake / 'prime-fail-once').touch()
+        self.spawn_prime('--fallback', 'devin')
+        self.assertEqual(self.state()['sidekick']['kind'], 'prime-agent')
+        self.assertNotIn('failovers', self.state()['sidekick'])
+
+    def test_prime_trio_roles_have_distinct_owned_sessions(self):
+        self.script = skills / 'pstack-trio/scripts/pair.sh'
+        self.store = self.path / 'state/pstack/trio/prime'
+        self.run_command('init', 'prime')
+        (self.fake / 'hook').write_text(f'''#!/usr/bin/env bash
+case "$2" in
+Load*)
+  printf 'status: done\\n' >'{self.store}/reports/000-ready.md'
+  printf 'status: answered\\n' >'{self.store}/advice/000-ready.md'
+  ;;
+esac
+''')
+        self.run_command('spawn', str(self.store), '--sidekick', 'prime-agent',
+                         '--consultant', 'prime-agent', '--', '--model', 'mock/smoke')
+        state = self.state()
+        self.assertNotEqual(state['sidekick']['session'], state['consultant']['session'])
+        self.assertEqual(state['sidekick']['kind'], 'prime-agent')
+        self.assertEqual(state['consultant']['kind'], 'prime-agent')
+        self.assertEqual(len(self.prime_calls('--fake-start')), 2)
+
+    def test_prime_rotation_stops_only_owned_session_and_preserves_queue_and_transcript(self):
+        self.spawn_prime()
+        before = self.state()['sidekick']
+        sessions_file = self.fake / 'prime-sessions.json'
+        sessions = json.loads(sessions_file.read_text())
+        other = {'activeSessionId': 'unrelated', 'sessionId': 'other', 'sessionFile': '/tmp/other.jsonl', 'name': 'human'}
+        sessions_file.write_text(json.dumps(sessions + [other]))
+        self.complete_prime()
+        queued = self.store / 'briefs/002-next.md'
+        queued.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
+        (self.fake / 'agents/demo-sidekick').write_text('working prime-agent\n')
+        self.run_command('queue', str(self.store), str(queued))
+        (self.fake / 'agents/demo-sidekick').write_text('idle prime-agent\n')
+        self.run_command('next', str(self.store), code=5)
+        self.run_command('rotate', str(self.store))
+        after = self.state()['sidekick']
+        self.assertEqual(after['generation'], 2)
+        self.assertEqual(after['start_args'], before['start_args'])
+        self.assertNotEqual(after['session'], before['session'])
+        self.assertTrue(Path(before['session']['value']).exists())
+        self.assertTrue((self.store / 'queue').exists())
+        self.assertEqual(self.prime_calls('stop'), [['stop', 'live-1', '--json', '--socket', '/tmp/owned-prime.sock']])
+        self.assertIn(other, json.loads(sessions_file.read_text()))
+        self.run_command('dispatch', str(self.store), str(queued), '--timeout', '1', code=4)
+
+    def test_prime_partial_report_keeps_its_session(self):
+        self.spawn_prime()
+        before = self.state()['sidekick']['session']
+        self.complete_prime('partial')
+        self.run_command('rotate', str(self.store), code=5)
+        self.assertEqual(self.state()['sidekick']['session'], before)
+        self.assertEqual(self.prime_calls('stop'), [])
+
+    def test_prime_detached_client_still_has_its_owned_worker_stopped(self):
+        self.spawn_prime()
+        self.complete_prime()
+        (self.fake / 'agents/demo-sidekick').unlink()
+        self.run_command('rotate', str(self.store))
+        self.assertEqual(self.prime_calls('stop')[0][1], 'live-1')
+        self.assertEqual(self.state()['sidekick']['generation'], 2)
+
+    def test_prime_failed_stop_starts_no_replacement(self):
+        self.spawn_prime('--fallback', 'devin')
+        (self.fake / 'prime-stop-fail').touch()
+        (self.fake / 'agents/demo-sidekick').write_text('blocked prime-agent\n')
+        self.run_command('failover', str(self.store), '--reason', 'provider failed', code=5)
+        self.assertEqual(len(self.prime_calls('--fake-start')), 1)
+        self.assertEqual(self.state()['sidekick']['kind'], 'prime-agent')
+        self.assertNotIn('--kind devin', (self.fake / 'calls.log').read_text())
+
+    def test_prime_ambiguous_session_reference_stops_nothing(self):
+        self.spawn_prime('--fallback', 'devin')
+        path = self.fake / 'prime-sessions.json'
+        sessions = json.loads(path.read_text())
+        sessions.append({**sessions[0], 'activeSessionId': 'duplicate'})
+        path.write_text(json.dumps(sessions))
+        self.run_command('failover', str(self.store), '--reason', 'provider failed', code=5)
+        self.assertEqual(self.prime_calls('stop'), [])
+
+    def test_prime_live_client_without_a_matching_worker_starts_nothing(self):
+        self.spawn_prime('--fallback', 'devin')
+        (self.fake / 'prime-sessions.json').write_text('[]')
+        self.run_command('failover', str(self.store), '--reason', 'daemon mismatch', code=5)
+        self.assertEqual(self.prime_calls('stop'), [])
+        self.assertNotIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
+        self.assertEqual(self.state()['sidekick']['kind'], 'prime-agent')
+
+    def test_prime_relative_daemon_socket_uses_launch_directory(self):
+        self.run_command('spawn', str(self.store), '--kind', 'prime-agent', '--', '--daemon-socket', 'daemon.sock')
+        self.complete_prime()
+        self.run_command('rotate', str(self.store))
+        self.assertEqual(self.prime_calls('stop')[0][-2:], ['--socket', str(self.cwd / 'daemon.sock')])
+
+    def test_prime_working_steer_uses_exact_daemon_session_without_escape(self):
+        self.spawn_prime()
+        self.dispatch()
+        steer = self.store / 'steers/001-first-s1.md'
+        steer.write_text('## Direction\n\nCorrect the acceptance criteria.\n')
+        (self.fake / 'agents/demo-sidekick').write_text('working prime-agent\n')
+        self.run_command('steer', str(self.store), str(steer))
+        send = self.prime_calls('send')
+        self.assertEqual(send[0][:3], ['send', '--json', 'live-1'])
+        self.assertEqual(send[0][-2:], ['--socket', '/tmp/owned-prime.sock'])
+        self.assertNotIn('send-keys demo-sidekick esc', (self.fake / 'calls.log').read_text())
+
+    def test_prime_blocked_provider_error_is_read_from_owned_transcript(self):
+        self.spawn_prime('--fallback', 'devin')
+        self.dispatch()
+        path = Path(self.state()['sidekick']['session']['value'])
+        with path.open('a') as log:
+            log.write(json.dumps({'type': 'message', 'message': {'role': 'assistant',
+                      'stopReason': 'error', 'errorMessage': 'Error: capacity issues'}}) + '\n')
+        (self.fake / 'agents/demo-sidekick').write_text('blocked prime-agent\n')
+        out = self.run_command('wait', str(self.store), '--timeout', '1', code=3)
+        self.assertIn('capacity issues', out)
+        self.assertIn('failover', out)
+        self.run_command('failover', str(self.store), '--reason', 'capacity issues')
+        self.assertEqual(self.state()['sidekick']['kind'], 'devin')
+        self.assertEqual(self.prime_calls('stop')[0][1], 'live-1')
 
     def test_pi_starts_with_approve_after_a_clean_preflight(self):
         self.spawn_pi()
