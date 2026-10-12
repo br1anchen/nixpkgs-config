@@ -601,6 +601,7 @@ class DoctorTests(KitchenTests):
     def test_clean_kitchen(self):
         c = self.checks()
         self.assertEqual({k: v['status'] for k, v in c.items()}, {
+            'kitchen': 'ok',
             'coverage': 'ok', 'profiles': 'ok', 'commands': 'ok', 'fast gates': 'ok',
             'features': 'ok', 'verification skill': 'warn', 'scratch setup': 'ok',
             'verifier routine': 'ok', 'verifier fallback': 'ok', 'verifier escalated': 'ok'})
