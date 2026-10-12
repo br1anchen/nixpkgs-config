@@ -26,8 +26,9 @@ differs.
 
 1. `test "${HERDR_ENV:-}" = 1`, the Herdr skill loaded, `jq`, `herdr`, and
    Python 3.11 or later on PATH. `scripts/kitchen.sh help` lists the commands.
-2. The repo has `.agents/kitchen.toml` and `kitchen.py validate` passes
-   (`scripts/kitchen.py`). Without it, run pstack-kitchen-setup first; a
+2. The repo has a kitchen (`.agents/kitchen.toml`, or a host kitchen; see
+   [kitchen-toml.md](references/kitchen-toml.md)) and `kitchen.py validate`
+   passes (`scripts/kitchen.py`). Without it, run pstack-kitchen-setup first; a
    kitchen without rules is a pair with extra steps.
 3. The host roster, `~/.config/pstack/kitchen.toml`, names the agents (all
    optional; `--kind` overrides):

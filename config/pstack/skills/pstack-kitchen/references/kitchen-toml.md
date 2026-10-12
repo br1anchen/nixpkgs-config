@@ -1,6 +1,7 @@
 # kitchen.toml
 
-A repo's kitchen rules, committed at `.agents/kitchen.toml`. They say which of
+A repo's kitchen rules, committed at `.agents/kitchen.toml`, or kept on the
+host when the repo's team has not agreed to commit them (see Where it lives). They say which of
 the repo's own commands prove which part of it, what makes a change risky, and
 which lines must never land. `scripts/kitchen.py` reads them as data; no agent
 invents a verification recipe or judges risk from prose. A unit is checked
@@ -8,6 +9,42 @@ against the kitchen at its own commit (`kitchen.py --at <sha>`), so changing
 the rules never changes a verdict already given.
 
 A worked example: [kitchen-example.toml](kitchen-example.toml).
+
+## Where it lives
+
+`kitchen.py` takes the first kitchen it finds:
+
+1. `--config <path>`: relative to the repo, or absolute.
+2. The repo's `.agents/kitchen.toml`, at `--at <rev>` when given, else the
+   working copy.
+3. A host kitchen, for a repo whose team has not agreed to commit one: the
+   `file` of the first `[[kitchen]]` entry in the host roster whose `match`
+   glob covers the checkout or its main checkout, else
+   `~/.config/pstack/kitchens/<host>__<owner>__<repo>.toml`, named from the
+   `origin` remote. Without an origin, the name is the main checkout's
+   basename and a hash of its path.
+
+```toml
+# ~/.config/pstack/kitchen.toml
+[[kitchen]]
+match = "~/src/<repo>/**"      # the checkout, or a bare repo with its worktrees
+file = "<repo>.toml"          # relative paths resolve against ~/.config/pstack/kitchens/
+```
+
+Every clone, worktree, and verifier scratch of a repo resolves to the same
+host file. `kitchen.py where` prints the kitchen in use and the host path;
+`kitchen.py where --host` prints only the host path, whether it exists or not.
+`validate` and `doctor` name the source. A committed kitchen shadows the host
+one, and an uncommitted `.agents/kitchen.toml` fails `doctor`: this checkout
+reads it, but verify and the verifier's scratch read commits and never see it.
+
+A host kitchen has no history, so the rule that a unit is checked against
+the kitchen at its own commit holds through a snapshot instead: when
+`kitchen.sh` classifies a brief, it copies the host file into the run store
+(`kitchens/<hash>.toml`, `kitchen.py snapshot <dir>`) and writes `kitchen:
+<copy>` into the brief's header. That brief's steps, its verifier's gates,
+and its verdict all read the copy, so editing the host file changes the
+next brief, not one already dispatched. A landing verify takes a fresh copy.
 
 ## Keys
 
@@ -101,7 +138,9 @@ kitchen never drifts from how humans run the same checks.
 ## kitchen.py
 
 ```bash
-kitchen.py validate                                   # parse and check
+kitchen.py validate                                   # parse and check; names the source
+kitchen.py where [--host]                             # the kitchen in use, and the host path
+kitchen.py snapshot <dir>                             # copy a host kitchen into dir by content hash; prints it
 kitchen.py classify --base <sha> [--head <sha>]       # a unit's commits
 kitchen.py classify --working-tree                    # uncommitted work
 kitchen.py classify --paths 'apps/web/**' src/x.ts    # a brief's Scope, before work starts

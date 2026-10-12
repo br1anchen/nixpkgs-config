@@ -4,7 +4,7 @@
 # escalates, and a short-lived verifier pane per verification. The shared
 # commands live in pstack-pair's pair-core.sh and the consultant's in
 # pstack-trio's consultant-core.sh; the repo's rules are read through
-# kitchen.py from .agents/kitchen.toml.
+# kitchen.py from .agents/kitchen.toml or the host kitchen.
 set -euo pipefail
 
 here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
@@ -353,14 +353,37 @@ brief_escalations() {
 	[ ! -f "$plan" ] || [ "$(header_field "$plan" risk)" != escalated ] || printf 'escalated plan: %s\n' "$(basename "$plan")"
 }
 
+# A host kitchen has no history, so a brief is classified, stepped and
+# verified against the copy taken when it was classified (kitchen: in its
+# header), the way a repo kitchen is read at the unit's commit. $1 store;
+# prints the copy, or nothing for a repo kitchen.
+kitchen_snapshot() {
+	kpy "$1" snapshot "$1/kitchens" || die "kitchen.py snapshot failed; run kitchen.py validate in the repo"
+}
+
+# --config <snapshot> for $1 brief, in kitchen_cfg; empty for a repo kitchen.
+brief_kitchen() {
+	local snap
+	kitchen_cfg=()
+	snap="$(header_field "$1" kitchen)"
+	case "$snap" in "" | repo) ;; *) kitchen_cfg=(--config "$snap") ;; esac
+}
+
 classify_brief() {
-	# $1 store, $2 brief: stamp risk, profiles, verify; print the summary.
-	local store="$1" brief="$2" json risk reason
+	# $1 store, $2 brief: stamp risk, profiles, verify, kitchen; print the summary.
+	local store="$1" brief="$2" json risk reason snap
 	local -a globs esc=()
 	mapfile -t globs < <(scope_globs "$brief")
 	[ "${#globs[@]}" -gt 0 ] || die "$brief lists nothing under Scope's may write:"
 	while IFS= read -r reason; do esc+=(--escalate "$reason"); done < <(brief_escalations "$brief")
-	json="$(kpy "$store" --json classify --paths "${globs[@]}" "${esc[@]}")" || die "kitchen.py classify failed; run kitchen.py validate in the repo"
+	snap="$(kitchen_snapshot "$store")"
+	if [ -n "$snap" ]; then
+		set_header "$brief" kitchen "$snap"
+	elif [ -n "$(header_field "$brief" kitchen)" ]; then
+		set_header "$brief" kitchen repo
+	fi
+	brief_kitchen "$brief"
+	json="$(kpy "$store" "${kitchen_cfg[@]}" --json classify --paths "${globs[@]}" "${esc[@]}")" || die "kitchen.py classify failed; run kitchen.py validate in the repo"
 	risk="$(jq -r .risk <<<"$json")"
 	set_header "$brief" risk "$risk"
 	set_header "$brief" profiles "$(jq -r '.profiles | join(", ") | if . == "" then "none" else . end' <<<"$json")"
@@ -555,7 +578,8 @@ cmd_step() {
 	if [ ! -d "$job" ] || [ -f "$job/consumed" ]; then
 		rm -rf "$job"
 		mkdir -p "$job"
-		json="$(kpy "$store" --json classify --base "$base" --head "$full")"
+		brief_kitchen "$brief"
+		json="$(kpy "$store" "${kitchen_cfg[@]}" --json classify --base "$base" --head "$full")"
 		printf '%s\n' "$json" >"$job/classify.json"
 		jq -r '.profiles[]' <<<"$json" >"$job/profiles"
 		printf '%s\n' "$base" >"$job/base"
@@ -565,11 +589,11 @@ cmd_step() {
 			rc=0
 			while IFS= read -r p; do
 				[ -n "$p" ] || continue
-				python3 "$2" --repo "$1" gate "$p" fast --role sidekick --base "$4" || rc=2
+				python3 "$2" --repo "$1" ${6:+--config "$6"} gate "$p" fast --role sidekick --base "$4" || rc=2
 			done <"$3/profiles"
-			python3 "$2" --repo "$1" policy --base "$4" --head "$5" || rc=2
+			python3 "$2" --repo "$1" ${6:+--config "$6"} policy --base "$4" --head "$5" || rc=2
 			printf "%s\n" "$rc" >"$3/rc"
-		' kitchen-step "$root" "$here/kitchen.py" "$job" "$base" "$full" >"$job/out" 2>&1 </dev/null &
+		' kitchen-step "$root" "$here/kitchen.py" "$job" "$base" "$full" "${kitchen_cfg[1]:-}" >"$job/out" 2>&1 </dev/null &
 		disown 2>/dev/null || true
 	fi
 	slice="${KITCHEN_STEP_SLICE_S:-100}"
@@ -683,7 +707,7 @@ cmd_verify() {
 	[ "$landing" -eq 0 ] || [ "${#units[@]}" -eq 0 ] || die "--landing verifies the whole stack; name no units"
 	[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "a verification is open ($(field "$store" '.verifying.units')); kitchen.sh verify $store --wait" 5
 	local -a all=("${covered[@]}" "${units[@]}")
-	local root base head json last brief slug k verdict packet mode class risk
+	local root base head json last brief slug k verdict packet mode class risk snap
 	root="$(field "$store" .git_root)"
 	if [ "$landing" -eq 1 ]; then
 		# The stack tip, from where it leaves trunk, by a fresh verifier of
@@ -696,7 +720,11 @@ cmd_verify() {
 			landing_base "$root" "$head"
 			base="$landing_base_rev"
 		fi
-		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head")"
+		# The stack lands under the kitchen as it is now.
+		kitchen_cfg=()
+		snap="$(kitchen_snapshot "$store")"
+		[ -z "$snap" ] || kitchen_cfg=(--config "$snap")
+		json="$(kpy "$store" "${kitchen_cfg[@]}" --at "$head" --json classify --base "$base" --head "$head")"
 		risk=landing
 		mode=unit
 		class=escalated
@@ -709,7 +737,8 @@ cmd_verify() {
 		for u in "${all[@]}"; do
 			[ "$(header_field "$(unit_brief "$store" "$u")" risk)" != escalated ] || esc+=(--escalate "unit $u was dispatched as escalated")
 		done
-		json="$(kpy "$store" --at "$head" --json classify --base "$base" --head "$head" "${esc[@]}")"
+		brief_kitchen "$(unit_brief "$store" "${all[-1]}")"
+		json="$(kpy "$store" "${kitchen_cfg[@]}" --at "$head" --json classify --base "$base" --head "$head" "${esc[@]}")"
 		risk="$(jq -r .risk <<<"$json")"
 		mode="$(jq -r .verify.mode <<<"$json")"
 		class="$(jq -r .verify.kind <<<"$json")"
@@ -806,8 +835,8 @@ cmd_verify() {
 		printf '## Changed\n\n```\n%s\n```\n\n' "$(git -C "$root" diff --stat "$base...$head" | tail -40)"
 		printf '## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo'"'"'s scripts give you\nyour own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n```bash\nexport PSTACK_KITCHEN_ROLE=verifier'
 		printf ' PSTACK_KITCHEN_RUN=%s\n' "$(field "$store" .slug)"
-		jq -r --arg k "$here/kitchen.py" --arg s "$scratch" 'if (.scratch_setup | length) > 0 then "python3 \($k) --repo \($s) setup" else empty end' <<<"$json"
-		jq -r --arg k "$here/kitchen.py" --arg s "$scratch" --arg b "$(git -C "$root" merge-base "$base" "$head" 2>/dev/null || printf '%s' "$base")" \
+		jq -r --arg k "$here/kitchen.py${kitchen_cfg[1]:+ --config ${kitchen_cfg[1]}}" --arg s "$scratch" 'if (.scratch_setup | length) > 0 then "python3 \($k) --repo \($s) setup" else empty end' <<<"$json"
+		jq -r --arg k "$here/kitchen.py${kitchen_cfg[1]:+ --config ${kitchen_cfg[1]}}" --arg s "$scratch" --arg b "$(git -C "$root" merge-base "$base" "$head" 2>/dev/null || printf '%s' "$base")" \
 			'.behavioral[] | "python3 \($k) --repo \($s) gate \(.) behavioral --role verifier --base \($b)"' <<<"$json"
 		printf '```\n\nfeature map: %s\n' "$(jq -r '.features | if length == 0 then "none listed" else join(", ") end' <<<"$json")"
 		printf 'verification skill: %s\n' "$(ls -d "$root"/.agents/skills/verify-*/ 2>/dev/null | tr '\n' ' ' || true)"

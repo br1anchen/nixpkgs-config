@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Deterministic half of pstack-kitchen: a repo's .agents/kitchen.toml read
-as data. It classifies a change into profiles and a risk class, runs a
+"""Deterministic half of pstack-kitchen: a repo's .agents/kitchen.toml (or
+its host kitchen) read as data. It classifies a change into profiles and a risk class, runs a
 profile's gate commands, checks added lines against the repo's policy, and
 diagnoses the kitchen itself. Nothing here calls a model.
 
@@ -261,21 +261,105 @@ def repo_root(start: str | None) -> Path:
     return Path(out.strip())
 
 
-# The kitchen at a revision, so a unit is verified against the rules it was
-# built under; the working copy otherwise.
-def load(root: Path, at: str | None, config: str | None) -> Kitchen:
+# Where a repo's kitchen lives. The repo's own .agents/kitchen.toml wins: at a
+# revision, so a unit is verified against the rules it was built under, or
+# the working copy. A repo whose team has not agreed to commit one keeps it on
+# the host instead: a [[kitchen]] entry in the host roster whose match glob
+# covers the checkout, else kitchens/<origin>.toml beside the roster, keyed by
+# the origin remote so every clone, worktree and verifier scratch finds the
+# same file. A host kitchen has no history, so kitchen.sh hands each unit a
+# snapshot of it through an absolute --config.
+@dataclass
+class Source:
+    kind: str  # repo, file, roster or user
+    label: str
+    text: str
+
+
+def roster_path() -> Path:
+    return Path(os.environ.get('PSTACK_KITCHEN_ROSTER') or Path.home() / '.config/pstack/kitchen.toml')
+
+
+# The checkout that holds .git, or a bare repository's git dir: one per repo
+# however many worktrees it has.
+def repo_main(root: Path) -> Path:
+    common = git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir', check=False).strip()
+    if not common:
+        return root
+    return Path(common).parent if Path(common).name == '.git' else Path(common)
+
+
+# host/owner/repo from any spelling of a remote URL: https, ssh://, scp-like
+# git@host:owner/repo, with or without .git.
+def origin_key(url: str) -> str | None:
+    url = url.strip()
+    m = re.match(r'^[a-z][a-z0-9+.-]*://(?:[^@/]*@)?([^/:]+)(?::\d+)?/(.+)$', url, re.I) \
+        or re.match(r'^(?:[^@/]+@)?([^/:]+):(?!/)(.+)$', url)
+    if not m:
+        return None
+    path = re.sub(r'(?:\.git)?/*$', '', m.group(2)).strip('/')
+    return f'{m.group(1).lower()}/{path}' if path else None
+
+
+def host_key(root: Path) -> str:
+    k = origin_key(git(root, 'remote', 'get-url', 'origin', check=False))
+    if k:
+        return re.sub(r'[^A-Za-z0-9._-]', '_', k.replace('/', '__'))
+    main = repo_main(root)
+    return f'{main.name}-{hashlib.sha256(str(main).encode()).hexdigest()[:8]}'
+
+
+# The host file this repo would use, and how it was chosen: a roster
+# [[kitchen]] entry whose match covers the checkout or its main checkout,
+# else kitchens/<key>.toml. It need not exist yet.
+def host_kitchen(root: Path) -> tuple[str, Path]:
+    path = roster_path()
     try:
-        if at:
-            text = git(root, 'show', f'{at}:{config or CONFIG}')
-        else:
-            text = (root / (config or CONFIG)).read_text()
-    except (OSError, ConfigError):
-        where = f'{at}:{config or CONFIG}' if at else str(root / (config or CONFIG))
-        raise ConfigError(f'no kitchen at {where}; run the pstack-kitchen-setup skill') from None
-    try:
-        return parse(tomllib.loads(text))
+        entries = tomllib.loads(path.read_text()).get('kitchen', []) if path.exists() else []
     except tomllib.TOMLDecodeError as e:
-        raise ConfigError(f'kitchen.toml: {e}') from None
+        raise ConfigError(f'{path}: {e}') from None
+    if not isinstance(entries, list):
+        raise ConfigError(f'{path}: kitchen must be an array of tables ([[kitchen]])')
+    here = [str(root), str(repo_main(root))]
+    for i, e in enumerate(entries):
+        where = f'{path}: kitchen[{i}]'
+        if not isinstance(e, dict) or not isinstance(e.get('match'), str) or not isinstance(e.get('file'), str):
+            raise ConfigError(f'{where} needs match and file strings')
+        rx = glob_regex(os.path.expanduser(e['match']).rstrip('/'))
+        if any(rx.match(h) or rx.match(h + '/') for h in here):
+            f = Path(os.path.expanduser(e['file']))
+            return 'roster', f if f.is_absolute() else path.parent / 'kitchens' / f
+    return 'user', path.parent / 'kitchens' / f'{host_key(root)}.toml'
+
+
+def locate(root: Path, at: str | None, config: str | None) -> Source:
+    if config and Path(config).is_absolute():
+        try:
+            return Source('file', config, Path(config).read_text())
+        except OSError:
+            raise ConfigError(f'no kitchen at {config}') from None
+    rel = config or CONFIG
+    if at:
+        r = subprocess.run(['git', '-C', str(root), 'show', f'{at}:{rel}'], capture_output=True, text=True, check=False)
+        if r.returncode == 0:
+            return Source('repo', f'{rel} at {at}', r.stdout)
+    elif (root / rel).is_file():
+        return Source('repo', rel, (root / rel).read_text())
+    tried = [f'{at}:{rel}' if at else str(root / rel)]
+    if not config:
+        kind, path = host_kitchen(root)
+        if path.is_file():
+            return Source(kind, str(path), path.read_text())
+        tried.append(str(path))
+    raise ConfigError(f'no kitchen at {" or ".join(tried)}; run the pstack-kitchen-setup skill')
+
+
+def load(root: Path, at: str | None, config: str | None) -> tuple[Kitchen, Source]:
+    src = locate(root, at, config)
+    try:
+        return parse(tomllib.loads(src.text)), src
+    except tomllib.TOMLDecodeError as e:
+        raise ConfigError(f'{src.label}: {e}') from None
 
 
 # One state directory per repository, keyed by its git common dir, so a
@@ -468,7 +552,7 @@ def machine_gate_slots() -> int:
     env = os.environ.get('PSTACK_KITCHEN_GATE_SLOTS')
     if env:
         return max(1, int(env))
-    path = Path(os.environ.get('PSTACK_KITCHEN_ROSTER') or Path.home() / '.config/pstack/kitchen.toml')
+    path = roster_path()
     try:
         slots = tomllib.loads(path.read_text()).get('machine', {}).get('gate_slots')
     except (OSError, tomllib.TOMLDecodeError):
@@ -838,12 +922,26 @@ def shell_builtins() -> set[str]:
     return set(out.split())
 
 
-def doctor(root: Path, kitchen: Kitchen, run: bool) -> list[dict]:
+def doctor(root: Path, kitchen: Kitchen, source: Source, run: bool) -> list[dict]:
     checks = []
     builtins = shell_builtins()
 
     def add(name: str, status: str, detail: str = '', items: list | None = None):
         checks.append({'check': name, 'status': status, 'detail': detail, 'items': items or []})
+
+    # A repo kitchen that is not committed is a half state: this checkout reads
+    # it, but verify reads the kitchen at each unit's commit and the verifier's
+    # scratch is built from one, so neither sees it.
+    _, host = host_kitchen(root)
+    if source.kind == 'repo' and (root / CONFIG).is_file() and subprocess.run(
+            ['git', '-C', str(root), 'ls-files', '--error-unmatch', CONFIG], capture_output=True, check=False).returncode:
+        ignored = subprocess.run(['git', '-C', str(root), 'check-ignore', '-q', CONFIG], check=False).returncode == 0
+        add('kitchen', 'fail', f'{CONFIG} is {"ignored or excluded" if ignored else "untracked"}: verify and the verifier '
+            f'never see it; commit it, or move it to the host path {host} (kitchen.py where --host)')
+    elif source.kind == 'repo' and host.is_file():
+        add('kitchen', 'warn', f'{source.label}; the host kitchen {host} is shadowed by it and unused')
+    else:
+        add('kitchen', 'ok', f'{source.kind} {source.label}')
 
     files = tracked(root, None)
     uncovered = [f for f in files
@@ -977,7 +1075,7 @@ def _entry(t: dict, source: str) -> dict:
 
 
 def roster_data() -> tuple[Path, dict]:
-    path = Path(os.environ.get('PSTACK_KITCHEN_ROSTER') or Path.home() / '.config/pstack/kitchen.toml')
+    path = roster_path()
     data = tomllib.loads(path.read_text()) if path.exists() else {}
     out = {}
     for role in ('sidekick', 'consultant'):
@@ -1216,11 +1314,17 @@ def emit(obj, as_json: bool, text: str) -> None:
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog='kitchen.py', description=__doc__.split('\n\n')[0])
     ap.add_argument('--repo', help='repository (default: the current directory)')
-    ap.add_argument('--config', help=f'kitchen file relative to the repo (default {CONFIG})')
+    ap.add_argument('--config', help=f'kitchen file: relative to the repo, or absolute (default {CONFIG}, '
+                    'else the host kitchen for this repo)')
     ap.add_argument('--at', help='read the kitchen (and, for --paths, the files) at this revision')
     ap.add_argument('--json', action='store_true', help='machine-readable output')
     sub = ap.add_subparsers(dest='cmd', required=True)
     sub.add_parser('validate', help='parse and check kitchen.toml')
+    w = sub.add_parser('where', help='which kitchen file this repo uses, and the host path for one kept off the repo')
+    w.add_argument('--host', action='store_true', help='print only the host path (it need not exist yet)')
+    sn = sub.add_parser('snapshot', help='copy a host kitchen into DIR, named by its content, and print the copy '
+                        '(nothing for a repo kitchen, which git versions)')
+    sn.add_argument('dir', type=Path)
     su = sub.add_parser('setup', help='run [scratch].setup in the repo root, inside the wrap')
     su.add_argument('--role', choices=('verifier', 'sidekick'), default='verifier')
     c = sub.add_parser('classify', help='profiles, risk class, and verify settings for a change')
@@ -1282,7 +1386,21 @@ def main(argv: list[str] | None = None) -> int:
                  + ''.join(f'\n  {p} {s}s' for p, s in r['profiles'].items())
                  + (f'\n  unmeasured: {", ".join(r["unmeasured"])}' if r['unmeasured'] else ''))
             return 0
-        kitchen = load(root, args.at, args.config)
+        if args.cmd == 'where':
+            kind, path = host_kitchen(root)
+            if args.host:
+                print(path)
+                return 0
+            try:
+                src = locate(root, args.at, args.config)
+                used = {'source': src.kind, 'path': src.label}
+            except ConfigError:
+                used = {'source': None, 'path': None}
+            emit({**used, 'host': {'source': kind, 'path': str(path), 'exists': path.is_file()}}, args.json,
+                 (f'{used["source"]}: {used["path"]}' if used['source'] else 'no kitchen')
+                 + f'\nhost ({kind}): {path}' + ('' if path.is_file() else ' (absent)'))
+            return 0
+        kitchen, source = load(root, args.at, args.config)
         INVOCATION[:] = ['--repo', str(root)] + (['--config', args.config] if args.config else []) \
             + (['--at', args.at] if args.at else [])
         if kitchen.verify and args.cmd in ('validate', 'doctor'):
@@ -1291,10 +1409,20 @@ def main(argv: list[str] | None = None) -> int:
         if kitchen.review['legacy'] and args.cmd in ('validate', 'doctor'):
             print(f'kitchen: warning: review.{", review.".join(kitchen.review["legacy"])} are ignored: the kitchen runs no '
                   'reviewer; remove them from kitchen.toml', file=sys.stderr)
+        if args.cmd == 'snapshot':
+            if source.kind in ('user', 'roster'):
+                args.dir.mkdir(parents=True, exist_ok=True)
+                snap = args.dir / f'{hashlib.sha256(source.text.encode()).hexdigest()[:12]}.toml'
+                if not snap.exists():
+                    with tempfile.NamedTemporaryFile('w', dir=args.dir, delete=False) as f:
+                        f.write(source.text)
+                    os.replace(f.name, snap)
+                print(snap.resolve())
+            return 0
         if args.cmd == 'validate':
-            emit({'ok': True, 'profiles': list(kitchen.profiles), 'self': kitchen.review['self'],
-                  'landing': kitchen.landing, 'setup': kitchen.scratch_setup}, args.json,
-                 f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})')
+            emit({'ok': True, 'source': source.kind, 'path': source.label, 'profiles': list(kitchen.profiles),
+                  'self': kitchen.review['self'], 'landing': kitchen.landing, 'setup': kitchen.scratch_setup}, args.json,
+                 f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})\nsource: {source.kind} {source.label}')
             return 0
         if args.cmd == 'setup':
             r = run_setup(root, kitchen, args.role)
@@ -1345,7 +1473,7 @@ def main(argv: list[str] | None = None) -> int:
             emit({'commits': rows}, args.json, '\n'.join(lines))
             return 0
         if args.cmd == 'doctor':
-            checks = doctor(root, kitchen, args.run)
+            checks = doctor(root, kitchen, source, args.run)
             lines = []
             for x in checks:
                 lines.append(f'{x["status"]:4} {x["check"]}: {x["detail"]}')
