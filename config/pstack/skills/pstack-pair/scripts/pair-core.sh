@@ -923,7 +923,7 @@ finish_wait() {
 	exit 4
 }
 
-provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials'
+provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials|billing verification failed|billing_error'
 
 # The error a pi agent stopped on, from its own session log: $1 the log herdr
 # reported, else the newest log in pi's session directory for cwd $2. Printed
@@ -944,7 +944,9 @@ agent_session_error() {
 # The provider error a Muse Code session stopped on, from its own log: the
 # newest session.jsonl under Muse's session store that names working
 # directory $1 (Herdr reports no Muse session id). Muse writes its usage
-# limit as "Usage limit reached" and "wait for usage to reset at <time>".
+# limit as "Usage limit reached" and "wait for usage to reset at <time>", and
+# an account whose payment is not verified as HTTP 402 "Billing verification
+# failed" (billing_error).
 muse_session_error() {
 	local cwd="$1" f
 	[ -n "$cwd" ] || return 0

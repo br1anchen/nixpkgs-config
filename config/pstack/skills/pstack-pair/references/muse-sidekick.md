@@ -30,8 +30,8 @@ What pstack adds when the native arguments do not set it:
   `[consultant.fallback]`) instead of starting.
 - **Exit.** `/quit`; the process ends with the TUI, so close and failover
   leave nothing running.
-- **Provider errors.** The usage-limit and credential messages count as
-  provider errors on screen, and in the newest Muse session log that names
+- **Provider errors.** The usage-limit, credential and billing messages
+  (`Billing verification failed`, HTTP 402) count as provider errors on screen, and in the newest Muse session log that names
   the role's working directory (Herdr reports no Muse session id).
 
 Muse keeps one conversation per pane like Claude and Codex, so it is not

@@ -2159,6 +2159,25 @@ esac
         self.assertIn('provider_error: the pi sidekick exited on: Reached free model rate limit', out)
         self.assertIn(f'next: pair.sh failover {self.store} --reason exited', out)
 
+    def test_a_muse_sidekick_that_exits_on_a_billing_error_says_so(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        state = self.state()
+        state['sidekick']['kind'] = 'muse'
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        log = Path(self.env['HOME']) / '.local/share/muse/sessions/2026/10/12/01a1-other/session.jsonl'
+        log.parent.mkdir(parents=True)
+        log.write_text('{"workspace_root":"/somewhere/else"} rate limited\n')
+        log = log.parent.parent / '01a1-this/session.jsonl'
+        log.parent.mkdir(parents=True)
+        log.write_text(f'{{"workspace_root":"{state["cwd"]}"}}\n'
+                       '{"error":"model failed: API error 402: Billing verification failed. Please check your payment method. (billing_error)"}\n')
+        (self.fake / 'agents/demo-sidekick').unlink()
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', '--max', '0', code=4)
+        self.assertIn('provider_error: the muse sidekick exited on: ', out)
+        self.assertIn('Billing verification failed', out)
+        self.assertNotIn('rate limited', out)
+
     def test_landing_verification_proves_the_stack_tip(self):
         init = self.git('rev-list', '--max-parents=0', 'HEAD')
         self.git('update-ref', 'refs/remotes/origin/main', init)
