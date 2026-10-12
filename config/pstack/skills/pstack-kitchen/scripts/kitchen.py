@@ -532,7 +532,7 @@ def acquire_slot(lock_dir: Path, prefix: str, slots: int, on_wait=None):
             if on_wait and pos != last:
                 on_wait(pos + 1, len(live))
                 last = pos
-            time.sleep(2)
+            time.sleep(float(os.environ.get('PSTACK_KITCHEN_SLOT_POLL_S', '2')))
     finally:
         ticket.unlink(missing_ok=True)
 

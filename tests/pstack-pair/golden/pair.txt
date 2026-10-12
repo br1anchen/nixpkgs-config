@@ -426,10 +426,6 @@ report_status: done
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
 $ pair.sh queue <T>/state/pstack/pair/demo <T>/state/pstack/pair/demo/briefs/008-qsix.md
@@ -505,10 +501,6 @@ state: idle
 report: missing
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
@@ -826,8 +818,6 @@ report_status: partial
   herdr agent prompt demo-sidekick pstack-pair STOP <T>/state/pstack/pair/demo
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent send-keys demo-sidekick enter
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent send-keys demo-sidekick enter
   herdr agent get demo-sidekick
 
 $ pair.sh stop <T>/state/pstack/pair/demo
@@ -837,8 +827,6 @@ report_status: partial
 [exit 0]
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-pair STOP <T>/state/pstack/pair/demo
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent send-keys demo-sidekick enter
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent send-keys demo-sidekick enter
   herdr agent get demo-sidekick
@@ -963,8 +951,6 @@ state: idle
 report: <T>/state/pstack/pair/demo/reports/015-stop.md
 report_status: partial
 [exit 0]
-  herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-pair STOP <T>/state/pstack/pair/demo --wait --timeout 300000

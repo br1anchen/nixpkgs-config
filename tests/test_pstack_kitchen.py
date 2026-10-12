@@ -74,7 +74,7 @@ class KitchenTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name) / 'repo'
-        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'XDG_STATE_HOME': str(Path(self.tmp.name) / 'state'),
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'XDG_STATE_HOME': str(Path(self.tmp.name) / 'state'), 'PSTACK_KITCHEN_SLOT_POLL_S': '0.2',
                     'PSTACK_KITCHEN_ROSTER': str(Path(self.tmp.name) / 'no-roster.toml'),
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
@@ -788,7 +788,7 @@ class KitchenScriptTests(unittest.TestCase):
         roster = t / 'roster.toml'
         roster.write_text('[sidekick]\nkind = "pi"\nargs = ["--model", "devin/swe-2"]\n'
                           '[sidekick.fallback]\nkind = "devin"\n[consultant]\nkind = "codex"\n')
-        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'PSTACK_KITCHEN_ROSTER': str(roster),
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'KITCHEN_VERIFY_POLL_S': '0.2', 'KITCHEN_VERIFY_GRACE_POLL_S': '0.2', 'KITCHEN_STEP_POLL_S': '0.2', 'KITCHEN_VERDICT_SETTLE_S': '0', 'PSTACK_KITCHEN_SLOT_POLL_S': '0.2', 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2',  'PSTACK_KITCHEN_ROSTER': str(roster),
                     'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
                     'HOME': str(t / 'home'), 'XDG_STATE_HOME': str(t / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0',

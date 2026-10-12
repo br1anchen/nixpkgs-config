@@ -49,7 +49,7 @@ class DevinSessionTests(unittest.TestCase):
         self.fake.mkdir()
         self.repo = self.path / 'repo'
         self.repo.mkdir()
-        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake),
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0'}
@@ -289,7 +289,7 @@ class ReadinessTests(unittest.TestCase):
         self.fake.mkdir()
         self.cwd = self.path / 'repo'
         self.cwd.mkdir()
-        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake),
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0',
@@ -637,7 +637,7 @@ class PiSidekickTests(unittest.TestCase):
         repo = self.path / 'repo'
         repo.mkdir()
         self.cwd = repo
-        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake),
+        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0',

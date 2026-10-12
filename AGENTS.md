@@ -28,6 +28,7 @@
 ## Testing Guidelines
 
 - Use `nix flake check` as the baseline validation before commits.
+- Run the Python suites with `python3 tests/run.py` (parallel, one process per test; about 100 s against about 10 minutes serially). `-k <text>` selects tests by id; `PSTACK_PAIR_UPDATE=1` regenerates the pair goldens.
 - For Home Manager changes, dry-run with `home-manager build --flake .#<profile>`. Always check **both** `.#darwin` and `.#omarchy` build before switching.
 - When altering overlays/packages, build them explicitly (`nix build .#<pkg>`), and prefer small, host-scoped diffs.
 

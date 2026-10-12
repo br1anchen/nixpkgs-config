@@ -547,10 +547,6 @@ report_status: done
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent wait demo-sidekick --timeout <MS>
   herdr agent get demo-sidekick
 
 $ pair.sh queue <T>/state/pstack/trio/demo <T>/state/pstack/trio/demo/briefs/008-qsix.md
@@ -626,10 +622,6 @@ state: idle
 report: missing
 [exit 4]
   herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent wait demo-sidekick --timeout <MS>
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
@@ -944,6 +936,19 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
+  herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
+
+$ pair.sh stop <T>/state/pstack/trio/demo
+sidekick_state: working
+consultant_state: idle
+report: <T>/state/pstack/trio/demo/reports/015-stop.md (partial)
+advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
+[exit 0]
+  herdr agent get demo-sidekick
+  herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
+  herdr agent read demo-sidekick --source visible --lines 40
+  herdr agent send-keys demo-sidekick enter
+  herdr agent get demo-sidekick
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
@@ -958,30 +963,7 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent send-keys demo-sidekick enter
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent send-keys demo-sidekick enter
   herdr agent get demo-sidekick
-  herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 40
-  herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 40
-  herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
-
-$ pair.sh stop <T>/state/pstack/trio/demo
-sidekick_state: working
-consultant_state: idle
-report: <T>/state/pstack/trio/demo/reports/015-stop.md (partial)
-advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
-[exit 0]
-  herdr agent get demo-sidekick
-  herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent send-keys demo-sidekick enter
-  herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent send-keys demo-sidekick enter
-  herdr agent get demo-sidekick
-  herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 40
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
@@ -995,8 +977,6 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
   herdr agent get demo-sidekick
-  herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 40
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
@@ -1015,8 +995,6 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
-  herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 3000
 
 $ pair.sh stop <T>/state/pstack/trio/demo
@@ -1028,8 +1006,6 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
   herdr agent get demo-sidekick
-  herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 40
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
@@ -1048,8 +1024,6 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent get demo-sidekick
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
-  herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 3000
 
 $ pair.sh stop <T>/state/pstack/trio/demo
@@ -1061,8 +1035,6 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
   herdr agent get demo-sidekick
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo
   herdr agent get demo-sidekick
-  herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 40
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
@@ -1147,11 +1119,7 @@ advice: <T>/state/pstack/trio/demo/advice/003-build-c1.md (answered)
 [exit 0]
   herdr agent get demo-sidekick
   herdr agent read demo-sidekick --source visible --lines 40
-  herdr agent get demo-sidekick
-  herdr agent read demo-sidekick --source visible --lines 40
   herdr agent prompt demo-sidekick pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000
-  herdr agent get demo-consultant
-  herdr agent read demo-consultant --source visible --lines 40
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
   herdr agent prompt demo-consultant pstack-trio STOP <T>/state/pstack/trio/demo --wait --timeout 300000

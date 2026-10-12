@@ -11,7 +11,7 @@ guided) skill=pstack-pair-guided prefix=pstack-pair-guided ;;
 trio) skill=pstack-trio prefix=pstack-trio ;;
 esac
 T="$(mktemp -d)"
-export PAIR_SETTLE_HOLD=10 PAIR_SUBMIT_CHECK_S=0 PAIR_BUSY_POLL=1 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
+export PAIR_SETTLE_HOLD=10 PAIR_SUBMIT_CHECK_S=0 PAIR_BUSY_POLL=1 PAIR_SETTLE_POLL_S=0.2 PAIR_FILE_POLL_MS=200 PAIR_STOP_POLL_S=0.2 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_SOCKET_PATH="$T/herdr.sock" HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
 unset CLAUDE_CODE_SESSION_ID
 mkdir -p "$FAKE" "$T/repo" "$T/home"
 git -C "$T/repo" init -q -b main && git -C "$T/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m init
@@ -43,6 +43,13 @@ exit 0
 HOOK
 chmod +x "$FAKE/hook"
 
+# A poll repeats as one call or a pair of calls (agent wait, agent read) until
+# its file lands; how many repeats depends on the poll interval, not on what
+# the scripts decide, so the transcript keeps one of each run.
+collapse_polls() {
+	uniq | awk '{ l[NR] = $0 } END { i = 1; while (i <= NR) { if (i + 3 <= NR && l[i] == l[i + 2] && l[i + 1] == l[i + 3]) { i += 2; continue } print l[i]; i++ } }' | uniq
+}
+
 norm() { sed -E -e "s#$T#<T>#g" -e 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/<TS>/g' -e 's#/tmp/tmp\.[A-Za-z0-9]+#<TMP>#g' \
 	-e 's#/tmp/pair-spawn-err\.[0-9]+#<ERR>#g' -e 's/(^| )[0-9]{2}:[0-9]{2} /\1<HM> /' -e 's/elapsed [0-9]+m/elapsed <N>m/' -e 's/last [0-9]+m ago/last <N>m ago/' -e 's/last change [0-9]+m ago/last change <N>m ago/' \
 	-e 's/\b1[0-9]{9}\b/<EPOCH>/g' -e 's/[0-9a-f]{7,40}/<SHA>/g'; }
@@ -53,7 +60,7 @@ run() {
 	printf '%s\n[exit %s]\n' "$out" "$code" | norm
 	# A sliced wait polls herdr a timing-dependent number of times; fold repeats.
 	# Slice lengths follow the clock, so they are masked before folding.
-	if [ -s "$FAKE/calls.log" ]; then sed -E 's/^(agent wait .*--timeout )[0-9]+$/\1<MS>/' "$FAKE/calls.log" | uniq | sed 's/^/  herdr /' | norm; : >"$FAKE/calls.log"; fi
+	if [ -s "$FAKE/calls.log" ]; then sed -E 's/^(agent wait .*--timeout )[0-9]+$/\1<MS>/' "$FAKE/calls.log" | sed 's/^/  herdr /' | norm | collapse_polls; : >"$FAKE/calls.log"; fi
 }
 fill() { perl -0pi -e 's/\{\{.*?\}\}/x/gs' "$1"; }
 set_hdr() { sed -i -E "s#^$2:.*#$2: $3#" "$1"; }

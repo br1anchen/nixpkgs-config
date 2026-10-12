@@ -625,7 +625,7 @@ cmd_step() {
 			printf 'next: this step is not recorded yet; do not end your turn. Run the same command again now, in the foreground, until it records: kitchen.sh step %s %s "%s"\n' "$store" "$sha" "$3"
 			exit 4
 		fi
-		sleep 2
+		sleep "${KITCHEN_STEP_POLL_S:-2}"
 	done
 	: >"$job/consumed"
 	local rc state
@@ -1149,7 +1149,8 @@ verify_wait() {
 		[ "$(date +%s)" -ge "$(field "$store" .verifying.deadline)" ] && [ -z "$(verifier_provider_error "$store" "$name")" ]; then
 		verify_grace "$store" "$name" "$kind" "$verdict" "$until"
 	fi
-	[ -f "$verdict" ] && sleep 3
+	# A verdict just written may still be closing; give the writer a moment.
+	[ ! -f "$verdict" ] || sleep "${KITCHEN_VERDICT_SETTLE_S:-3}"
 	local brief risk sample unit pane packet session
 	packet="$(field "$store" .verifying.packet)"
 	session="$(field "$store" '.verifying.session // empty')"

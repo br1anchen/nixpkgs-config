@@ -142,12 +142,13 @@ latest_advice() {
 
 # Herdr's state detection can lag or miss a turn on a narrow pane, so a
 # settled agent with no file yet is polled for the file, not trusted. $1
-# path, $2 timeout in ms. Returns 0 when the file appears.
+# path, $2 timeout in ms. Returns 0 when the file appears. Polls every
+# PAIR_FILE_POLL_MS (default 5000); tests set it short.
 await_file() {
-	local path="$1" timeout_ms="$2" waited=0
+	local path="$1" timeout_ms="$2" waited=0 poll_ms="${PAIR_FILE_POLL_MS:-5000}"
 	while [ ! -f "$path" ] && [ "$waited" -lt "$timeout_ms" ]; do
-		sleep 5
-		waited=$((waited + 5000))
+		sleep "$((poll_ms / 1000)).$(printf '%03d' $((poll_ms % 1000)))"
+		waited=$((waited + poll_ms))
 	done
 	[ -f "$path" ]
 }
@@ -1884,7 +1885,7 @@ wait_for_reply() {
 			[ -n "$settled_at" ] || settled_at="$(date +%s)"
 			[ $(( $(date +%s) - settled_at )) -lt "$settle_hold_s" ] || break
 			[ "$(date +%s)" -lt "$deadline" ] || break
-			sleep 5
+			sleep "${PAIR_SETTLE_POLL_S:-5}"
 			continue
 		fi
 		settled_at=""
@@ -2353,7 +2354,7 @@ stop_role() {
 				printf '{"error":{"code":"timeout"}}\n' >"$errfile"
 				break
 			fi
-			sleep 5
+			sleep "${PAIR_STOP_POLL_S:-5}"
 		done
 		out="$(herdr agent get "$name" 2>/dev/null || true)"
 	else
