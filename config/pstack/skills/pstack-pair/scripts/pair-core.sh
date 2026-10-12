@@ -923,7 +923,7 @@ finish_wait() {
 	exit 4
 }
 
-provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up'
+provider_error_re='capacity issues|no api providers|no api key found|unauthorized|forbidden|rate.?limit|too many requests|overloaded|fetch failed|econnreset|econnrefused|etimedout|socket hang up|usage limit reached|wait for usage to reset|missing meta credentials'
 
 # The error a pi agent stopped on, from its own session log: $1 the log herdr
 # reported, else the newest log in pi's session directory for cwd $2. Printed
@@ -941,6 +941,19 @@ agent_session_error() {
 		tail -1 | awk -F '\t' '$1 == "error" && $2 != "" {print substr($2, 1, 240)}' || true
 }
 
+# The provider error a Muse Code session stopped on, from its own log: the
+# newest session.jsonl under Muse's session store that names working
+# directory $1 (Herdr reports no Muse session id). Muse writes its usage
+# limit as "Usage limit reached" and "wait for usage to reset at <time>".
+muse_session_error() {
+	local cwd="$1" f
+	[ -n "$cwd" ] || return 0
+	f="$(ls -t "${XDG_DATA_HOME:-$HOME/.local/share}"/muse/sessions/*/*/*/*/session.jsonl 2>/dev/null | head -20 |
+		while IFS= read -r x; do grep -qF -- "$cwd" "$x" && { printf '%s\n' "$x"; break; }; done)"
+	[ -n "$f" ] || return 0
+	tail -n 400 "$f" | grep -oiE ".{0,60}($provider_error_re).{0,100}" | tail -1 | cut -c1-240 || true
+}
+
 # A sidekick that settles without a report may have hit its model provider,
 # not the task: a capacity or auth error on screen, or an agent that exited.
 # Prints the evidence and the way out, failover when a fallback is recorded.
@@ -956,6 +969,7 @@ provider_hint() {
 	case "$kind" in
 	pi) logged="$(agent_session_error "" "$(field "$store" .cwd)")" ;;
 	prime-agent) logged="$(prime_role_error "$store" sidekick)" ;;
+	muse) logged="$(muse_session_error "$(field "$store" .cwd)")" ;;
 	esac
 	if [ "$(agent_status "$name")" = absent ]; then
 		if [ -n "$logged" ]; then
@@ -1100,6 +1114,16 @@ permission_args() {
 		*) printf -- '--permission-mode\nsmart\n' ;;
 		esac
 		;;
+	muse)
+		# Muse sandboxes its shell to the workspace by default, which would
+		# refuse the role's writes to the run store and the gates' own
+		# caches; approvals off keeps an unattended role from blocking.
+		case "$mode" in
+		bypassPermissions) printf -- '--yolo\n' ;;
+		plan) printf -- '--approval-mode\nnever\n--disable-write\n' ;;
+		*) printf -- '--approval-mode\nnever\n--disable-sandbox\n' ;;
+		esac
+		;;
 	codex)
 		case "$mode" in
 		bypassPermissions) printf -- '--dangerously-bypass-approvals-and-sandbox\n' ;;
@@ -1125,6 +1149,7 @@ trust_args() {
 	case "$1" in
 	pi) printf -- '--approve\n' ;;
 	devin) printf -- '--respect-workspace-trust\nfalse\n' ;;
+	muse) printf -- '--trust-workspace\n' ;;
 	esac
 }
 
@@ -1166,7 +1191,7 @@ has_trust_arg() {
 	local arg
 	for arg in "$@"; do
 		case "$arg" in
-		--approve | --no-approve | -na | --respect-workspace-trust | --respect-workspace-trust=*) return 0 ;;
+		--approve | --no-approve | -na | --respect-workspace-trust | --respect-workspace-trust=* | --trust-workspace | --yolo) return 0 ;;
 		esac
 	done
 	return 1
@@ -1178,7 +1203,8 @@ has_permission_arg() {
 	for arg in "$@"; do
 		case "$arg" in
 		--permission-mode | --permission-mode=* | --dangerously-skip-permissions | --allow-dangerously-skip-permissions | \
-			-a | --ask-for-approval | --ask-for-approval=* | -s | --sandbox | --sandbox=* | --dangerously-bypass-approvals-and-sandbox)
+			-a | --ask-for-approval | --ask-for-approval=* | -s | --sandbox | --sandbox=* | --dangerously-bypass-approvals-and-sandbox | \
+			--approval-mode | --approval-mode=* | --yolo | --disable-approval | --disable-sandbox | --permission-profile | --permission-profile=*)
 			return 0
 			;;
 		esac
@@ -1414,7 +1440,25 @@ require_fresh_session() {
 preflight_timeout_s="${PAIR_PREFLIGHT_TIMEOUT:-90}"
 
 has_preflight() {
-	case "$1" in pi | prime-agent) return 0 ;; *) return 1 ;; esac
+	case "$1" in pi | prime-agent | muse) return 0 ;; *) return 1 ;; esac
+}
+
+# Muse Code: one headless prompt on the role's model proves the account is
+# logged in and its plan has usage left. Only the arguments `muse exec`
+# shares with the TUI pass through.
+preflight_muse() {
+	local -a args=()
+	local out rc=0
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--model | --provider | --contributor-mode | --permission-profile) [ $# -ge 2 ] && args+=("$1" "$2"); shift 2 ;;
+		*) shift ;;
+		esac
+	done
+	out="$(cd /tmp && timeout "$preflight_timeout_s" muse exec "${args[@]}" 'Reply with exactly: OK' </dev/null 2>&1)" || rc=$?
+	[ "$rc" -eq 0 ] && grep -q OK <<<"$out" && return 0
+	printf '%s\n' "$out" | tail -5 >&2
+	return 1
 }
 
 # Proves a kind's model answers before a pane starts. pi reaches some models
@@ -1427,6 +1471,7 @@ preflight_kind() {
 	shift
 	has_preflight "$kind" || return 0
 	[ "$kind" != prime-agent ] || { preflight_prime "$@"; return $?; }
+	[ "$kind" != muse ] || { preflight_muse "$@"; return $?; }
 	local -a args=()
 	for arg in "$@"; do
 		case "$arg" in --approve | -a | --no-approve | -na) ;; *) args+=("$arg") ;; esac
@@ -1495,7 +1540,7 @@ record_fallback() {
 
 exit_command() {
 	case "$1" in
-	pi | prime-agent | codex) printf '/quit\n' ;;
+	pi | prime-agent | codex | muse) printf '/quit\n' ;;
 	*) printf '/exit\n' ;;
 	esac
 }

@@ -165,6 +165,12 @@ or [the Prime adapter](references/prime-sidekick.md) for Prime. Partial and bloc
 its session; a completed brief leaves the queue for the master to dispatch
 after `pair.sh rotate`. The pstack store persists across sessions.
 
+## Muse Code
+
+Use `--kind muse` for any role. Read [the Muse adapter](references/muse-sidekick.md)
+for its permission, trust, preflight and exit handling. Muse keeps one
+conversation per pane, so it is not rotated per brief.
+
 ## Prime Agent
 
 Use `--kind prime-agent` for the sidekick. Read [the Prime

@@ -1329,6 +1329,15 @@ esac
         self.assertIn('master: 2 units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff', out)
         self.assertEqual(self.state()['master']['units_since_handoff'], 2)
 
+    def test_a_muse_verifier_starts_trusted_without_approvals(self):
+        self.set_roster('[verifier]\nkind = "muse"\nargs = ["--model", "muse-wonder"]\n')
+        _, out = self.verify_app_unit('clean', 0)
+        self.assertIn('status: clean', out)
+        (vstart,) = self.verifier_starts()
+        self.assertIn('--kind muse', vstart)
+        self.assertIn('--approval-mode never --disable-sandbox --trust-workspace --model muse-wonder', vstart)
+        self.assertNotIn('mcp', vstart)
+
     def test_close_ends_the_roles_and_closes_their_panes(self):
         state = self.state()
         state['verifying'] = {'verdict': 'x', 'units': '001'}

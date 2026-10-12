@@ -875,6 +875,32 @@ esac
         report.write_text('# Report\n\nstatus: done\nhead: abc123\n')
         self.run_command('finish', str(self.store), str(report))
 
+    def spawn_muse(self, *fallback, code=0):
+        return self.run_command('spawn', str(self.store), '--kind', 'muse', '--permission', 'auto',
+                                *fallback, '--', '--model', 'muse-wonder-full', '--reasoning-effort', 'max', code=code)
+
+    def test_muse_starts_trusted_without_approvals_after_a_clean_preflight(self):
+        self.spawn_muse()
+        sidekick = self.state()['sidekick']
+        self.assertEqual(sidekick['kind'], 'muse')
+        self.assertEqual(sidekick['start_args'], ['--approval-mode', 'never', '--disable-sandbox', '--trust-workspace',
+                                                  '--model', 'muse-wonder-full', '--reasoning-effort', 'max'])
+        self.assertEqual((self.fake / 'muse.log').read_text().splitlines()[0],
+                         'exec --model muse-wonder-full Reply with exactly: OK')
+
+    def test_a_muse_account_out_of_usage_fails_over_at_spawn(self):
+        (self.fake / 'muse-fail').write_text('Usage limit reached. Upgrade for increased limits, or wait for usage to reset at 18:00.\n')
+        out = self.spawn_muse('--fallback', 'codex', '--fallback-arg', '--model', '--fallback-arg', 'gpt-6.1-sol')
+        self.assertIn('failover: muse -> codex', out)
+        sidekick = self.state()['sidekick']
+        self.assertEqual(sidekick['kind'], 'codex')
+        self.assertIn('Usage limit reached', sidekick['failovers'][0]['reason'])
+
+    def test_native_muse_safety_flags_win_over_the_translation(self):
+        self.run_command('spawn', str(self.store), '--kind', 'muse', '--permission', 'auto', '--',
+                         '--yolo', '--model', 'muse-spark-1.3')
+        self.assertEqual(self.state()['sidekick']['start_args'], ['--yolo', '--model', 'muse-spark-1.3'])
+
     def test_failed_preflight_without_fallback_starts_nothing(self):
         (self.fake / 'pi-fail').write_text('No API key found for devin.\n')
         self.spawn_pi(code=2)

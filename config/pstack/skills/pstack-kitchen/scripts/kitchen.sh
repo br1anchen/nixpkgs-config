@@ -1015,9 +1015,13 @@ verifier_provider_error() {
 	session="$(field "$store" '.verifying.session // empty')"
 	if [ -z "$line" ]; then
 		local cwd=""
-		[ "$(field "$store" .verifier.kind)" != pi ] ||
+		[ "$(field "$store" .verifier.kind)" != pi ] && [ "$(field "$store" .verifier.kind)" != muse ] ||
 			cwd="$(readlink -f "$store/scratch/$(field "$store" .verifying.scratch)" 2>/dev/null || true)"
-		line="$(agent_session_error "$session" "$cwd")"
+		if [ "$(field "$store" .verifier.kind)" = muse ]; then
+			line="$(muse_session_error "$cwd")"
+		else
+			line="$(agent_session_error "$session" "$cwd")"
+		fi
 	fi
 	printf '%s' "${line:0:240}"
 }
