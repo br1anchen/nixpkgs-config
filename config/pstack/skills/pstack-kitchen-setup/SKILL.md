@@ -1,6 +1,6 @@
 ---
 name: pstack-kitchen-setup
-description: "Prepare any repository for pstack-kitchen: read its CI, task runners, and agent rules, write .agents/kitchen.toml (profiles of the repo's own gate commands, escalation triggers, policy rules, review and landing settings), make sure a verification skill exists, and prove the result with kitchen.py doctor, a green baseline, and the repo's recent history. Use for /pstack-kitchen-setup, 'set up the kitchen', 'prepare this repo for the kitchen', when pstack-kitchen reports no kitchen, or after a repo's checks or rules change."
+description: "Prepare any repository for pstack-kitchen: read its CI, task runners, and agent rules, write .agents/kitchen.toml, or a local-only host kitchen when the team has not agreed to commit one (profiles of the repo's own gate commands, escalation triggers, policy rules, review and landing settings), make sure a verification skill exists, and prove the result with kitchen.py doctor, a green baseline, and the repo's recent history. Use for /pstack-kitchen-setup, 'set up the kitchen', 'prepare this repo for the kitchen', when pstack-kitchen reports no kitchen, or after a repo's checks or rules change."
 ---
 
 Read [the runtime adapter](../pstack/references/runtime.md) before following this workflow. Its runtime mappings apply to all referenced playbooks and scripts.
@@ -11,7 +11,9 @@ pstack-kitchen spends the master's attention on exceptions, not on every
 dish. That works only when the repo itself says, as data, which of its own
 commands prove which part of it, what makes a change risky, and which lines
 must never land. This skill writes that data, `.agents/kitchen.toml`, and
-proves it against the repo before anyone relies on it. The schema is in
+proves it against the repo before anyone relies on it. A repo whose team has
+not agreed to commit it gets a local-only host kitchen instead, outside the
+repo; the kitchen reads either the same way. The schema is in
 [kitchen-toml.md](../pstack-kitchen/references/kitchen-toml.md), with a
 [worked example](../pstack-kitchen/references/kitchen-example.toml).
 
@@ -22,7 +24,13 @@ the repo's.
 
 ## 0. Start or maintain
 
-- No `.agents/kitchen.toml`: set up, steps 1 to 7.
+- No kitchen (`kitchen.py where` finds none): set up, steps 1 to 7. Ask the
+  human once whether the kitchen is committed (the default) or local only.
+  Local only writes to the host path `kitchen.py where --host` prints and
+  commits nothing.
+- An untracked or excluded `.agents/kitchen.toml` (`doctor` fails `kitchen`)
+  is a half state: verify and the verifier read commits and never see it.
+  Commit it, or move it to `kitchen.py where --host`, then maintain.
 - One exists: maintain. `kitchen.py validate`, then `kitchen.py doctor --run`
   and `kitchen.py history --last 30`. Compare the CI workflows and task
   runners against the profiles for drift: a CI job or package with no
@@ -152,6 +160,11 @@ repo's commit conventions, and do not push. Step 6 runs on that commit, so
 the tree is clean and a worktree contains the kitchen; amend the commit as
 step 6 tunes it.
 
+Local only: write the file at `kitchen.py where --host`, format it with the
+repo's TOML formatter if it has one, and commit nothing. `validate` and
+`doctor` must name it as the source (`user` or `roster`). Step 6 runs on
+HEAD as it is, and its scratch worktree finds the same host file.
+
 ## 6. Prove it against the repo
 
 1. **Green baseline.** `kitchen.py doctor --run` runs every fast gate to the
@@ -180,8 +193,8 @@ step 6 tunes it.
 
 ## 7. Hand back
 
-The branch holds the kitchen commit, and the verification skill in its own
-commit if one was created. Do not push without the human's word. Reply with:
+The branch holds the kitchen commit (local only: the host file's path
+instead), and the verification skill in its own commit if one was created. Do not push without the human's word. Reply with:
 
 - the profiles: paths, gate commands, verify mode, baseline seconds;
 - escalation triggers and policy rules, each with its source;
