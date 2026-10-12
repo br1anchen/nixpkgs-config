@@ -3,9 +3,13 @@
 Meta's Muse Code CLI (`muse`) runs as a Herdr `muse` kind (Herdr 0.9.3 and
 later recognize it on screen). Any role can use it: set `kind = "muse"` in a
 roster entry, or pass `--kind muse` to `pair.sh spawn`, with Muse-native
-arguments such as `--model muse-wonder-full --reasoning-effort max`. Catalog
-ids include `muse-spark-1.3`, `muse-wonder` and `muse-wonder-full` (Wonder Full
-needs a Muse Code subscription plan). Log in once with `muse login`.
+arguments such as `--model muse-wonder-1.0 --reasoning-effort max`. Pass the
+versioned model id the API serves (`muse-wonder-1.0`, `muse-spark-1.3`):
+`muse-wonder` and `muse-wonder-full` are catalog profile names that the API
+answers with "does not exist or you lack access". `muse login` signs in, but a
+model also needs an active Muse Code plan (an account without one gets HTTP
+402 "Billing verification failed"); Wonder Full needs the plan that
+includes it.
 
 What pstack adds when the native arguments do not set it:
 
