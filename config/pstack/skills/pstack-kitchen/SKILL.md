@@ -41,6 +41,9 @@ differs.
    kind = "devin"
    [consultant]
    kind = "codex"
+   [consultant.fallback] # optional: started when the consultant's preflight fails
+   kind = "claude"
+   args = ["--model", "claude-fable-5-1"]
    [verifier]            # routine units; default: the run's current sidekick
    kind = "pi"
    args = ["--model", "devin/swe-2", "--thinking", "high"]
@@ -68,6 +71,10 @@ differs.
    Every gate takes one of the machine's slots, so parallel kitchens queue
    their test suites instead of overloading the machine. The default is one
    slot per eight cores.
+
+To use Muse Code, set `kind = "muse"` in any roster entry with Muse-native
+`args` (for example `["--model", "muse-wonder-full"]`); read
+[the Muse adapter](../pstack-pair/references/muse-sidekick.md).
 
 To use Prime Agent, set `kind = "prime-agent"` in `[sidekick]`,
 `[consultant]`, or a verifier entry, with Prime-native `args`. Read

@@ -1329,6 +1329,37 @@ esac
         self.assertIn('master: 2 units verified since your last handoff; rotate at this boundary: kitchen.sh new-handoff', out)
         self.assertEqual(self.state()['master']['units_since_handoff'], 2)
 
+    def muse_consultant_roster(self):
+        Path(self.env['PSTACK_KITCHEN_ROSTER']).write_text(
+            '[sidekick]\nkind = "pi"\nargs = ["--model", "devin/swe-2"]\n[sidekick.fallback]\nkind = "devin"\n'
+            '[consultant]\nkind = "muse"\nargs = ["--model", "muse-wonder-full"]\n'
+            '[consultant.fallback]\nkind = "claude"\nargs = ["--model", "claude-fable-5-1"]\n')
+
+    def test_a_consultant_whose_muse_preflight_fails_starts_the_roster_fallback(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        self.muse_consultant_roster()
+        (self.fake / 'muse-fail').write_text('Usage limit reached. Wait for usage to reset at 18:00.\n')
+        out = self.run_sh('consultant', str(self.store), '--reason', 'contract', code=4)
+        self.assertIn('failover: consultant muse -> claude (preflight: Usage limit reached', out)
+        start = [line for line in (self.fake / 'calls.log').read_text().splitlines()
+                 if line.startswith('agent start demo-consultant')][-1]
+        self.assertIn('--kind claude', start)
+        self.assertIn('--model claude-fable-5-1', start)
+        failover = self.state()['consultant']['failovers'][0]
+        self.assertEqual((failover['from'], failover['to']), ('muse', 'claude'))
+        self.assertIn('\tmaster\tfailover\t-\tconsultant:muse:claude', (self.store / 'events.tsv').read_text())
+
+    def test_a_consultant_whose_muse_preflight_passes_starts_muse(self):
+        (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)
+        self.muse_consultant_roster()
+        out = self.run_sh('consultant', str(self.store), '--reason', 'contract', code=4)
+        self.assertNotIn('failover', out)
+        start = [line for line in (self.fake / 'calls.log').read_text().splitlines()
+                 if line.startswith('agent start demo-consultant')][-1]
+        self.assertIn('--kind muse', start)
+        self.assertIn('--trust-workspace --model muse-wonder-full', start)
+        self.assertIn('exec --model muse-wonder-full Reply with exactly: OK', (self.fake / 'muse.log').read_text())
+
     def test_a_muse_verifier_starts_trusted_without_approvals(self):
         self.set_roster('[verifier]\nkind = "muse"\nargs = ["--model", "muse-wonder"]\n')
         _, out = self.verify_app_unit('clean', 0)

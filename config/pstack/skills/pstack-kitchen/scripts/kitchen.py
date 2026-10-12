@@ -1081,7 +1081,7 @@ def roster_data() -> tuple[Path, dict]:
     for role in ('sidekick', 'consultant'):
         t = data.get(role, {})
         out[role] = {'kind': t.get('kind', ''), 'args': [str(a) for a in t.get('args', [])]}
-        if role == 'sidekick':
+        if role in ('sidekick', 'consultant'):
             fb = t.get('fallback', {})
             out[role]['fallback'] = {'kind': fb.get('kind', ''), 'args': [str(a) for a in fb.get('args', [])]}
     # A routine verifier without an entry is the run's current sidekick, which only

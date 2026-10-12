@@ -327,13 +327,32 @@ cmd_consultant() {
 	done
 	pair_file "$store" >/dev/null
 	[ -n "$reason" ] || die "--reason is required: the escalation that warrants the consultant"
+	local fallback="" why
+	local -a fb_args=()
 	if [ -z "$kind" ]; then
 		local roster
 		roster="$(python3 "$here/kitchen.py" --json roster)"
 		kind="$(jq -r '.consultant.kind' <<<"$roster")"
 		[ "${#native[@]}" -gt 0 ] || mapfile -t native < <(jq -r '.consultant.args[]' <<<"$roster")
+		fallback="$(jq -r '.consultant.fallback.kind // empty' <<<"$roster")"
+		mapfile -t fb_args < <(jq -r '.consultant.fallback.args[]?' <<<"$roster")
 	fi
 	[ -n "$kind" ] || die "no --kind and no [consultant] kind in the host roster"
+	# A consultant whose kind has a preflight (Muse, pi, Prime) is checked
+	# before its pane starts, as the sidekick is: a logged-out account or a
+	# spent plan starts the roster's [consultant.fallback] instead.
+	if has_preflight "$kind" && [ "$(agent_status "$(field "$store" .consultant.name)")" = absent ]; then
+		if ! why="$(preflight_kind "$kind" "${native[@]}" 2>&1)"; then
+			[ -n "$fallback" ] && [ "$fallback" != "$kind" ] ||
+				die "consultant $kind failed its preflight and the roster names no other fallback: ${why:-no answer}" 2
+			printf 'failover: consultant %s -> %s (preflight: %s)\n' "$kind" "$fallback" "$(tr '\n' ' ' <<<"${why:-no answer}" | cut -c1-200)"
+			json_update "$store" --arg from "$kind" --arg to "$fallback" --arg why "preflight: ${why:-no answer}" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+				'.consultant.failovers = ((.consultant.failovers // []) + [{from: $from, to: $to, reason: $why, at: $now}])'
+			event "$store" master failover - "consultant:$kind:$fallback"
+			kind="$fallback"
+			native=("${fb_args[@]}")
+		fi
+	fi
 	# The escalation is recorded once the consultant is up, so a start that
 	# fails (a trust prompt) and is retried counts it once.
 	spawn_consultant "$store" "$kind" "$permission" 60000 "${native[@]}"
