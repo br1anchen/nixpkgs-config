@@ -299,16 +299,20 @@ progress_path() {
 # A quiet progress log is not stale while a command the sidekick started
 # after its last line still runs (a ten-minute test suite). The sidekick's
 # processes are the ones carrying its pane's HERDR_PANE_ID, which a detached
-# gate inherits too; the master's own commands carry the master's. Prints the
-# longest-running one, preferring a command over the shell that runs it, and
-# its age; or nothing. Linux only.
+# gate inherits too; the master's own commands carry the master's. A pane id
+# is unique only within one Herdr server, so when this command runs under one
+# (HERDR_SOCKET_PATH) a process counts only if it carries the same socket.
+# Prints the longest-running one, preferring a command over the shell that
+# runs it, and its age; or nothing. Linux only.
 busy_command() {
-	local pane="$1" since="$2" now pid et comm best="" best_et=0 shell="" shell_et=0
+	local pane="$1" since="$2" now pid et comm best="" best_et=0 shell="" shell_et=0 env sock="${HERDR_SOCKET_PATH:-}"
 	[ -n "$pane" ] && [ -d /proc ] || return 0
 	now="$(date +%s)"
 	while read -r pid et comm; do
 		[ $((now - et)) -gt "$since" ] || continue
-		grep -qxF "HERDR_PANE_ID=$pane" < <(tr '\0' '\n' 2>/dev/null <"/proc/$pid/environ") || continue
+		env="$(tr '\0' '\n' 2>/dev/null <"/proc/$pid/environ")" || continue
+		grep -qxF "HERDR_PANE_ID=$pane" <<<"$env" || continue
+		[ -z "$sock" ] || grep -qxF "HERDR_SOCKET_PATH=$sock" <<<"$env" || continue
 		case "$comm" in
 		bash | sh | zsh | dash | fish) [ "$et" -le "$shell_et" ] || { shell_et="$et"; shell="$comm"; } ;;
 		*) [ "$et" -le "$best_et" ] || { best_et="$et"; best="$comm"; } ;;
