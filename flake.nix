@@ -162,6 +162,7 @@
         in
         {
           inherit (pkgs)
+            muse-code
             pi-coding-agent
             plannotator-pi-extension
             vim-herdr-navigation

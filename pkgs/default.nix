@@ -7,6 +7,7 @@
 {
   # example = pkgs.callPackage ./example { };
   jj-spr = pkgs.callPackage ./jj-spr { };
+  muse-code = pkgs.callPackage ./muse-code { };
   herdr = pkgs.callPackage ./herdr {
     upstream = inputs.herdr.packages.${pkgs.stdenv.hostPlatform.system}.herdr;
   };

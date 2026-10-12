@@ -82,6 +82,7 @@
       procs
       protobuf
       ripgrep # grep replacement written in Rust
+      muse-code
       rtk
       rustup
       starship
