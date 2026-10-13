@@ -29,7 +29,7 @@
 
 - Use `nix flake check` as the baseline validation before commits.
 - Run the Python suites with `python3 tests/run.py` (parallel, one process per test; about 100 s against about 10 minutes serially). `-k <text>` selects tests by id; `PSTACK_PAIR_UPDATE=1` regenerates the pair goldens.
-- For Home Manager changes, dry-run with `home-manager build --flake .#<profile>`. Always check **both** `.#darwin` and `.#omarchy` build before switching.
+- For Home Manager changes, dry-run with `home-manager build --flake .#<profile>`. Always check **both** profiles before switching. Build the one for the host you are on; the other cannot build there (its derivations need that platform's builder), so evaluate it instead, e.g. on Omarchy `nix eval --raw .#homeConfigurations.darwin.activationPackage.drvPath`.
 - When altering overlays/packages, build them explicitly (`nix build .#<pkg>`), and prefer small, host-scoped diffs.
 
 ## Commit & Pull Request Guidelines
