@@ -934,7 +934,9 @@ class AreaTests(unittest.TestCase):
 
     def test_a_scope_is_the_directories_it_writes(self):
         for globs, area in [(['src/**', 'tests/**'], ['src']), (['src/api/v2/**', 'src/api/x.py'], ['src/api']),
-                            (['README.md', 'docs/*.md'], ['.', 'docs']), (['tests/unit/**'], ['tests/unit']),
+                            (['README.md', 'docs/*.md'], ['.']), (['tests/unit/**'], ['tests/unit']),
+                            (['docs/adr/0001-x.md', 'services/api/**', 'tests/**'], ['services/api']),
+                            (['docs/adr/**', 'tests/**'], ['docs/adr']),
                             (['lib/foo*', 'pkg/'], ['lib', 'pkg']), ([], []),
                             (['/tmp/store/reports/001-x.md', '~/notes.md', 'src/a/**'], ['src/a']),
                             (['/tmp/store/reports/001-x.md'], [])]:

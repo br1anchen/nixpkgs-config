@@ -1267,6 +1267,7 @@ def open_feedback() -> dict[str, int]:
 # that share a kind. Rows from before those columns have five.
 LEDGER_HEAD = ('ts', 'run', 'kind', 'class', 'detail', 'unit', 'area', 'finding')
 TEST_DIR = re.compile(r'(^|/)(tests?|specs?|__tests__|testdata)(/|$)')
+DOC_DIR = re.compile(r'(^|/)(docs?|adrs?|documentation)(/|$)')
 
 
 def _cell(text: str, limit: int = 200) -> str:
@@ -1311,9 +1312,10 @@ AREA_DEPTH = 2
 
 def scope_area(globs: list[str]) -> list[str]:
     """The repo directories a scope writes, at most AREA_DEPTH deep, tests
-    left out unless the unit writes nothing else: `src/api/**` and
-    `src/api/x.py` are both `src/api`; a file at the root is `.`. Paths
-    outside the repo (the run's own reports) are no area."""
+    and docs left out unless the unit writes nothing else (a code unit's ADR
+    is not where its trouble was): `src/api/**` and `src/api/x.py` are both
+    `src/api`; a file at the root is `.`. Paths outside the repo (the run's
+    own reports) are no area."""
     def dir_of(g: str) -> str:
         cut = min([i for i in (g.find(c) for c in '*?[{') if i >= 0], default=len(g))
         head = g[:cut]
@@ -1321,8 +1323,9 @@ def scope_area(globs: list[str]) -> list[str]:
         parts = [p for p in head.rsplit('/', 1)[0].split('/') if p] if '/' in head else []
         return '/'.join(parts[:AREA_DEPTH]) or '.'
     globs = [g for g in globs if not g.startswith(('/', '~', '../'))]
-    code = [g for g in globs if not TEST_DIR.search(g)]
-    return sorted({dir_of(g) for g in (code or globs)})
+    code = [g for g in globs if not TEST_DIR.search(g) and not DOC_DIR.search(g)]
+    docs = [g for g in globs if not TEST_DIR.search(g)]
+    return sorted({dir_of(g) for g in (code or docs or globs)})
 
 
 def unit_area(store: Path, units: list[str]) -> str:
