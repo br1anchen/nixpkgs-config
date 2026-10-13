@@ -697,9 +697,11 @@ class LessonTests(KitchenTests):
         self.ledger = Path(self.run_kitchen('statedir').strip()) / 'ledger.tsv'
         self.ledger.write_text('ts\trun\tkind\tclass\tdetail\tunit\tarea\tfinding\n')
 
-    def row(self, run, kind, cls, unit, area, finding, detail='-'):
+    def row(self, run, kind, cls, unit, area, finding, detail='-', ts=None):
+        # Trouble predates the lessons; held and hit rows come after activation.
+        ts = ts or '2099-01-01T00:00:00Z' if kind == 'lesson' else f'2026-10-0{len(self.ledger.read_text().splitlines())}T00:00:00Z'
         with self.ledger.open('a') as f:
-            f.write(f'2026-10-0{len(self.ledger.read_text().splitlines())}T00:00:00Z\t{run}\t{kind}\t{cls}\t{detail}\t{unit}\t{area}\t{finding}\n')
+            f.write(f'{ts}\t{run}\t{kind}\t{cls}\t{detail}\t{unit}\t{area}\t{finding}\n')
 
     def candidates(self):
         return [(c['kind'], c['class'], c['area'], c['runs']) for c in self.data('lessons')['candidates']]
@@ -782,12 +784,20 @@ class LessonTests(KitchenTests):
                       self.run_kitchen('lessons', 'promote', 'L001'))
         self.assertIn('ledger refs (run, then the unit, verdict or steer to open): run-a 001-x abc1234, run-b 002-y def5678',
                       self.run_kitchen('lessons', 'promote', 'L001'))
+        now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         for n in range(2):
-            self.row(f'run-{n}', 'lesson', 'hit', f'00{n}', 'src', 'lint again', detail='L001')
+            self.row(f'run-{n}', 'lesson', 'hit', f'00{n}', 'src', 'lint again', detail='L001', ts=now)
         path = self.repo / '.agents/LESSONS.md'
         path.write_text(path.read_text() + '\n## L002: Broken.\n\nstatus: active\n')
         self.assertEqual(self.doctor()['items'], ['L001: hit 2 times while active; rewrite the rule or retire it',
                                                   'L002: unreadable (kind, class, layer, area); fix it by hand'])
+        # A rewritten rule starts its count again.
+        time.sleep(1.1)
+        path.write_text(path.read_text().replace('\n## L002: Broken.\n\nstatus: active\n', ''))
+        self.run_kitchen('lessons', 'set', 'L001', 'active', '--rule', 'Run the formatter in the pre-commit hook.')
+        x = self.data('lessons')['lessons'][0]
+        self.assertEqual((x['rule'], x['held'], x['hits']), ('Run the formatter in the pre-commit hook.', 0, 0))
+        self.assertEqual(self.doctor()['status'], 'ok')
 
     def test_rewriting_the_file_keeps_what_a_human_wrote(self):
         self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
@@ -807,7 +817,7 @@ class LessonTests(KitchenTests):
         self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
         self.run_kitchen('lessons', 'add', 'catch', 'review', 'src/lib', 'A renamed function has every caller updated.')
         self.run_kitchen('lessons', 'set', 'L001', 'active')
-        self.assertRegex((self.repo / '.agents/LESSONS.md').read_text(), r'status: active\n(.*\n)*active: \d{4}-\d\d-\d\d\n')
+        self.assertRegex((self.repo / '.agents/LESSONS.md').read_text(), r'status: active\n(.*\n)*active: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\n')
         for n in range(3):
             self.row(f'run-{n}', 'lesson', 'held', '00{n}', 'src/lib', '', detail='L001')
         x = self.data('lessons')['lessons'][0]

@@ -1540,8 +1540,15 @@ def overlaps(a: str, b: str) -> bool:
     return any(covers(x, y) or covers(y, x) for x in a.split(',') if x for y in b.split(',') if y)
 
 
-def lesson_counts(rows: list[dict[str, str]], lid: str) -> dict[str, int]:
-    mine = [r for r in rows if r['kind'] == 'lesson' and r['detail'] == lid]
+def lesson_scores(rows: list[dict[str, str]], x: Lesson) -> list[dict[str, str]]:
+    """A lesson's held and hit rows since it was last made active: a rewritten
+    rule starts its count again."""
+    since = x.fields.get('active', '')
+    return [r for r in rows if r['kind'] == 'lesson' and r['detail'] == x.id and r['ts'] >= since]
+
+
+def lesson_counts(rows: list[dict[str, str]], x: Lesson) -> dict[str, int]:
+    mine = lesson_scores(rows, x)
     return {'held': sum(r['class'] == 'held' for r in mine), 'hits': sum(r['class'] == 'hit' for r in mine)}
 
 
@@ -1582,7 +1589,7 @@ def lessons_report(path: Path, ledger: Path) -> dict:
     rows, lessons = ledger_rows(ledger), read_lessons(path)
     listed = []
     for x in lessons:
-        n = lesson_counts(rows, x.id)
+        n = lesson_counts(rows, x)
         listed.append({'id': x.id, 'rule': x.rule, **x.fields, **n,
                        'promotable': x.fields.get('status') == 'active' and n['held'] >= PROMOTE_AFTER and n['hits'] == 0})
     return {'path': str(path), 'lessons': listed, 'candidates': lesson_candidates(rows, lessons)}
@@ -1625,7 +1632,7 @@ def lessons_add(path: Path, ledger: Path, kind: str, cls: str, area: str, rule: 
     return x
 
 
-def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str | None, today: str) -> Lesson:
+def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str | None, now: str) -> Lesson:
     lessons = read_lessons(path)
     x = next((x for x in lessons if x.id == lid), None)
     if not x:
@@ -1634,7 +1641,7 @@ def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str |
         raise ConfigError(f'{status} needs --note: what enforces it now (commit and check), or why it is retired')
     x.fields['status'] = status
     if status == 'active':
-        x.fields['active'] = today
+        x.fields['active'] = now
     if rule:
         x.rule = ' '.join(rule.split())
     if note:
@@ -1671,7 +1678,7 @@ def promotion_draft(path: Path, ledger: Path, lid: str) -> str:
     if not x:
         raise ConfigError(f'no lesson {lid} in {path}')
     rows = ledger_rows(ledger)
-    n = lesson_counts(rows, lid)
+    n = lesson_counts(rows, x)
     f = x.fields
     ready = f.get('status') == 'active' and n['held'] >= PROMOTE_AFTER and n['hits'] == 0
     why_not = [] if ready else ([f'status is {f.get("status")}, not active'] * (f.get('status') != 'active')
@@ -1685,7 +1692,7 @@ def promotion_draft(path: Path, ledger: Path, lid: str) -> str:
     target = target.format(cls=f.get('class', ''), area=f.get('area', ''))
     source = [r for r in rows if r['kind'] == f.get('kind') and r['class'] == f.get('class') and r['area']
               and any(covers(f.get('area', '.'), e) for e in r['area'].split(','))]
-    scored = [r for r in rows if r['kind'] == 'lesson' and r['detail'] == lid]
+    scored = lesson_scores(rows, x)
     refs = list(dict.fromkeys(f'{r["run"]} {r["detail"]}' for r in source))
     return '\n'.join([
         f'# Promote {lid}: {x.rule}', '',
@@ -1720,7 +1727,7 @@ def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
     rows = ledger_rows(ledger)
     items = []
     for x in lessons:
-        f, n = x.fields, lesson_counts(rows, x.id)
+        f, n = x.fields, lesson_counts(rows, x)
         missing = [k for k in ('status', 'kind', 'class', 'layer', 'area') if not f.get(k)]
         if missing or f.get('status') not in LESSON_STATUS:
             items.append(f'{x.id}: unreadable ({", ".join(missing) or "status " + f.get("status", "")}); fix it by hand')
@@ -2094,7 +2101,8 @@ def main(argv: list[str] | None = None) -> int:
                 if picked or args.json:
                     emit({'lessons': [x.id for x in picked]}, args.json, f'lessons: {" ".join(x.id for x in picked)}')
             elif args.lessons_cmd == 'set':
-                x = lessons_set(path, args.id, args.status, args.rule, args.note, today)
+                x = lessons_set(path, args.id, args.status, args.rule, args.note,
+                                time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
                 emit({'id': x.id, 'status': args.status, 'path': str(path)}, args.json, f'{x.id} {args.status}: {x.rule}')
             else:
                 r = lessons_report(path, ledger)
