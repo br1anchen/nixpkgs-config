@@ -1710,7 +1710,7 @@ cmd_retro() {
 	[ "$rc_verified" -eq 0 ] || printf 'master wakes per verified unit: %s\n' "$(awk -v w="$rc_wakes" -v v="$rc_verified" 'BEGIN{printf "%.1f", w / v}')"
 	printf 'repeated across runs (the kitchen should catch these, not the master):\n'
 	# Lesson scores, staged lessons and dismissals are the lessons report's, below.
-	awk -F '\t' 'NR > 1 && $3 !~ /^(lesson|dismiss)$/ {k = $3 "\t" $4; n[k]++; if (!((k, $2) in seen)) {seen[k, $2] = 1; runs[k]++}}
+	awk -F '\t' 'NR > 1 && $3 !~ /^(lesson|lesson-added|dismiss)$/ {k = $3 "\t" $4; n[k]++; if (!((k, $2) in seen)) {seen[k, $2] = 1; runs[k]++}}
 		END {for (k in n) if (n[k] >= 2) {split(k, p, "\t"); printf "  %3d %-10s %-24s in %d runs\n", n[k], p[1], p[2], runs[k]}}' "$ledger" | sort -rn || true
 	cat <<'HINT'
 encode a repeated class at the highest level that works (the correct skill):

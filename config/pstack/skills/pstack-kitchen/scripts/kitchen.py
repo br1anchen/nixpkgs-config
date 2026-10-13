@@ -1729,20 +1729,40 @@ def lessons_add(path: Path, ledger: Path, kind: str, cls: str, area: str, rule: 
     area = norm_area(area)
     if '"' in match:
         raise ConfigError('a match has no double quotes; copy it from the candidate')
-    evidence = [r for r in ledger_rows(ledger) if same_trouble(kind, cls, match, r) and r['area']
-                and any(covers(area, e) for e in r['area'].split(','))]
-    if not evidence:
-        raise ConfigError(f'no ledger row for {kind} {cls}{" " + match if match else ""} in {area}: '
-                          'a lesson needs evidence')
-    lessons = read_lessons(path)
-    n = max([int(x.id[1:]) for x in lessons], default=0) + 1
-    fields = {'status': 'proposed', 'kind': kind, 'class': cls, 'match': match,
-              'layer': layer or ('policy' if kind == 'gate-fail' and cls == 'policy' else KIND_LAYER.get(kind, cls)),
-              'area': area, 'since': today}
-    x = Lesson(f'L{n:03d}', rule, {k: v for k, v in fields.items() if v},
-               list(dict.fromkeys(evidence_line(r) for r in evidence))[:5])
-    write_lessons(path, lessons + [x])
+    with ledger_lock(ledger):
+        rows = ledger_rows(ledger)
+        evidence = [r for r in rows if same_trouble(kind, cls, match, r) and r['area']
+                    and any(covers(area, e) for e in r['area'].split(','))]
+        if not evidence:
+            raise ConfigError(f'no ledger row for {kind} {cls}{" " + match if match else ""} in {area}: '
+                              'a lesson needs evidence')
+        lessons = read_lessons(path)
+        # Ids come from the host ledger too: runs in other worktrees stage
+        # lessons in their own copy of the file, and the ledger counts by id.
+        n = max([int(x.id[1:]) for x in lessons]
+                + [int(r['detail'][1:]) for r in rows if r['kind'] == 'lesson-added' and re.fullmatch(r'L\d+', r['detail'])],
+                default=0) + 1
+        fields = {'status': 'proposed', 'kind': kind, 'class': cls, 'match': match,
+                  'layer': layer or ('policy' if kind == 'gate-fail' and cls == 'policy' else KIND_LAYER.get(kind, cls)),
+                  'area': area, 'since': today}
+        x = Lesson(f'L{n:03d}', rule, {k: v for k, v in fields.items() if v},
+                   list(dict.fromkeys(evidence_line(r) for r in evidence))[:5])
+        write_lessons(path, lessons + [x])
+        rows.append(dict(zip(LEDGER_HEAD, (time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), '-', 'lesson-added',
+                                           kind, x.id, '', area, _cell(rule), match))))
+        write_ledger(ledger, rows)
     return x
+
+
+def lessons_commit_hint(root: Path, path: Path) -> str:
+    """A repo's lessons file is the run's change: say how to commit it alone,
+    since the sidekick commits in the same worktree."""
+    try:
+        rel = path.relative_to(root)
+    except ValueError:
+        return ''
+    git = f'git -C {shlex.quote(str(root))}'
+    return f'\nnext: commit it on its own: {git} add -- {rel} && {git} commit -m "<message>" -- {rel}'
 
 
 def lessons_dismiss(ledger: Path, kind: str, cls: str, area: str, match: str, note: str, now: str) -> None:
@@ -1760,7 +1780,11 @@ def lessons_dismiss(ledger: Path, kind: str, cls: str, area: str, match: str, no
         write_ledger(ledger, rows)
 
 
-def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str | None, now: str) -> Lesson:
+def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str | None, now: str,
+                ledger: Path | None = None) -> Lesson:
+    if ledger:
+        with ledger_lock(ledger):
+            return lessons_set(path, lid, status, rule, note, now)
     lessons = read_lessons(path)
     x = next((x for x in lessons if x.id == lid), None)
     if not x:
@@ -2242,7 +2266,8 @@ def main(argv: list[str] | None = None) -> int:
             today = time.strftime('%Y-%m-%d', time.gmtime())
             if args.lessons_cmd == 'add':
                 x = lessons_add(path, ledger, args.kind, args.cls, args.area, args.rule, args.layer, today, args.match)
-                emit({'id': x.id, 'path': str(path)}, args.json, f'{x.id} proposed in {path}: {x.rule}')
+                emit({'id': x.id, 'path': str(path)}, args.json, f'{x.id} proposed in {path}: {x.rule}'
+                     + lessons_commit_hint(root, path))
             elif args.lessons_cmd == 'dismiss':
                 lessons_dismiss(ledger, args.kind, args.cls, args.area, args.match, args.note,
                                 time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
@@ -2261,8 +2286,9 @@ def main(argv: list[str] | None = None) -> int:
                     emit({'lessons': [x.id for x in picked]}, args.json, f'lessons: {" ".join(x.id for x in picked)}')
             elif args.lessons_cmd == 'set':
                 x = lessons_set(path, args.id, args.status, args.rule, args.note,
-                                time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
-                emit({'id': x.id, 'status': args.status, 'path': str(path)}, args.json, f'{x.id} {args.status}: {x.rule}')
+                                time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), ledger)
+                emit({'id': x.id, 'status': args.status, 'path': str(path)}, args.json, f'{x.id} {args.status}: {x.rule}'
+                     + lessons_commit_hint(root, path))
             else:
                 r = lessons_report(path, ledger)
                 emit(r, args.json, lessons_text(r, args.all))

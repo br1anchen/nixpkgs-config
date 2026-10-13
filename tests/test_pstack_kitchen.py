@@ -771,6 +771,15 @@ class LessonTests(KitchenTests):
         self.assertEqual(self.candidates(), [('reject', 'verify', 'src', ['run-a', 'run-b', 'run-c'])])
         self.assertIn('no ledger row', self.run_kitchen('lessons', 'dismiss', 'reject', 'verify', 'docs', '--note', 'x', code=1))
 
+    def test_ids_come_from_the_ledger_so_parallel_worktrees_do_not_collide(self):
+        self.row('run-a', 'catch', 'review', '001', 'src', 'missed a caller')
+        self.assertIn('next: commit it on its own', self.run_kitchen('lessons', 'add', 'catch', 'review', 'src', 'Rule one.'))
+        # Another run's worktree has its own copy of the file, without L001.
+        (self.repo / '.agents/LESSONS.md').unlink()
+        self.assertEqual(self.data('lessons', 'add', 'catch', 'review', 'src', 'Rule two.')['id'], 'L002')
+        out = self.run_kitchen('lessons', 'set', 'L002', 'active')
+        self.assertIn('add -- .agents/LESSONS.md && ', out)
+
     def test_retro_prints_the_strongest_candidates(self):
         for n in range(7):
             for run in ('run-a', 'run-b'):
