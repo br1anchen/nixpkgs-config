@@ -385,20 +385,35 @@ def load(root: Path, at: str | None, config: str | None) -> tuple[Kitchen, Sourc
 # bare repository in that directory into one ledger and one timings file.
 # State kept under an older key (per checkout, or a bare repo's parent) is
 # copied over once.
-def state_dir(root: Path) -> Path:
+def state_key(p: Path) -> Path:
     base = Path(os.environ.get('XDG_STATE_HOME') or Path.home() / '.local/state') / 'pstack/kitchen/repos'
+    return base / f'{p.name}-{hashlib.sha256(str(p).encode()).hexdigest()[:8]}'
+
+
+def state_main(root: Path) -> tuple[Path, list[Path]]:
+    """The checkout or bare repository a worktree's state is keyed by, and
+    the older keys its ledger may still sit under."""
     common = git(root, 'rev-parse', '--path-format=absolute', '--git-common-dir', check=False).strip()
-    def key(p: Path) -> Path:
-        return base / f'{p.name}-{hashlib.sha256(str(p).encode()).hexdigest()[:8]}'
     if not common:
-        main, older = root, []
-    elif Path(common).name == '.git':
-        main, older = Path(common).parent, []
-    else:
-        main, older = Path(common), [key(Path(common).parent)]
-    d = key(main)
+        return root, []
+    if Path(common).name == '.git':
+        return Path(common).parent, []
+    return Path(common), [state_key(Path(common).parent)]
+
+
+def owns(state: Path, root: Path) -> bool:
+    """A run's worktree keeps its state in this directory. A removed worktree
+    is matched by its path: a repository's worktrees sit inside it."""
+    if root.is_dir():
+        return state_key(state_main(root)[0]).name == state.name
+    return any(state_key(p).name == state.name for p in [root, *root.parents])
+
+
+def state_dir(root: Path) -> Path:
+    main, older = state_main(root)
+    d = state_key(main)
     d.mkdir(parents=True, exist_ok=True)
-    for old in [key(root), *older]:
+    for old in [state_key(root), *older]:
         for name in ('ledger.tsv', TIMINGS):
             if old != d and (old / name).exists() and not (d / name).exists():
                 shutil.copy2(old / name, d / name)
@@ -1268,6 +1283,9 @@ def open_feedback() -> dict[str, int]:
 # repeated problem from several that share a kind. Rows from before those
 # columns have five, or eight.
 LEDGER_HEAD = ('ts', 'run', 'kind', 'class', 'detail', 'unit', 'area', 'finding', 'match')
+# The kinds retro writes from a run's store; it replaces only these, so a
+# catch, a dismissal and rows of kinds it no longer writes survive a rerun.
+RETRO_KINDS = ('gate-fail', 'reject', 'steer', 'gate-flaky', 'lesson')
 TEST_DIR = re.compile(r'(^|/)(tests?|specs?|__tests__|testdata)(/|$)')
 DOC_DIR = re.compile(r'(^|/)(docs?|adrs?|documentation)(/|$)')
 
@@ -1456,13 +1474,13 @@ def ledger_lock(ledger: Path):
 
 
 def ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
-    """This run's rows replace any it wrote before (catches stay), so retro can run again."""
+    """This run's rows replace any it wrote before (catches and other kinds stay), so retro can run again."""
     with ledger_lock(ledger):
         return _ledger_retro(store, ledger, run, ts)
 
 
 def _ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
-    rows = [r for r in ledger_rows(ledger) if r['run'] != run or r['kind'] == 'catch']
+    rows = [r for r in ledger_rows(ledger) if r['run'] != run or r['kind'] not in RETRO_KINDS]
     new = retro_rows(store, run, ts)
     catches = [tuple(r[k] for k in LEDGER_HEAD) for r in rows if r['run'] == run and r['kind'] == 'catch']
     new += lesson_rows(store, run, ts, new + catches)
@@ -1479,6 +1497,41 @@ def ledger_catch(store: Path, ledger: Path, run: str, ts: str, layer: str, text:
                                            unit_area(store, [unit]) if unit else '', _cell(text), ''))))
         write_ledger(ledger, rows)
 
+
+def ledger_backfill(ledger: Path, runs: Path) -> dict[str, int]:
+    """Give rows written before area and match their unit, area, finding and
+    match, from each run's store while it is still on disk. A run's old rows
+    are replaced by what retro reads from its store now, at their own time;
+    rows of other kinds (catches, findings of a past reviewer) stay as they are."""
+    out = {'runs': 0, 'rows': 0, 'missing': 0, 'foreign': 0}
+    with ledger_lock(ledger):
+        rows = ledger_rows(ledger)
+        old = [r for r in rows if r['kind'] in RETRO_KINDS and r['kind'] != 'lesson' and not r['area'] and not r['match']]
+        for run in sorted({r['run'] for r in old}):
+            store = runs / run
+            mine = [r for r in rows if r['run'] == run and r['kind'] in RETRO_KINDS and r['kind'] != 'lesson']
+            if not (store / 'pair.json').is_file():
+                out['missing'] += 1
+                continue
+            # Ledgers copied from a shared older key hold other repos' runs.
+            if not owns(ledger.parent, Path(json.loads((store / 'pair.json').read_text()).get('git_root', ''))):
+                out['foreign'] += 1
+                continue
+            if any(r['area'] or r['match'] for r in mine):
+                continue  # retro has written this run since
+            when = {(r['kind'], r['detail']): r['ts'] for r in mine}
+            first = min(r['ts'] for r in mine)
+            new = [dict(zip(LEDGER_HEAD, r)) for r in retro_rows(store, run, '')]
+            for r in new:
+                r['ts'] = when.get((r['kind'], r['detail']), first)
+            gone = {id(m) for m in mine}
+            at = next(i for i, r in enumerate(rows) if id(r) in gone)
+            rows = [r for r in rows if id(r) not in gone]
+            rows[at:at] = new
+            out['runs'] += 1
+            out['rows'] += len(new)
+        write_ledger(ledger, rows)
+    return out
 
 
 # Lessons: a rule learned from trouble the ledger saw in one area across runs
@@ -2167,6 +2220,10 @@ def main(argv: list[str] | None = None) -> int:
     lc.add_argument('--run', required=True)
     lc.add_argument('--ts', required=True)
     lc.add_argument('--unit', help='the unit whose scope is the area (e.g. 003)')
+    lb = sub.add_parser('ledger-backfill', help="give old ledger rows their unit, area, finding and match from the "
+                                                "run stores still on disk (no repo needed)")
+    lb.add_argument('ledger', type=Path)
+    lb.add_argument('--runs', type=Path, help='runs directory (default: the host kitchen runs)')
     ls = sub.add_parser('lessons', help="the repo's lessons with their counters, and candidates from the ledger")
     ls.add_argument('--all', action='store_true', help=f'every candidate, not the {CANDIDATES_SHOWN} with the most runs')
     lsub = ls.add_subparsers(dest='lessons_cmd')
@@ -2215,6 +2272,11 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == 'lesson-packet':
         sys.stdout.write(lesson_packet(args.briefs))
+        return 0
+    if args.cmd == 'ledger-backfill':
+        n = ledger_backfill(args.ledger, args.runs or pstack_state() / 'kitchen/runs')
+        print(f'backfilled {n["rows"]} rows from {n["runs"]} runs; {n["missing"]} runs have no store left, '
+              f'{n["foreign"]} belong to another repository')
         return 0
     if args.cmd == 'ledger-catch':
         try:

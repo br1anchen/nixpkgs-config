@@ -998,6 +998,12 @@ class LessonScoreTests(unittest.TestCase):
                                  ('web', 'fast typecheck', '@x/web:typecheck: a.ts(1,7): error TS2322: no')])
         self.assertEqual(kitchen.lesson_packet([self.store / 'briefs/001-a.md']), '')
 
+    def test_retro_keeps_rows_of_kinds_it_does_not_write(self):
+        self.ledger.write_text('ts\trun\tkind\tclass\tdetail\n2026-10-01T00:00:00Z\tr\tfinding\ttests\tx\n'
+                               '2026-10-01T00:00:00Z\tr\tsteer\tbrief\t001-a-s1\n')
+        self.scores()
+        self.assertEqual([r['kind'] for r in kitchen.ledger_rows(self.ledger)], ['finding'])
+
     def test_stamp_replaces_the_section_and_drops_it_when_nothing_applies(self):
         lessons = self.store / 'LESSONS.md'
         kitchen.write_lessons(lessons, [
@@ -1017,6 +1023,42 @@ class LessonScoreTests(unittest.TestCase):
         kitchen.stamp_lessons(b, lessons)
         self.assertEqual(b.read_text(), '# Brief\n\n## Scope\n\nmay write:\n- src/**\n- tests/**\n\n## Acceptance\n\n- works\n')
         self.assertEqual(kitchen.lesson_packet([b]), '')
+
+
+class BackfillTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.runs = self.tmp / 'runs'
+        state = self.tmp / 'state' / kitchen.state_key(self.tmp / 'proj.git').name
+        state.mkdir(parents=True)
+        self.ledger = state / 'ledger.tsv'
+
+    def store(self, run, root):
+        s = self.runs / run
+        for d in ('briefs', 'steers'):
+            (s / d).mkdir(parents=True)
+        (s / 'pair.json').write_text(json.dumps({'slug': run, 'git_root': str(root)}))
+        (s / 'briefs/001-x.md').write_text('# Brief\n\n## Scope\n\nmay write:\n- src/lib/**\n- docs/adr/**\n')
+        (s / 'steers/001-x-s1.md').write_text('# Steer\n\nkind: narrow\n\n## Direction\n\nOnly the library.\n')
+
+    def test_old_rows_gain_where_and_what_and_keep_their_time(self):
+        # The worktree is gone; its path still says which repository it was.
+        self.store('run-a', self.tmp / 'proj.git/wt-a')
+        self.store('run-b', self.tmp / 'other.git/wt-b')
+        self.ledger.write_text('ts\trun\tkind\tclass\tdetail\n'
+                               '2026-01-01T00:00:00Z\trun-a\tfinding\ttests\tx\n'
+                               '2026-01-02T00:00:00Z\trun-a\tsteer\tbrief\t001-x-s1\n'
+                               '2026-01-02T00:00:00Z\trun-a\tcatch\treview\tmissed it\n'
+                               '2026-01-03T00:00:00Z\trun-b\tsteer\tbrief\t001-x-s1\n'
+                               '2026-01-04T00:00:00Z\trun-z\tsteer\tbrief\t001-y-s1\n')
+        self.assertEqual(kitchen.ledger_backfill(self.ledger, self.runs), {'runs': 1, 'rows': 1, 'missing': 1, 'foreign': 1})
+        rows = [(r['ts'][:10], r['run'], r['kind'], r['area'], r['match']) for r in kitchen.ledger_rows(self.ledger)]
+        self.assertEqual(rows, [('2026-01-01', 'run-a', 'finding', '', ''), ('2026-01-02', 'run-a', 'steer', 'src/lib', 'narrow'),
+                                ('2026-01-02', 'run-a', 'catch', '', ''), ('2026-01-03', 'run-b', 'steer', '', ''),
+                                ('2026-01-04', 'run-z', 'steer', '', '')])
+        self.assertEqual(kitchen.ledger_backfill(self.ledger, self.runs)['runs'], 0)
 
 
 class AreaTests(unittest.TestCase):
