@@ -961,6 +961,34 @@ class LessonScoreTests(unittest.TestCase):
         self.assertEqual(self.scores(), [('L001', '002', 'hit', 'again'), ('L001', '003', 'held', ''),
                                          ('L002', '001', 'held', '')])
 
+    def gate_out(self, unit, sha, check, error):
+        d = self.store / 'steps/jobs' / f'{unit}-{sha}0000'
+        d.mkdir(parents=True)
+        (d / 'out').write_text(f'web fast: FAIL\n  exit 1 2.0s bun run turbo run {check}  log: /x/web-fast-0.log\n'
+                               f'    | @x/web:{check}: {error}\n    | @x/web:{check}: error: script "{check}" exited with code 1\n'
+                               f'    |  ERROR  run failed: command  exited (1)\n    | Failed:    @x/web#{check}\n'
+                               'policy: clean\n')
+
+    def test_gates_alone_score_a_gate_lesson_by_its_check(self):
+        line = '## Lessons\n\n- L001 (gate-fail web "fast lint", layer gate, in src, active 2026-10-13T10:00:00Z): r\n'
+        for b in ('001-a', '002-b', '003-c'):
+            (self.store / 'briefs' / f'{b}.md').write_text('# Brief\n\n## Scope\n\nmay write:\n- src/**\n\n' + line)
+        (self.store / 'gates.tsv').write_text('1\t001-a\tabc\tfail\tweb\n1\t001-a\tabd\tpass\tweb\n'
+                                              '1\t002-b\tdef\tfail\tweb\n1\t002-b\tdeg\tpass\tweb\n')
+        self.gate_out('001-a', 'abc', 'lint', 'a.ts:1:7: error eslint(no-unused-vars): x is never used')
+        self.gate_out('002-b', 'def', 'typecheck', 'a.ts(1,7): error TS2322: no')
+        # A verifier cannot see the steps: its word does not score a gate lesson.
+        self.verdict('001-a-v1.md', 'clean', '001', 'L001: held\n')
+        self.verdict('002-b-v1.md', 'clean', '002')
+        (self.store / 'verdicts/003-c-v1.md').write_text('# V\n\nstatus: clean\nunits: 003\nverifier: gates\n')
+        self.assertEqual(self.scores(), [
+            ('L001@2026-10-13T10:00:00Z', '001', 'hit', '@x/web:lint: a.ts:1:7: error eslint(no-unused-vars): x is never used'),
+            ('L001@2026-10-13T10:00:00Z', '002', 'held', ''), ('L001@2026-10-13T10:00:00Z', '003', 'held', '')])
+        gates = sorted((r['class'], r['match'], r['finding']) for r in kitchen.ledger_rows(self.ledger) if r['kind'] == 'gate-fail')
+        self.assertEqual(gates, [('web', 'fast lint', '@x/web:lint: a.ts:1:7: error eslint(no-unused-vars): x is never used'),
+                                 ('web', 'fast typecheck', '@x/web:typecheck: a.ts(1,7): error TS2322: no')])
+        self.assertEqual(kitchen.lesson_packet([self.store / 'briefs/001-a.md']), '')
+
     def test_stamp_replaces_the_section_and_drops_it_when_nothing_applies(self):
         lessons = self.store / 'LESSONS.md'
         kitchen.write_lessons(lessons, [

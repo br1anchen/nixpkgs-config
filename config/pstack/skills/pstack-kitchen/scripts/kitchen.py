@@ -1923,8 +1923,10 @@ def stamp_lessons(brief: Path, path: Path) -> list[Lesson]:
 def lesson_packet(briefs: list[Path]) -> str:
     seen: dict[str, dict[str, str]] = {}
     for b in briefs:
+        # Gates score a gate lesson on every step; a verifier cannot see them.
         for x in brief_lessons(b):
-            seen.setdefault(x['id'], x)
+            if x['kind'] not in GATE_KINDS:
+                seen.setdefault(x['id'], x)
     if not seen:
         return ''
     check = [x for x in seen.values() if x['layer'] in VERIFY_LAYERS]
@@ -1959,10 +1961,11 @@ def verdict_lessons(verdict: Path) -> dict[str, str]:
 
 
 def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) -> list[tuple[str, ...]]:
-    """Each lesson a unit was briefed with: hit when a verdict says so, or its
-    kind of trouble came back in that unit and no verdict spoke for it; held
-    when a verdict says so, or the unit passed what checks that lesson (a
-    verifier, or gates for a gate lesson). An unverified unit scores nothing."""
+    """Each lesson a unit was briefed with. A gate lesson is the gates' to
+    score: hit when its check failed again in that unit, held when the unit
+    passed. Any other is hit when a verdict says so, or its trouble came back
+    in that unit and no verdict spoke for it; held when a verdict says so, or
+    a verifier passed the unit. An unverified unit scores nothing."""
     def order(v: Path) -> tuple[str, int]:
         m = re.match(r'^(.*)-v(\d+)$', v.stem)
         return (m.group(1), int(m.group(2))) if m else (v.stem, 0)
@@ -1992,14 +1995,20 @@ def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) 
         for x in lessons:
             key = lesson_key(x['id'], x['active'])
             back = [t for t in seen if same_trouble(x['kind'], x['class'], x['match'], t) and unit in t['unit'].split()]
+            if x['kind'] in GATE_KINDS:
+                if back:
+                    rows.append((ts, run, 'lesson', 'hit', key, unit, x['area'], back[0]['finding'] or back[0]['detail'], ''))
+                elif clean_by_gates:
+                    rows.append((ts, run, 'lesson', 'held', key, unit, x['area'], '', ''))
+                continue
             word = said.get(x['id'], '')
-            # The verifier's word on a lesson beats a reject or catch of the same
-            # kind, which may be about something else; gates speak for themselves.
+            # The verifier's word on a lesson beats a reject or catch of the
+            # same kind, which may be about something else.
             if word.startswith('hit'):
                 rows.append((ts, run, 'lesson', 'hit', key, unit, x['area'], word[4:], ''))
             elif back and not word:
                 rows.append((ts, run, 'lesson', 'hit', key, unit, x['area'], back[0]['finding'] or back[0]['detail'], ''))
-            elif word == 'held' or (clean_by_gates if x['kind'] in GATE_KINDS else clean_by_verifier):
+            elif word == 'held' or clean_by_verifier:
                 rows.append((ts, run, 'lesson', 'held', key, unit, x['area'], '', ''))
     return [tuple(_cell(c) for c in r) for r in rows]
 
