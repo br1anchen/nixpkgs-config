@@ -697,14 +697,17 @@ class LessonTests(KitchenTests):
         self.ledger = Path(self.run_kitchen('statedir').strip()) / 'ledger.tsv'
         self.ledger.write_text('ts\trun\tkind\tclass\tdetail\tunit\tarea\tfinding\n')
 
-    def row(self, run, kind, cls, unit, area, finding, detail='-', ts=None):
-        # Trouble predates the lessons; held and hit rows come after activation.
-        ts = ts or '2099-01-01T00:00:00Z' if kind == 'lesson' else f'2026-10-0{len(self.ledger.read_text().splitlines())}T00:00:00Z'
+    def row(self, run, kind, cls, unit, area, finding, detail='-'):
+        ts = f'2026-10-0{len(self.ledger.read_text().splitlines())}T00:00:00Z'
         with self.ledger.open('a') as f:
             f.write(f'{ts}\t{run}\t{kind}\t{cls}\t{detail}\t{unit}\t{area}\t{finding}\n')
 
     def candidates(self):
         return [(c['kind'], c['class'], c['area'], c['runs']) for c in self.data('lessons')['candidates']]
+
+    def key(self, lid):
+        x = next(x for x in kitchen.read_lessons(self.repo / '.agents/LESSONS.md') if x.id == lid)
+        return kitchen.lesson_key(lid, x.fields.get('active', ''))
 
     def test_trouble_in_one_area_across_runs_is_a_candidate(self):
         self.row('run-a', 'reject', 'verify', '001', 'src/lib', 'the cache is never cleared')
@@ -759,7 +762,7 @@ class LessonTests(KitchenTests):
         self.assertIn('promotable: no (status is proposed, not active; held 0 of 3)', draft)
         self.run_kitchen('lessons', 'set', 'L001', 'active')
         for n in range(3):
-            self.row(f'run-{n}', 'lesson', 'held', f'00{n}', 'src/lib', '', detail='L001')
+            self.row(f'run-{n}', 'lesson', 'held', f'00{n}', 'src/lib', '', detail=self.key('L001'))
         d = self.doctor()
         self.assertEqual((d['status'], d['items']), ('warn', ['L001: promotable (held 3); kitchen.py lessons promote L001']))
         out = Path(self.tmp.name) / 'store/promotions/L001.md'
@@ -784,15 +787,17 @@ class LessonTests(KitchenTests):
                       self.run_kitchen('lessons', 'promote', 'L001'))
         self.assertIn('ledger refs (run, then the unit, verdict or steer to open): run-a 001-x abc1234, run-b 002-y def5678',
                       self.run_kitchen('lessons', 'promote', 'L001'))
-        now = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())
         for n in range(2):
-            self.row(f'run-{n}', 'lesson', 'hit', f'00{n}', 'src', 'lint again', detail='L001', ts=now)
+            self.row(f'run-{n}', 'lesson', 'hit', f'00{n}', 'src', 'lint again', detail=self.key('L001'))
+        # Activating again with the same rule keeps the count.
+        self.run_kitchen('lessons', 'set', 'L001', 'active')
+        self.assertEqual(self.data('lessons')['lessons'][0]['hits'], 2)
         path = self.repo / '.agents/LESSONS.md'
         path.write_text(path.read_text() + '\n## L002: Broken.\n\nstatus: active\n')
         self.assertEqual(self.doctor()['items'], ['L001: hit 2 times while active; rewrite the rule or retire it',
                                                   'L002: unreadable (kind, class, layer, area); fix it by hand'])
         # A rewritten rule starts its count again.
-        time.sleep(1.1)
+        time.sleep(1.1)  # the new version's stamp is to the second
         path.write_text(path.read_text().replace('\n## L002: Broken.\n\nstatus: active\n', ''))
         self.run_kitchen('lessons', 'set', 'L001', 'active', '--rule', 'Run the formatter in the pre-commit hook.')
         x = self.data('lessons')['lessons'][0]
@@ -819,11 +824,11 @@ class LessonTests(KitchenTests):
         self.run_kitchen('lessons', 'set', 'L001', 'active')
         self.assertRegex((self.repo / '.agents/LESSONS.md').read_text(), r'status: active\n(.*\n)*active: \d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ\n')
         for n in range(3):
-            self.row(f'run-{n}', 'lesson', 'held', '00{n}', 'src/lib', '', detail='L001')
+            self.row(f'run-{n}', 'lesson', 'held', '00{n}', 'src/lib', '', detail=self.key('L001'))
         x = self.data('lessons')['lessons'][0]
         self.assertEqual((x['layer'], x['held'], x['hits'], x['promotable']), ('review', 3, 0, True))
         self.assertIn('(promotable)', self.run_kitchen('lessons'))
-        self.row('run-9', 'lesson', 'hit', '009', 'src/lib', 'missed again', detail='L001')
+        self.row('run-9', 'lesson', 'hit', '009', 'src/lib', 'missed again', detail=self.key('L001'))
         self.assertFalse(self.data('lessons')['lessons'][0]['promotable'])
         self.assertIn('needs --note', self.run_kitchen('lessons', 'set', 'L001', 'promoted', code=1))
         self.run_kitchen('lessons', 'set', 'L001', 'promoted', '--note', 'abc1234 lint rule no-stale-callers')
@@ -866,6 +871,24 @@ class LessonScoreTests(unittest.TestCase):
                                          ('L002', '001', 'hit', 'the CLI path again')])
         # Retro again replaces the rows.
         self.assertEqual(len(self.scores()), 3)
+
+    def test_a_brief_names_the_lesson_version_it_was_given(self):
+        lessons = self.store / 'LESSONS.md'
+        kitchen.write_lessons(lessons, [kitchen.Lesson('L001', 'Rule.', {
+            'status': 'active', 'kind': 'reject', 'class': 'verify', 'layer': 'verify', 'area': 'src',
+            'active': '2026-10-13T10:00:00Z'}, ['e'])])
+        b = self.store / 'briefs/001-a.md'
+        b.write_text('# Brief\n\n## Scope\n\nmay write:\n- src/**\n')
+        kitchen.stamp_lessons(b, lessons)
+        self.assertIn('- L001 (reject verify, layer verify, in src, active 2026-10-13T10:00:00Z): Rule.\n', b.read_text())
+        self.verdict('001-a-v1.md', 'clean', '001')
+        self.assertEqual(self.scores(), [('L001@2026-10-13T10:00:00Z', '001', 'held', '')])
+        # A row from before versions counts from the lesson's activation.
+        with self.ledger.open('a') as f:
+            f.write('2026-10-12T00:00:00Z\told\tlesson\thit\tL001\t005\tsrc\tx\n'
+                    '2026-10-14T00:00:00Z\told\tlesson\theld\tL001\t006\tsrc\t\n')
+        x = kitchen.read_lessons(lessons)[0]
+        self.assertEqual(kitchen.lesson_counts(kitchen.ledger_rows(self.ledger), x), {'held': 2, 'hits': 0})
 
     def test_gates_speak_only_for_gate_lessons_and_a_hit_stands(self):
         (self.store / 'briefs/001-a.md').write_text('## Lessons\n\n- L001 (reject verify, layer verify, in src): r\n'

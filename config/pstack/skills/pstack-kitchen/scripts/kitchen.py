@@ -1540,11 +1540,24 @@ def overlaps(a: str, b: str) -> bool:
     return any(covers(x, y) or covers(y, x) for x in a.split(',') if x for y in b.split(',') if y)
 
 
+def lesson_key(lid: str, active: str) -> str:
+    """The ledger's name for one version of a lesson: its id and when it was
+    last made active, which a brief carries from dispatch."""
+    return f'{lid}@{active}' if active else lid
+
+
 def lesson_scores(rows: list[dict[str, str]], x: Lesson) -> list[dict[str, str]]:
-    """A lesson's held and hit rows since it was last made active: a rewritten
-    rule starts its count again."""
-    since = x.fields.get('active', '')
-    return [r for r in rows if r['kind'] == 'lesson' and r['detail'] == x.id and r['ts'] >= since]
+    """Held and hit rows for units briefed with this version of the lesson:
+    a rewritten rule starts its count again."""
+    active = x.fields.get('active', '')
+    key = lesson_key(x.id, active)
+    # Rows from before versions carry the bare id: they count from activation.
+    return [r for r in rows if r['kind'] == 'lesson'
+            and (r['detail'] == key or (r['detail'] == x.id and r['ts'] >= active))]
+
+
+def promotable(x: Lesson, n: dict[str, int]) -> bool:
+    return x.fields.get('status') == 'active' and n['held'] >= PROMOTE_AFTER and n['hits'] == 0
 
 
 def lesson_counts(rows: list[dict[str, str]], x: Lesson) -> dict[str, int]:
@@ -1591,7 +1604,7 @@ def lessons_report(path: Path, ledger: Path) -> dict:
     for x in lessons:
         n = lesson_counts(rows, x)
         listed.append({'id': x.id, 'rule': x.rule, **x.fields, **n,
-                       'promotable': x.fields.get('status') == 'active' and n['held'] >= PROMOTE_AFTER and n['hits'] == 0})
+                       'promotable': promotable(x, n)})
     return {'path': str(path), 'lessons': listed, 'candidates': lesson_candidates(rows, lessons)}
 
 
@@ -1639,11 +1652,14 @@ def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str |
         raise ConfigError(f'no lesson {lid} in {path}')
     if status in ('promoted', 'retired') and not note:
         raise ConfigError(f'{status} needs --note: what enforces it now (commit and check), or why it is retired')
-    x.fields['status'] = status
-    if status == 'active':
+    rule = ' '.join(rule.split()) if rule else None
+    # A new version starts when a lesson becomes active or its rule changes;
+    # set active again with the same rule keeps its count.
+    if status == 'active' and (x.fields.get('status') != 'active' or (rule and rule != x.rule)):
         x.fields['active'] = now
+    x.fields['status'] = status
     if rule:
-        x.rule = ' '.join(rule.split())
+        x.rule = rule
     if note:
         x.fields['note'] = ' '.join(note.split())
     write_lessons(path, lessons)
@@ -1680,7 +1696,7 @@ def promotion_draft(path: Path, ledger: Path, lid: str) -> str:
     rows = ledger_rows(ledger)
     n = lesson_counts(rows, x)
     f = x.fields
-    ready = f.get('status') == 'active' and n['held'] >= PROMOTE_AFTER and n['hits'] == 0
+    ready = promotable(x, n)
     why_not = [] if ready else ([f'status is {f.get("status")}, not active'] * (f.get('status') != 'active')
                                 + [f'held {n["held"]} of {PROMOTE_AFTER}'] * (n['held'] < PROMOTE_AFTER)
                                 + [f'{n["hits"]} hits'] * (n['hits'] > 0))
@@ -1733,7 +1749,7 @@ def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
             items.append(f'{x.id}: unreadable ({", ".join(missing) or "status " + f.get("status", "")}); fix it by hand')
         elif f.get('status') == 'active' and n['hits'] >= 2:
             items.append(f'{x.id}: hit {n["hits"]} times while active; rewrite the rule or retire it')
-        elif f.get('status') == 'active' and n['held'] >= PROMOTE_AFTER and n['hits'] == 0:
+        elif promotable(x, n):
             items.append(f'{x.id}: promotable (held {n["held"]}); kitchen.py lessons promote {x.id}')
     by = {s: sum(x.fields.get('status') == s for x in lessons) for s in LESSON_STATUS}
     detail = ', '.join(f'{v} {k}' for k, v in by.items() if v) + f' ({path})'
@@ -1747,7 +1763,7 @@ def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
 # coding pitfalls, which the verifier checks only after its own pass.
 VERIFY_LAYERS = ('verify', 'escalation')
 BRIEF_LESSONS = 5
-LESSON_LINE = re.compile(r'^- (L\d{3,}) \((\S+) (\S+), layer (\S+), in ([^)]*)\): (.*)$')
+LESSON_LINE = re.compile(r'^- (L\d{3,}) \((\S+) (\S+), layer (\S+), in ([^,)]*)(?:, active (\S+))?\): (.*)$')
 
 
 def brief_lessons(brief: Path) -> list[dict[str, str]]:
@@ -1762,7 +1778,8 @@ def brief_lessons(brief: Path) -> list[dict[str, str]]:
             continue
         m = LESSON_LINE.match(line) if on else None
         if m:
-            out.append(dict(zip(('id', 'kind', 'class', 'layer', 'area', 'rule'), m.groups())))
+            out.append(dict(zip(('id', 'kind', 'class', 'layer', 'area', 'active', 'rule'), m.groups())))
+            out[-1]['active'] = out[-1]['active'] or ''
     return out
 
 
@@ -1778,7 +1795,8 @@ def stamp_lessons(brief: Path, path: Path) -> list[Lesson]:
         text += ('\n## Lessons\n\nTrouble this area met in earlier runs (kitchen.py lessons). Follow each; the\n'
                  'verifier checks them and reports each one held or hit.\n\n'
                  + ''.join(f'- {x.id} ({x.fields.get("kind")} {x.fields.get("class")}, layer {x.fields.get("layer")}, '
-                           f'in {x.fields.get("area")}): {x.rule}\n' for x in picked))
+                           f'in {x.fields.get("area")}' + (f', active {x.fields["active"]}' if x.fields.get('active') else '')
+                           + f'): {x.rule}\n' for x in picked))
     if text != before and (picked or '## Lessons' in before):
         brief.write_text(text)
     return picked
@@ -1858,11 +1876,11 @@ def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) 
             # kind, which may be about something else; gates speak for themselves.
             back = [t for t in trouble if t[2] == x['kind'] and t[3] == x['class'] and unit in t[5].split()]
             if word.startswith('hit'):
-                rows.append((ts, run, 'lesson', 'hit', x['id'], unit, x['area'], word[4:]))
+                rows.append((ts, run, 'lesson', 'hit', lesson_key(x['id'], x['active']), unit, x['area'], word[4:]))
             elif back and not word:
-                rows.append((ts, run, 'lesson', 'hit', x['id'], unit, x['area'], back[0][7] or back[0][4]))
+                rows.append((ts, run, 'lesson', 'hit', lesson_key(x['id'], x['active']), unit, x['area'], back[0][7] or back[0][4]))
             elif word == 'held' or (clean_by_gates if x['kind'] in ('gate-fail', 'gate-flaky') else clean_by_verifier):
-                rows.append((ts, run, 'lesson', 'held', x['id'], unit, x['area'], ''))
+                rows.append((ts, run, 'lesson', 'held', lesson_key(x['id'], x['active']), unit, x['area'], ''))
     return [tuple(_cell(c) for c in r) for r in rows]
 
 
