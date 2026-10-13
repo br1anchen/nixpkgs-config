@@ -14,7 +14,14 @@ case "$1 $2" in
 "agent rename")
 	# A pane id starting with "gone" no longer exists, as a stale HERDR_PANE_ID.
 	case "$3" in gone*) printf '{"error":{"code":"pane_not_found"}}\n' >&2; exit 1 ;; esac
-	printf 'idle claude\n' >"$FAKE/agents/$4"; printf '%s' "$4" >"$FAKE/panes/$3"; ok idle claude ;;
+	# Renaming a live agent keeps its state; Herdr names are unique.
+	held="$(cat "$FAKE/panes/$3" 2>/dev/null)"
+	if [ -n "$held" ] && [ "$held" != "$4" ] && [ -f "$FAKE/agents/$held" ]; then
+		[ ! -f "$FAKE/agents/$4" ] || { printf '{"error":{"code":"name_taken"}}\n' >&2; exit 1; }
+		mv "$FAKE/agents/$held" "$FAKE/agents/$4"
+		[ ! -s "$FAKE/session-ids/$held" ] || mv "$FAKE/session-ids/$held" "$FAKE/session-ids/$4"
+	else printf 'idle claude\n' >"$FAKE/agents/$4"; fi
+	printf '%s' "$4" >"$FAKE/panes/$3"; ok idle claude ;;
 "agent get")
 	n="$(resolve "$3")"; s="$(status_of "$n")" || { printf '{"error":{"code":"not_found"}}\n' >&2; exit 1; }
 	# $FAKE/sessions/<name>: the agent's session log path, as herdr reports pi's.
@@ -130,7 +137,11 @@ case "$1 $2" in
 	[ -f "$FAKE/panes/$4" ] || exit 1
 	pgid=100; [ ! -e "$FAKE/prime-client-stays" ] || pgid=200
 	printf '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":%s}}}\n' "$pgid" ;;
-"pane close") rm -f "$FAKE/panes/$3"; printf '{"result":{"type":"ok"}}\n' ;;
+"pane close")
+	# Closing a pane ends the agent in it.
+	held="$(cat "$FAKE/panes/$3" 2>/dev/null)"
+	[ -z "$held" ] || rm -f "$FAKE/agents/$held"
+	rm -f "$FAKE/panes/$3"; printf '{"result":{"type":"ok"}}\n' ;;
 "tab create") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/t$n"; printf '{"result":{"type":"tab_created","tab":{"tab_id":"tab%s"},"root_pane":{"pane_id":"t%s"}}}\n' "$n" "$n" ;;
 "pane read")
 	if [ -e "$FAKE/trust-dialog" ]; then printf ' Quick safety check: Is this a project you created or one you\n trust?\n ❯ No, exit\n'

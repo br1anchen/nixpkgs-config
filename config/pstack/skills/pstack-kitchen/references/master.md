@@ -187,28 +187,36 @@ dollars. The fix is a fresh session at a unit boundary, with a handoff in
 place of the history:
 
 - One master session per run. Never carry a session into the next run;
-  start a new one, and start it without the human's MCP servers (an MCP-free
-  master's first call is about 52k tokens; one with them, about 117k):
-  `claude --strict-mcp-config --mcp-config ~/.agents/skills/pstack-pair/references/no-mcp.json`.
+  start a new one, without the human's MCP servers (an MCP-free master's
+  first call is about 52k tokens; one with them, about 117k), and with
+  Remote Control on so the human can follow it from claude.ai or a phone:
+  `claude --strict-mcp-config --mcp-config ~/.agents/skills/pstack-pair/references/no-mcp.json --remote-control <slug>-master`.
 - After every `KITCHEN_MASTER_ROTATE_UNITS` (5) clean unit verdicts,
   `verify` prints `master: N units verified since your last handoff`. At
   that boundary, with no dispatch you must answer this turn:
   `kitchen.sh new-handoff <store>` writes `session-handoff.md` from
   [the template](handoff-template.md) with every unit's state filled in.
   Fill Goal, Decisions and Next, correct Units, then
-  `kitchen.sh rotate-master <store>` and end your turn with no further
-  commands. The kitchen exits this session once it is idle and starts the
-  next generation in your pane, MCP-free, with your permission mode and
-  model, prompted to read the handoff first. Open dispatches, queued briefs
-  and open verifications survive: the new master runs `wait` or
-  `verify --wait` on them.
+  `kitchen.sh rotate-master <store>`. It starts the next generation in a
+  pane beside yours (MCP-free, Remote Control on, your permission mode and
+  model), points `pair.json` at it, and prompts it with the handoff. End
+  your turn with no further commands, and act on no later prompt or task
+  notification: the new master owns the run and closes your pane. If the
+  next master does not start, `rotate-master` says so and changes nothing;
+  you stay the master and rotate at a later boundary.
 - `rotate-master` records the session it closes under `pair.json`
   `.master.sessions`, so a human can `claude --resume <id>` it.
+  `KITCHEN_MASTER_REMOTE_CONTROL=0` starts the next master without Remote
+  Control.
 
-On `pstack-kitchen MASTER <store>`: you are that next generation. Read
+On `pstack-kitchen MASTER <store>`: you are that next generation. Run
+`kitchen.sh take-master <store>` first: it waits briefly for the old master
+to end its turn, closes its pane (and the background waits it left
+running), and gives you back the run's master name. Then read
 `session-handoff.md`, `standing-orders.md` and `pair.json` (the dispatch,
 queue and verifying fields), then the files the handoff points at, and
-continue from its Next section. Do not re-run `init` or `spawn`; the roles
+continue from its Next section; run `wait` or `verify --wait` on open
+dispatches and verifications. Do not re-run `init` or `spawn`; the roles
 are live.
 
 ## Delegated reads

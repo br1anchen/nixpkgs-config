@@ -65,11 +65,12 @@ consult, advice. These differ or are new:
   catch <store> <layer> <text>              record a miss found later (audit, human review): layer is
                                             gate, policy, self, verify, review, triage, or escalation
   new-handoff <store>                       write session-handoff.md from the template, with every unit's state
-  rotate-master <store> [--model M] [--after MIN]
-                                            record the filled handoff and this master's session, then once its
-                                            turn ends exit it and start the next generation in the same pane
-                                            (MCP-free, same permission mode and model); nudged by verify after
+  rotate-master <store> [--model M]         record the filled handoff and this master's session, and start the
+                                            next generation in a pane beside this one (MCP-free, remote control
+                                            on, same permission mode and model); nudged by verify after
                                             KITCHEN_MASTER_ROTATE_UNITS (5) verified units
+  take-master <store>                       the new master's first command: close the old master's pane and
+                                            take back the run's master name
   close <store> [--force]                   end a finished run's sidekick, consultant and verifier and close
                                             their panes; refuses while a verification is open or the sidekick
                                             works (--force overrides); the master's own pane stays
@@ -1465,7 +1466,7 @@ cmd_close() {
 # fresh one in the same pane, which reads the handoff and the store instead
 # of the history. new-handoff writes the template with the units' state
 # filled in; rotate-master records the filled handoff and the session it
-# closes, then restarts the master once its turn ends.
+# closes, then hands the run to a new master beside it.
 cmd_new_handoff() {
 	[ $# -eq 1 ] || die "usage: kitchen.sh new-handoff <store>"
 	local store="$1" path gen units
@@ -1528,15 +1529,19 @@ detect_model_arg() {
 	done
 }
 
+# A hand-over, not a restart in place: the closing master starts the next
+# generation in a pane beside its own and points pair.json at it, and the new
+# master's first command, take-master, closes the old pane. The old session
+# never has to exit itself (a Claude with background tasks answers /exit with
+# a dialog), and a start that fails leaves the old master in charge.
 cmd_rotate_master() {
 	in_herdr
-	[ $# -ge 1 ] || die "usage: kitchen.sh rotate-master <store> [--model MODEL] [--after MIN]"
-	local store="$1" model="" after="${KITCHEN_ROTATE_AFTER_M:-15}" name pane kind gen session handoff permission
+	[ $# -ge 1 ] || die "usage: kitchen.sh rotate-master <store> [--model MODEL]"
+	local store="$1" model="" name pane kind gen next session handoff permission cwd temp
 	shift
 	while [ $# -gt 0 ]; do
 		case "$1" in
 		--model) model="$2"; shift 2 ;;
-		--after) after="$2"; shift 2 ;;
 		*) die "unknown option $1" ;;
 		esac
 	done
@@ -1549,62 +1554,96 @@ cmd_rotate_master() {
 	done
 	name="$(field "$store" .master.name)"
 	pane="$(field "$store" .master.pane_id)"
+	[ -z "$(field "$store" '.master.previous.name // empty')" ] ||
+		die "a hand-over is open: $name has not taken over yet; it runs kitchen.sh take-master $store first" 5
 	[ "$(agent_status "$name")" != absent ] || die "master $name is not live in $pane; run this from the master's own session" 5
 	kind="$(agent_kind "$name")"
 	[ "$kind" = claude ] || die "rotate-master restarts a Claude master; $name is $kind" 5
 	[ -n "$model" ] || model="$(detect_model_arg)"
-	gen="$(field "$store" '.master.generation // 1')"
 	session="$(herdr agent get "$name" 2>/dev/null | jq -r '.result.agent.agent_session.value // empty' 2>/dev/null || true)"
-	mkdir -p "$store/sessions"
-	cp "$handoff" "$store/sessions/master-$gen-handoff.md"
+	gen="$(field "$store" '.master.generation // 1')"
+	# A rotation that never finished already recorded this session; it keeps
+	# that generation instead of skipping one.
+	if [ -n "$session" ] && [ "$session" = "$(field "$store" '.master.sessions[-1].session // empty')" ]; then
+		gen="$(field "$store" '.master.sessions[-1].generation')"
+	fi
+	next=$((gen + 1))
+	# Herdr names are unique, so the new master holds a generation name until
+	# take-master frees the run's own.
+	temp="$(field "$store" .slug)-master-g$next"
 	permission="$(field "$store" '.master.permission_mode // empty')"
 	[ -n "$permission" ] || permission="$(detect_permission_mode)"
 	local -a args=()
 	mapfile -t args < <(permission_args claude "$permission")
 	[ -z "$model" ] || args+=(--model "$model")
 	mapfile -t -O "${#args[@]}" args < <(mcp_args claude)
-	json_update "$store" --arg s "$session" --arg h "$store/sessions/master-$gen-handoff.md" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --argjson g "$gen" \
-		'.master.generation = ($g + 1) | .master.units_since_handoff = 0
-		 | .master.sessions = ((.master.sessions // []) + [{generation: $g, session: $s, handoff: $h, at: $now}])'
+	[ "${KITCHEN_MASTER_REMOTE_CONTROL:-1}" = 0 ] || args+=(--remote-control "$temp")
+	cwd="$(field "$store" .cwd)"
+	new_pane "$store" master "$pane" "" "$cwd"
+	if ! herdr agent start "$temp" --kind claude --pane "$new_pane_id" --timeout 60000 -- "${args[@]}" >/dev/null 2>&1; then
+		refuse_untrusted "$new_pane_id" claude "$cwd" close
+		herdr pane close "$new_pane_id" >/dev/null 2>&1 || true
+		event "$store" master rotate-failed - "generation:$next"
+		die "the next master did not start in $new_pane_id; you stay the master (generation $gen), so carry on and rotate at a later boundary" 2
+	fi
+	mkdir -p "$store/sessions"
+	cp "$handoff" "$store/sessions/master-$gen-handoff.md"
+	json_update "$store" --arg s "$session" --arg h "$store/sessions/master-$gen-handoff.md" --arg now "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		--argjson g "$gen" --arg old "$name" --arg oldpane "$pane" --arg new "$temp" --arg newpane "$new_pane_id" \
+		'.master.previous = {name: $old, pane_id: $oldpane, session: $s}
+		 | .master.name = $new | .master.pane_id = $newpane | .master.registered_at = $now
+		 | .master.generation = ($g + 1) | .master.units_since_handoff = 0
+		 | .master.sessions = ([(.master.sessions // [])[] | select($s == "" or .session != $s)]
+		     + [{generation: $g, session: $s, handoff: $h, at: $now}])'
 	event "$store" master handoff - "generation:$gen"
-	local log="$store/sessions/master-rotate-$gen.log"
-	# The watcher outlives this command and the master's session: it waits
-	# for the master's turn to end, exits it, and starts the next generation
-	# in the same pane with the handoff bootstrap.
-	KITCHEN_ROTATE_POLL_S="${KITCHEN_ROTATE_POLL_S:-5}" setsid bash -c '
-		name="$1"; pane="$2"; store="$3"; gen="$4"; after="$5"; skill="$6"; shift 6
-		poll="${KITCHEN_ROTATE_POLL_S:-5}"
-		row() { printf "%s\t%s\tmaster\t%s\t-\t%s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(date +%s)" "$1" "$2" >>"$store/events.tsv"; }
-		status() { local s; s="$(herdr agent get "$name" 2>/dev/null | jq -r ".result.agent.agent_status // \"unknown\"" 2>/dev/null)"; printf "%s" "${s:-absent}"; }
-		deadline=$(( $(date +%s) + after * 60 ))
-		until s="$(status)"; [ "$s" = idle ] || [ "$s" = done ] || [ "$s" = absent ]; do
-			[ "$(date +%s)" -lt "$deadline" ] || { echo "master still $s after ${after}m; rotation abandoned"; row rotate-abandoned "generation:$gen"; exit 1; }
-			sleep "$poll"
-		done
-		if [ "$s" != absent ]; then
-			herdr agent prompt "$name" /exit >/dev/null 2>&1 || true
-			gone=$(( $(date +%s) + 60 ))
-			until [ "$(status)" = absent ]; do
-				[ "$(date +%s)" -lt "$gone" ] || { echo "master did not exit"; row rotate-abandoned "generation:$gen"; exit 1; }
-				sleep "$poll"
-			done
-		fi
-		echo "generation $gen ended; starting $((gen + 1)) in $pane with: $*"
-		herdr agent start "$name" --kind claude --pane "$pane" --timeout 60000 -- "$@" >/dev/null 2>&1 ||
-			{ echo "agent start failed; start the master by hand in $pane"; row rotate-failed "generation:$((gen + 1))"; exit 1; }
-		row spawn "claude:generation:$((gen + 1))"
-		herdr agent prompt "$name" "Load the $skill skill from ~/.agents/skills/$skill/SKILL.md and take the master role: $skill MASTER $store (generation $((gen + 1))). Read $store/session-handoff.md first." \
-			--wait --until working --timeout 30000 >/dev/null 2>&1 || true
-		sleep "$poll"
-		if herdr agent read "$name" --source visible --lines 12 2>/dev/null | tr -d "\n │" | grep -qF "session-handoff.md"; then
-			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
-		fi
-		echo "generation $((gen + 1)) started"
-	' kitchen-rotate "$name" "$pane" "$store" "$gen" "$after" "$PAIR_SKILL" "${args[@]}" >"$log" 2>&1 </dev/null &
-	disown 2>/dev/null || true
+	event "$store" master spawn - "claude:generation:$next"
+	herdr agent prompt "$temp" "Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the master role: $PAIR_SKILL MASTER $store (generation $next). Run ~/.agents/skills/$PAIR_SKILL/scripts/kitchen.sh take-master $store first, then read $store/session-handoff.md." \
+		--wait --until working --timeout 30000 >/dev/null 2>&1 || true
+	submit_typed "$temp" "take-master"
 	printf 'handoff recorded: %s (generation %s, session %s)\n' "$store/sessions/master-$gen-handoff.md" "$gen" "${session:-unknown}"
-	printf 'next: end your turn now, with no further commands. Once this session is idle the kitchen exits it and starts generation %s in %s (log: %s); resume this one later with: claude --resume %s\n' \
-		"$((gen + 1))" "$pane" "$log" "${session:-<id>}"
+	printf 'next master: %s (generation %s) in %s%s; it closes this pane with take-master\n' \
+		"$temp" "$next" "$new_pane_id" "$([ "${KITCHEN_MASTER_REMOTE_CONTROL:-1}" = 0 ] || printf ', remote control on')"
+	printf 'next: end your turn now, with no further commands, and act on no later prompt or task notification: generation %s owns the run. Resume this session later with: claude --resume %s\n' \
+		"$next" "${session:-<id>}"
+}
+
+# The new master's first command after a hand-over: give the old master a
+# moment to end its turn, close its pane (and with it any background waits it
+# left running), and take back the run's master name. Safe to repeat.
+cmd_take_master() {
+	in_herdr
+	[ $# -eq 1 ] || die "usage: kitchen.sh take-master <store>"
+	local store="$1" name pane prev prev_pane host base deadline closed=kept
+	pair_file "$store" >/dev/null
+	name="$(field "$store" .master.name)"
+	pane="$(field "$store" .master.pane_id)"
+	prev="$(field "$store" '.master.previous.name // empty')"
+	[ -n "$prev" ] || { printf 'no hand-over open; %s is the master in %s\n' "$name" "$pane"; return 0; }
+	[ "${HERDR_PANE_ID:-}" = "$pane" ] || die "take-master runs from the new master's pane $pane, not ${HERDR_PANE_ID:-an unknown pane}" 5
+	prev_pane="$(field "$store" .master.previous.pane_id)"
+	deadline=$(( $(date +%s) + ${KITCHEN_TAKEOVER_WAIT_S:-30} ))
+	while [ "$(agent_status "$prev")" = working ] && [ "$(date +%s)" -lt "$deadline" ]; do
+		sleep "${KITCHEN_ROTATE_POLL_S:-2}"
+	done
+	# Close the pane only while it still holds the old master, or nothing.
+	host="$(herdr agent get "$prev_pane" 2>/dev/null | jq -r '.result.agent.name // empty' 2>/dev/null || true)"
+	if ! herdr pane get "$prev_pane" >/dev/null 2>&1; then
+		closed=gone
+	elif [ -z "$host" ] || [ "$host" = "$prev" ]; then
+		herdr pane close "$prev_pane" >/dev/null 2>&1 && closed=closed
+	fi
+	base="$(field "$store" .slug)-master"
+	if [ "$name" != "$base" ] && herdr agent rename "$pane" "$base" >/dev/null 2>&1; then
+		name="$base"
+	fi
+	json_update "$store" --arg n "$name" '.master.name = $n | del(.master.previous)'
+	event "$store" master takeover - "generation:$(field "$store" .master.generation)"
+	case "$closed" in
+	closed) printf 'closed the old master %s (%s)\n' "$prev" "$prev_pane" ;;
+	gone) printf 'the old master pane %s is already gone\n' "$prev_pane" ;;
+	*) printf 'left pane %s open: it now holds %s, not the old master %s\n' "$prev_pane" "$host" "$prev" ;;
+	esac
+	printf 'master: %s in %s (generation %s)\n' "$name" "$pane" "$(field "$store" .master.generation)"
 }
 
 cmd_retro() {

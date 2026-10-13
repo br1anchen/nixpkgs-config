@@ -161,6 +161,7 @@ The pair's store under `${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/run
 | `pair.json` `.escalations` | `kitchen.sh consultant` | why the consultant was started |
 | `session-handoff.md` | master via `kitchen.sh new-handoff` | the running master's handoff to its next generation, from [the handoff template](references/handoff-template.md) |
 | `sessions/master-<g>-handoff.md`, `pair.json` `.master.sessions` | `kitchen.sh rotate-master` | each closed master generation: its handoff and resumable session id |
+| `pair.json` `.master.previous` | `kitchen.sh rotate-master`, cleared by `take-master` | the old master during a hand-over, whose pane the new master closes |
 
 Each store's `pair.json` `.skill_builds` lists the skills directories its commands ran from, stamped
 at `init`; a run from before stamps has none and counts as `unknown`. `pstack/builds.tsv`, written at

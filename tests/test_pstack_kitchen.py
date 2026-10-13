@@ -1274,7 +1274,19 @@ esac
         self.assertIn('mcp_servers.railway.enabled=true', vstart)
         self.assertNotIn('chrome-devtools', vstart)
 
-    def test_new_handoff_lists_the_units_and_rotate_master_restarts_the_master_in_its_pane(self):
+    def filled_handoff(self):
+        self.run_sh('new-handoff', str(self.store))
+        handoff = self.store / 'session-handoff.md'
+        text = re.sub(r'\{\{.*?\}\}', '', handoff.read_text(), flags=re.S)
+        handoff.write_text(text.replace('## Goal\n', '## Goal\n\nShip util.\n').replace('## Next\n', '## Next\n\n1. kitchen.sh dispatch 002\n'))
+        (self.fake / 'session-ids').mkdir(exist_ok=True)
+        (self.fake / 'session-ids/demo-master').write_text('m-gen1 /work\n')
+        return handoff
+
+    def new_master_pane(self):
+        return self.state()['master']['pane_id']
+
+    def test_new_handoff_lists_the_units_and_rotate_master_hands_the_run_to_a_new_master_beside_it(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)
         self.write('src/util.py', 'X = 9\n')
@@ -1291,35 +1303,72 @@ esac
         self.assertIn('| 001 util | done | clean | accept |', text)
         self.assertIn('| 002 next | - | - | - |', text)
         self.assertIn('still has unfilled placeholders', self.run_sh('rotate-master', str(self.store), code=1))
-        text = re.sub(r'\{\{.*?\}\}', '', text, flags=re.S)
-        text = text.replace('## Goal\n', '## Goal\n\nShip util.\n').replace('## Next\n', '## Next\n\n1. kitchen.sh dispatch 002\n')
-        handoff.write_text(text)
-        (self.fake / 'session-ids').mkdir(exist_ok=True)
-        (self.fake / 'session-ids/demo-master').write_text('m-gen1 /work\n')
-        self.env['KITCHEN_ROTATE_POLL_S'] = '0.2'
+        handoff = self.filled_handoff()
         out = self.run_sh('rotate-master', str(self.store))
         self.assertIn('handoff recorded: ' + str(self.store / 'sessions/master-1-handoff.md') + ' (generation 1, session m-gen1)', out)
         self.assertIn('claude --resume m-gen1', out)
-        state = self.state()
-        self.assertEqual(state['master']['generation'], 2)
-        self.assertEqual(state['master']['units_since_handoff'], 0)
-        self.assertEqual(state['master']['sessions'][0]['session'], 'm-gen1')
-        for _ in range(100):
-            if (self.fake / 'master-bootstrap').exists():
-                break
-            time.sleep(0.2)
+        state = self.state()['master']
+        new_pane = state['pane_id']
+        self.assertNotEqual(new_pane, 'p0')
+        self.assertEqual((state['name'], state['generation'], state['units_since_handoff']), ('demo-master-g2', 2, 0))
+        self.assertEqual(state['previous'], {'name': 'demo-master', 'pane_id': 'p0', 'session': 'm-gen1'})
+        self.assertEqual([s['session'] for s in state['sessions']], ['m-gen1'])
+        self.assertIn(f'next master: demo-master-g2 (generation 2) in {new_pane}, remote control on', out)
         bootstrap = (self.fake / 'master-bootstrap').read_text()
-        self.assertIn(f'pstack-kitchen MASTER {self.store} (generation 2). Read {self.store}/session-handoff.md first.', bootstrap)
+        self.assertIn(f'pstack-kitchen MASTER {self.store} (generation 2). Run ', bootstrap)
+        self.assertIn(f'kitchen.sh take-master {self.store} first, then read {self.store}/session-handoff.md.', bootstrap)
         calls = (self.fake / 'calls.log').read_text()
-        self.assertIn('agent prompt demo-master /exit', calls)
-        start = [line for line in calls.splitlines() if line.startswith('agent start demo-master')][-1]
-        self.assertIn('--kind claude --pane p0', start)
+        self.assertNotIn('agent prompt demo-master /exit', calls)
+        start = [line for line in calls.splitlines() if line.startswith('agent start demo-master-g2')][-1]
+        self.assertIn(f'--kind claude --pane {new_pane}', start)
         self.assertIn('--strict-mcp-config --mcp-config', start)
         self.assertIn('--permission-mode', start)
+        self.assertIn('--remote-control demo-master-g2', start)
+        self.assertTrue((self.fake / 'agents/demo-master').exists(), 'the old master stays until take-master')
+        self.assertIn('a hand-over is open', self.run_sh('rotate-master', str(self.store), code=5))
+        self.assertIn(f'take-master runs from the new master\'s pane {new_pane}', self.run_sh('take-master', str(self.store), code=5))
+        self.env['HERDR_PANE_ID'] = new_pane
+        out = self.run_sh('take-master', str(self.store))
+        self.assertIn('closed the old master demo-master (p0)', out)
+        self.assertIn(f'master: demo-master in {new_pane} (generation 2)', out)
+        self.assertFalse((self.fake / 'panes/p0').exists())
+        self.assertEqual((self.fake / 'agents/demo-master').read_text(), 'idle claude\n')
+        self.assertFalse((self.fake / 'agents/demo-master-g2').exists())
+        state = self.state()['master']
+        self.assertEqual((state['name'], state['pane_id']), ('demo-master', new_pane))
+        self.assertNotIn('previous', state)
+        self.assertIn(f'no hand-over open; demo-master is the master in {new_pane}', self.run_sh('take-master', str(self.store)))
         events = (self.store / 'events.tsv').read_text()
-        self.assertIn('\tmaster\thandoff\t-\tgeneration:1', events)
-        self.assertIn('\tmaster\tspawn\t-\tclaude:generation:2', events)
+        for row in ('\tmaster\thandoff\t-\tgeneration:1', '\tmaster\tspawn\t-\tclaude:generation:2', '\tmaster\ttakeover\t-\tgeneration:2'):
+            self.assertIn(row, events)
         self.assertEqual((self.store / 'sessions/master-1-handoff.md').read_text(), handoff.read_text())
+
+    def test_a_next_master_that_does_not_start_leaves_the_old_one_in_charge(self):
+        self.filled_handoff()
+        (self.fake / 'trust-dialog').touch()
+        out = self.run_sh('rotate-master', str(self.store), code=5)
+        self.assertIn('asks whether to trust', out)
+        state = self.state()['master']
+        self.assertEqual((state['name'], state['pane_id'], state.get('generation', 1)), ('demo-master', 'p0', 1))
+        self.assertNotIn('previous', state)
+        self.assertNotIn('sessions', state)
+        self.assertFalse((self.store / 'sessions/master-1-handoff.md').exists())
+
+    def test_rotating_again_after_an_abandoned_rotation_keeps_the_generation(self):
+        self.filled_handoff()
+        # The in-place restart recorded the session, then never started generation 2.
+        state = self.state()
+        state['master'].update(generation=2, sessions=[{'generation': 1, 'session': 'm-gen1', 'handoff': 'old', 'at': 't'}])
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        self.env['KITCHEN_MASTER_REMOTE_CONTROL'] = '0'
+        out = self.run_sh('rotate-master', str(self.store))
+        self.assertIn('(generation 1, session m-gen1)', out)
+        self.assertNotIn('remote control', out.split('next master:')[1].splitlines()[0])
+        master = self.state()['master']
+        self.assertEqual((master['name'], master['generation']), ('demo-master-g2', 2))
+        self.assertEqual([(s['generation'], s['session']) for s in master['sessions']], [(1, 'm-gen1')])
+        start = [line for line in (self.fake / 'calls.log').read_text().splitlines() if line.startswith('agent start demo-master-g2')][-1]
+        self.assertNotIn('--remote-control', start)
 
     def test_verify_nudges_a_handoff_after_the_configured_number_of_units(self):
         self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'
