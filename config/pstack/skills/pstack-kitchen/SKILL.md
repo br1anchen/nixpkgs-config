@@ -177,3 +177,6 @@ maintainer), all written by `kitchen.sh feedback` and `maintainer`.
 
 The repo's ledger, across runs, is `ledger.tsv` in `kitchen.py statedir`; `timings.tsv` beside it
 records each gate's run time, which `kitchen.py timing` reads.
+Each ledger row names the unit, its area (the directories its brief may write) and the finding.
+`kitchen.py lessons` reads it into candidate lessons and lists the staged ones in `.agents/LESSONS.md`
+(beside the host file for a host kitchen); a lesson's held and hit counts stay in the ledger.

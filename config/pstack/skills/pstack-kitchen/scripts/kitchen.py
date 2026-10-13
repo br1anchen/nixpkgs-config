@@ -1412,6 +1412,186 @@ def ledger_catch(store: Path, ledger: Path, run: str, ts: str, layer: str, text:
     write_ledger(ledger, rows)
 
 
+# Lessons: a rule learned from trouble the ledger saw in one area across runs
+# (or once, from a catch), staged before it becomes a check. The file holds
+# the rule and its evidence and changes only when a lesson is added or moves
+# status; how often a lesson held or was hit is counted in the host ledger
+# (kind `lesson`, class `held` or `hit`, detail the id), so a run never dirties
+# the repo. A repo kitchen keeps its lessons beside it in the repo; a host
+# kitchen keeps them beside the host file.
+LESSONS = '.agents/LESSONS.md'
+LESSON_STATUS = ('proposed', 'active', 'promoted', 'retired')
+LESSON_KINDS = ('gate-fail', 'gate-flaky', 'reject', 'steer', 'catch')
+KIND_LAYER = {'gate-fail': 'gate', 'gate-flaky': 'gate', 'reject': 'verify', 'steer': 'brief'}
+PROMOTE_AFTER = 3  # clean units in the area, with no hit, before a lesson can be promoted
+LESSONS_HEAD = """# Kitchen lessons
+
+Rules learned from trouble that repeated in one area across kitchen runs.
+`kitchen.py lessons` proposes them from the run ledger, the master writes each
+rule, and the human approves every promotion into a check or a standard.
+How often each held or recurred is counted on the host, not here.
+"""
+
+
+@dataclass
+class Lesson:
+    id: str
+    rule: str
+    fields: dict[str, str]
+    evidence: list[str]
+
+
+def lessons_path(root: Path, source: Source) -> Path:
+    if source.kind == 'repo':
+        return root / LESSONS
+    return host_kitchen(root)[1].with_suffix('.lessons.md')
+
+
+def read_lessons(path: Path) -> list[Lesson]:
+    try:
+        text = path.read_text()
+    except OSError:
+        return []
+    out: list[Lesson] = []
+    for m in re.finditer(r'^## (L\d{3,}): (.*)\n((?:(?!## ).*\n?)*)', text, re.M):
+        fields, evidence, on = {}, [], False
+        for line in m.group(3).splitlines():
+            if on and line.startswith('- '):
+                evidence.append(line[2:].strip())
+                continue
+            on = False
+            k = re.match(r'^([a-z-]+):\s*(.*)$', line)
+            if k and k.group(1) == 'evidence':
+                on = True
+            elif k:
+                fields[k.group(1)] = k.group(2).strip()
+        out.append(Lesson(m.group(1), m.group(2).strip(), fields, evidence))
+    return out
+
+
+def write_lessons(path: Path, lessons: list[Lesson]) -> None:
+    order = ('status', 'kind', 'class', 'layer', 'area', 'since', 'active', 'note')
+    body = []
+    for x in lessons:
+        keys = [k for k in order if k in x.fields] + sorted(k for k in x.fields if k not in order)
+        body.append(f'## {x.id}: {x.rule}\n\n' + ''.join(f'{k}: {x.fields[k]}\n' for k in keys)
+                    + 'evidence:\n' + ''.join(f'- {e}\n' for e in x.evidence))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + '.tmp')
+    tmp.write_text(LESSONS_HEAD + ''.join('\n' + b for b in body))
+    tmp.replace(path)
+
+
+def covers(d: str, e: str) -> bool:
+    """Directory d holds directory e (`.` holds only files at the root)."""
+    return e == d or (d != '.' and e.startswith(d + '/'))
+
+
+def overlaps(a: str, b: str) -> bool:
+    return any(covers(x, y) or covers(y, x) for x in a.split(',') if x for y in b.split(',') if y)
+
+
+def lesson_counts(rows: list[dict[str, str]], lid: str) -> dict[str, int]:
+    mine = [r for r in rows if r['kind'] == 'lesson' and r['detail'] == lid]
+    return {'held': sum(r['class'] == 'held' for r in mine), 'hits': sum(r['class'] == 'hit' for r in mine)}
+
+
+def evidence_line(r: dict[str, str]) -> str:
+    return f'{r["ts"][:10]} {r["run"]} {r["unit"] or "-"}: {r["finding"] or r["detail"]}'
+
+
+def lesson_candidates(rows: list[dict[str, str]], lessons: list[Lesson]) -> list[dict]:
+    """(kind, class, area) seen in two runs or more, or once by a catch, and no
+    open lesson covers it. The most specific area that keeps every run wins."""
+    trouble = [r for r in rows if r['area'] and r['kind'] in LESSON_KINDS]
+    groups: dict[tuple[str, str], list[dict[str, str]]] = {}
+    for r in trouble:
+        groups.setdefault((r['kind'], r['class']), []).append(r)
+    out = []
+    for (kind, cls), rs in sorted(groups.items()):
+        found = []
+        for d in sorted({d for r in rs for d in r['area'].split(',') if d}):
+            m = [r for r in rs if any(covers(d, e) for e in r['area'].split(','))]
+            runs = sorted({r['run'] for r in m})
+            if len(runs) >= 2 or kind == 'catch':
+                found.append({'kind': kind, 'class': cls, 'area': d, 'runs': runs, 'rows': m})
+        for c in found:
+            if any(o is not c and covers(c['area'], o['area']) and o['runs'] == c['runs'] for o in found):
+                continue
+            if any(x.fields.get('kind') == kind and x.fields.get('class') == cls and x.fields.get('status') != 'retired'
+                   and overlaps(x.fields.get('area', ''), c['area']) for x in lessons):
+                continue
+            out.append({k: c[k] for k in ('kind', 'class', 'area', 'runs')}
+                       | {'evidence': list(dict.fromkeys(evidence_line(r) for r in c['rows']))[:5]})
+    return out
+
+
+def lessons_report(path: Path, ledger: Path) -> dict:
+    rows, lessons = ledger_rows(ledger), read_lessons(path)
+    listed = []
+    for x in lessons:
+        n = lesson_counts(rows, x.id)
+        listed.append({'id': x.id, 'rule': x.rule, **x.fields, **n,
+                       'promotable': x.fields.get('status') == 'active' and n['held'] >= PROMOTE_AFTER and n['hits'] == 0})
+    return {'path': str(path), 'lessons': listed, 'candidates': lesson_candidates(rows, lessons)}
+
+
+def lessons_text(r: dict) -> str:
+    lines = [f'lessons: {r["path"]}']
+    for x in r['lessons']:
+        lines.append(f'  {x["id"]} {x.get("status", "?"):8} held {x["held"]} hits {x["hits"]}  [{x.get("kind", "")} '
+                     f'{x.get("class", "")} in {x.get("area", "")}] {x["rule"]}' + ('  (promotable)' if x['promotable'] else ''))
+    if not r['lessons']:
+        lines.append('  none')
+    lines.append('candidates (write the rule, then: kitchen.py lessons add <kind> <class> <area> "<rule>"):')
+    for c in r['candidates']:
+        lines.append(f'  {c["kind"]} {c["class"]} in {c["area"]}: {len(c["runs"])} runs ({", ".join(c["runs"])})')
+        lines += [f'    {e}' for e in c['evidence']]
+    if not r['candidates']:
+        lines.append('  none')
+    return '\n'.join(lines)
+
+
+def lessons_add(path: Path, ledger: Path, kind: str, cls: str, area: str, rule: str, layer: str | None,
+                today: str) -> Lesson:
+    rule = ' '.join(rule.split())
+    if not rule or len(rule) > 200:
+        raise ConfigError('a rule is one sentence of at most 200 characters')
+    if kind not in LESSON_KINDS:
+        raise ConfigError(f'kind is one of {", ".join(LESSON_KINDS)}')
+    rows = [r for r in ledger_rows(ledger) if r['kind'] == kind and r['class'] == cls and r['area']
+            and any(covers(area, e) for e in r['area'].split(','))]
+    if not rows:
+        raise ConfigError(f'no ledger row for {kind} {cls} in {area}: a lesson needs evidence')
+    lessons = read_lessons(path)
+    n = max([int(x.id[1:]) for x in lessons], default=0) + 1
+    x = Lesson(f'L{n:03d}', rule, {'status': 'proposed', 'kind': kind, 'class': cls,
+                                     'layer': layer or KIND_LAYER.get(kind, cls), 'area': area, 'since': today},
+               list(dict.fromkeys(evidence_line(r) for r in rows))[:5])
+    write_lessons(path, lessons + [x])
+    return x
+
+
+def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str | None, today: str) -> Lesson:
+    lessons = read_lessons(path)
+    x = next((x for x in lessons if x.id == lid), None)
+    if not x:
+        raise ConfigError(f'no lesson {lid} in {path}')
+    if status not in LESSON_STATUS:
+        raise ConfigError(f'status is one of {", ".join(LESSON_STATUS)}')
+    if status in ('promoted', 'retired') and not note:
+        raise ConfigError(f'{status} needs --note: what enforces it now (commit and check), or why it is retired')
+    x.fields['status'] = status
+    if status == 'active':
+        x.fields['active'] = today
+    if rule:
+        x.rule = ' '.join(rule.split())
+    if note:
+        x.fields['note'] = ' '.join(note.split())
+    write_lessons(path, lessons)
+    return x
+
+
 def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
     """Every kitchen run on the host and each skills build, read-only (it never runs retro)."""
     rows = []
@@ -1542,6 +1722,19 @@ def main(argv: list[str] | None = None) -> int:
     lc.add_argument('--run', required=True)
     lc.add_argument('--ts', required=True)
     lc.add_argument('--unit', help='the unit whose scope is the area (e.g. 003)')
+    ls = sub.add_parser('lessons', help="the repo's lessons with their counters, and candidates from the ledger")
+    lsub = ls.add_subparsers(dest='lessons_cmd')
+    la = lsub.add_parser('add', help='stage a proposed lesson for a candidate, with the rule the master wrote')
+    la.add_argument('kind', choices=LESSON_KINDS)
+    la.add_argument('cls', metavar='class')
+    la.add_argument('area')
+    la.add_argument('rule')
+    la.add_argument('--layer', help='the layer that should catch it (default: from the kind)')
+    lt = lsub.add_parser('set', help="move a lesson's status: proposed, active, promoted, retired")
+    lt.add_argument('id')
+    lt.add_argument('status', choices=LESSON_STATUS)
+    lt.add_argument('--rule', help='rewrite the rule')
+    lt.add_argument('--note', help='promoted: the commit and check that enforce it; retired: why')
     sub.add_parser('statedir', help="this repo's kitchen state directory")
     t = sub.add_parser('timing', help="the slowest recent passing run of each profile's stage, and their sum")
     t.add_argument('profiles', nargs='*')
@@ -1601,6 +1794,19 @@ def main(argv: list[str] | None = None) -> int:
         if kitchen.review['legacy'] and args.cmd in ('validate', 'doctor'):
             print(f'kitchen: warning: review.{", review.".join(kitchen.review["legacy"])} are ignored: the kitchen tunes no '
                   'reviewer; remove them from kitchen.toml', file=sys.stderr)
+        if args.cmd == 'lessons':
+            path, ledger = lessons_path(root, source), state_dir(root) / 'ledger.tsv'
+            today = time.strftime('%Y-%m-%d', time.gmtime())
+            if args.lessons_cmd == 'add':
+                x = lessons_add(path, ledger, args.kind, args.cls, args.area, args.rule, args.layer, today)
+                emit({'id': x.id, 'path': str(path)}, args.json, f'{x.id} proposed in {path}: {x.rule}')
+            elif args.lessons_cmd == 'set':
+                x = lessons_set(path, args.id, args.status, args.rule, args.note, today)
+                emit({'id': x.id, 'status': args.status, 'path': str(path)}, args.json, f'{x.id} {args.status}: {x.rule}')
+            else:
+                r = lessons_report(path, ledger)
+                emit(r, args.json, lessons_text(r))
+            return 0
         if args.cmd == 'snapshot':
             if source.kind in ('user', 'roster'):
                 args.dir.mkdir(parents=True, exist_ok=True)

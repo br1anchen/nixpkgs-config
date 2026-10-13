@@ -169,10 +169,18 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    its result without requiring it. Its playbook (`opening-a-pr` or
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and
    lands.
-9. **Retro and close.** `kitchen.sh retro <store>`. For each class repeated
-   across runs, propose the encoding it names to the human, or run the
-   `correct` skill on it; a kitchen change is a brief like any other, through
-   pstack-kitchen-setup's maintain path. Reply as the pair master does, with
+9. **Retro and close.** `kitchen.sh retro <store>`. It ends with the repo's
+   lessons and the candidates the ledger holds: trouble of one kind in one
+   area across runs, or a catch. For each candidate, read its evidence and
+   write the rule a sidekick or verifier could have followed to avoid it,
+   one sentence, then stage it:
+   `kitchen.py --repo <root> lessons add <kind> <class> <area> "<rule>"`.
+   Two candidates with one cause share one rule. A staged lesson is
+   `proposed`; the human makes it `active` (`lessons set <id> active`), and
+   its file lands with the run like any other change. For a class already
+   repeated and plain enough to enforce now, propose the encoding it names
+   to the human, or run the `correct` skill on it; a kitchen change is a
+   brief like any other, through pstack-kitchen-setup's maintain path. Reply as the pair master does, with
    the retro's summary line and the land-check result, and ask the human once
    whether to close the run's panes: a finished run's sidekick, consultant
    and verifier hold about a gigabyte of memory for as long as they stay

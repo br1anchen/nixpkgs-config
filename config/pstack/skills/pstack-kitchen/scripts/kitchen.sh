@@ -1711,6 +1711,7 @@ encode a repeated class at the highest level that works (the correct skill):
   steer brief          briefs miss a decision the master keeps making: a standing order or plan template line
   catch <layer>        the layer that should have caught it gets the check
 HINT
+	kpy "$store" lessons || true
 }
 
 # The host's feedback inbox: gaps in the kitchen itself, filed by masters

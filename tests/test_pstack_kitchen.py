@@ -682,10 +682,78 @@ class HostKitchenTests(KitchenTests):
         r = self.data('--config', first, '--at', 'HEAD', 'validate')
         self.assertEqual((r['source'], r['path']), ('file', first))
 
+    def test_host_kitchen_lessons_sit_beside_it(self):
+        self.assertEqual(self.data('lessons')['path'], str(self.host.with_suffix('.lessons.md')))
+
     def test_a_repo_kitchen_takes_no_snapshot(self):
         self.write('.agents/kitchen.toml', KITCHEN)
         self.commit('kitchen')
         self.assertEqual(self.run_kitchen('snapshot', str(Path(self.tmp.name) / 'snaps')), '')
+
+
+class LessonTests(KitchenTests):
+    def setUp(self):
+        super().setUp()
+        self.ledger = Path(self.run_kitchen('statedir').strip()) / 'ledger.tsv'
+        self.ledger.write_text('ts\trun\tkind\tclass\tdetail\tunit\tarea\tfinding\n')
+
+    def row(self, run, kind, cls, unit, area, finding, detail='-'):
+        with self.ledger.open('a') as f:
+            f.write(f'2026-10-0{len(self.ledger.read_text().splitlines())}T00:00:00Z\t{run}\t{kind}\t{cls}\t{detail}\t{unit}\t{area}\t{finding}\n')
+
+    def candidates(self):
+        return [(c['kind'], c['class'], c['area'], c['runs']) for c in self.data('lessons')['candidates']]
+
+    def test_trouble_in_one_area_across_runs_is_a_candidate(self):
+        self.row('run-a', 'reject', 'verify', '001', 'src/lib', 'the cache is never cleared')
+        self.row('run-b', 'reject', 'verify', '003', 'docs,src/lib', 'cache stale after write')
+        self.row('run-b', 'reject', 'verify', '004', 'src/api', 'other area, one run')
+        self.row('run-a', 'gate-fail', 'app', '002', 'src/lib', 'one run only')
+        self.row('run-c', 'catch', 'review', '', '', 'no unit, no area')
+        self.row('run-c', 'catch', 'review', '005', 'src/api', 'missed a caller')
+        self.assertEqual(self.candidates(), [('catch', 'review', 'src/api', ['run-c']),
+                                             ('reject', 'verify', 'src/lib', ['run-a', 'run-b'])])
+        r = self.data('lessons')['candidates'][1]
+        self.assertEqual(r['evidence'], ['2026-10-01 run-a 001: the cache is never cleared',
+                                         '2026-10-02 run-b 003: cache stale after write'])
+
+    def test_the_area_is_the_narrowest_that_keeps_every_run(self):
+        self.row('run-a', 'steer', 'brief', '001', 'src/lib', 'narrow: x')
+        self.row('run-b', 'steer', 'brief', '002', 'src/api', 'narrow: y')
+        self.row('run-c', 'steer', 'brief', '003', 'src', 'narrow: z')
+        self.assertEqual(self.candidates(), [('steer', 'brief', 'src', ['run-a', 'run-b', 'run-c'])])
+
+    def test_a_staged_lesson_lives_in_the_repo_and_hides_its_candidate(self):
+        self.row('run-a', 'reject', 'verify', '001', 'src/lib', 'the cache is never cleared')
+        self.row('run-b', 'reject', 'verify', '003', 'src/lib', 'cache stale after write')
+        self.assertIn('L001 proposed', self.run_kitchen('lessons', 'add', 'reject', 'verify', 'src/lib',
+                                                        'Every write to the store clears the cache.'))
+        text = (self.repo / '.agents/LESSONS.md').read_text()
+        self.assertIn('## L001: Every write to the store clears the cache.\n\nstatus: proposed\nkind: reject\n'
+                      'class: verify\nlayer: verify\narea: src/lib\n', text)
+        self.assertIn('evidence:\n- 2026-10-01 run-a 001: the cache is never cleared\n', text)
+        self.assertEqual(self.candidates(), [])
+        self.assertIn('needs evidence', self.run_kitchen('lessons', 'add', 'reject', 'verify', 'docs', 'x', code=1))
+        self.assertEqual(self.data('lessons', 'add', 'reject', 'verify', 'src', 'Second rule.')['id'], 'L002')
+        self.assertEqual([x['id'] for x in self.data('lessons')['lessons']], ['L001', 'L002'])
+
+    def test_three_clean_units_and_no_hit_make_a_lesson_promotable(self):
+        self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
+        self.run_kitchen('lessons', 'add', 'catch', 'review', 'src/lib', 'A renamed function has every caller updated.')
+        self.run_kitchen('lessons', 'set', 'L001', 'active')
+        self.assertRegex((self.repo / '.agents/LESSONS.md').read_text(), r'status: active\n(.*\n)*active: \d{4}-\d\d-\d\d\n')
+        for n in range(3):
+            self.row(f'run-{n}', 'lesson', 'held', '00{n}', 'src/lib', '', detail='L001')
+        x = self.data('lessons')['lessons'][0]
+        self.assertEqual((x['layer'], x['held'], x['hits'], x['promotable']), ('review', 3, 0, True))
+        self.assertIn('(promotable)', self.run_kitchen('lessons'))
+        self.row('run-9', 'lesson', 'hit', '009', 'src/lib', 'missed again', detail='L001')
+        self.assertFalse(self.data('lessons')['lessons'][0]['promotable'])
+        self.assertIn('needs --note', self.run_kitchen('lessons', 'set', 'L001', 'promoted', code=1))
+        self.run_kitchen('lessons', 'set', 'L001', 'promoted', '--note', 'abc1234 lint rule no-stale-callers')
+        x = self.data('lessons')['lessons'][0]
+        self.assertEqual((x['status'], x['note']), ('promoted', 'abc1234 lint rule no-stale-callers'))
+        self.assertIn('no lesson L009', self.run_kitchen('lessons', 'set', 'L009', 'active', code=1))
 
 
 class AreaTests(unittest.TestCase):
@@ -2562,8 +2630,9 @@ esac
         self.assertEqual([(c['area'], c['finding']) for c in catches],
                          [('src/lib', 'missed a caller in api.py'), ('', 'unit not given')])
         # Retro again: the run's rows are replaced, the catches kept.
-        self.run_sh('retro', str(self.store))
+        out = self.run_sh('retro', str(self.store))
         self.assertEqual(len(self.ledger()[1]), len(rows))
+        self.assertIn('catch review in src/lib: 1 runs (demo)', out)
 
     def test_an_old_ledger_gains_the_new_columns(self):
         state = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'], env=self.env,
