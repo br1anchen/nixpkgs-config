@@ -315,6 +315,15 @@ def host_key(root: Path) -> str:
     return f'{main.name}-{hashlib.sha256(str(main).encode()).hexdigest()[:8]}'
 
 
+# A path glob with ~ expanded and its literal directories resolved, since git
+# reports resolved paths (on macOS /var is /private/var).
+def real_glob(pattern: str) -> str:
+    pattern = os.path.expanduser(pattern).rstrip('/')
+    cut = min([i for i in (pattern.find(c) for c in '*?') if i >= 0], default=len(pattern))
+    head = pattern[:cut].rsplit('/', 1)[0] if cut < len(pattern) else pattern
+    return os.path.realpath(head) + pattern[len(head):] if head else pattern
+
+
 # The host file this repo would use, and how it was chosen: a roster
 # [[kitchen]] entry whose match covers the checkout or its main checkout,
 # else kitchens/<key>.toml. It need not exist yet.
@@ -331,7 +340,7 @@ def host_kitchen(root: Path) -> tuple[str, Path]:
         where = f'{path}: kitchen[{i}]'
         if not isinstance(e, dict) or not isinstance(e.get('match'), str) or not isinstance(e.get('file'), str):
             raise ConfigError(f'{where} needs match and file strings')
-        rx = glob_regex(os.path.expanduser(e['match']).rstrip('/'))
+        rx = glob_regex(real_glob(e['match']))
         if any(rx.match(h) or rx.match(h + '/') for h in here):
             f = Path(os.path.expanduser(e['file']))
             return 'roster', f if f.is_absolute() else path.parent / 'kitchens' / f

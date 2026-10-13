@@ -598,6 +598,96 @@ class PolicyTests(KitchenTests):
         self.assertEqual([f['rule'] for f in r['findings']], ['no-print'])
 
 
+class HostKitchenTests(KitchenTests):
+    # The repo commits no kitchen; the host keeps it beside the roster.
+    def setUp(self):
+        super().setUp()
+        self.git('rm', '-q', '.agents/kitchen.toml')
+        self.base = self.commit('no kitchen')
+        self.git('remote', 'add', 'origin', 'git@github.com:Acme/Widget.git')
+        self.host = Path(self.tmp.name) / 'kitchens/github.com__Acme__Widget.toml'
+        self.host.parent.mkdir()
+        self.host.write_text(KITCHEN)
+
+    def doctor(self):
+        return {c['check']: c for c in self.data('doctor', code=None)['checks']}['kitchen']
+
+    def run_kitchen(self, *args, code=0):
+        if code is not None:
+            return super().run_kitchen(*args, code=code)
+        result = subprocess.run([sys.executable, str(script), *args], cwd=self.repo, env=self.env,
+                                capture_output=True, text=True, check=False)
+        self.stdout = result.stdout
+        return result.stdout + result.stderr
+
+    def test_origin_key_reads_every_remote_spelling(self):
+        for url, key in [('git@github.com:Acme/Widget.git', 'github.com/Acme/Widget'),
+                         ('https://GitHub.com/acme/widget/', 'github.com/acme/widget'),
+                         ('ssh://git@host:2222/a/b.git', 'host/a/b'),
+                         ('https://user:tok@gitlab.example/g/sub/r.git', 'gitlab.example/g/sub/r'),
+                         ('/srv/git/r.git', None), ('', None)]:
+            self.assertEqual(kitchen.origin_key(url), key, url)
+
+    def test_the_host_kitchen_is_read_at_any_revision(self):
+        for args in [(), ('--at', 'HEAD'), ('--at', self.base)]:
+            r = self.data(*args, 'validate')
+            self.assertEqual((r['source'], r['path']), ('user', str(self.host)), args)
+        self.assertEqual(self.data('where')['host'], {'source': 'user', 'path': str(self.host), 'exists': True})
+
+    def test_a_worktree_finds_the_same_host_kitchen(self):
+        wt = Path(self.tmp.name) / 'wt'
+        self.git('worktree', 'add', '-q', str(wt), 'HEAD')
+        self.assertEqual(self.data('--repo', str(wt), '--at', 'HEAD', 'validate')['path'], str(self.host))
+
+    def test_without_an_origin_the_key_is_the_main_checkout(self):
+        self.git('remote', 'remove', 'origin')
+        path = Path(self.run_kitchen('where', '--host').strip())
+        self.assertEqual(path.parent, self.host.parent)
+        self.assertRegex(path.name, r'^repo-[0-9a-f]{8}\.toml$')
+        out = self.run_kitchen('--at', 'HEAD', 'validate', code=1)
+        self.assertIn(f'no kitchen at HEAD:.agents/kitchen.toml or {path}', out)
+
+    def test_a_roster_glob_picks_the_file(self):
+        other = Path(self.tmp.name) / 'kitchens/widget.toml'
+        other.write_text(KITCHEN)
+        Path(self.env['PSTACK_KITCHEN_ROSTER']).write_text(
+            f'[[kitchen]]\nmatch = "{self.tmp.name}/**"\nfile = "widget.toml"\n')
+        r = self.data('--at', 'HEAD', 'validate')
+        self.assertEqual((r['source'], r['path']), ('roster', str(other)))
+
+    def test_a_committed_kitchen_shadows_the_host_one(self):
+        self.write('.agents/kitchen.toml', KITCHEN)
+        self.commit('kitchen')
+        self.assertEqual(self.data('--at', 'HEAD', 'validate')['source'], 'repo')
+        d = self.doctor()
+        self.assertEqual(d['status'], 'warn')
+        self.assertIn(f'the host kitchen {self.host} is shadowed', d['detail'])
+
+    def test_doctor_fails_an_uncommitted_repo_kitchen(self):
+        self.write('.agents/kitchen.toml', KITCHEN)
+        d = self.doctor()
+        self.assertEqual(d['status'], 'fail')
+        self.assertIn('.agents/kitchen.toml is untracked', d['detail'])
+        (self.repo / '.git/info/exclude').write_text('.agents/kitchen.toml\n')
+        self.assertIn('is ignored or excluded', self.doctor()['detail'])
+
+    def test_a_snapshot_is_named_by_content_and_read_through_config(self):
+        snaps = Path(self.tmp.name) / 'store/kitchens'
+        first = self.run_kitchen('snapshot', str(snaps)).strip()
+        self.assertEqual(self.run_kitchen('snapshot', str(snaps)).strip(), first)
+        self.host.write_text(KITCHEN.replace('max_diff_lines = 50', 'max_diff_lines = 60'))
+        second = self.run_kitchen('snapshot', str(snaps)).strip()
+        self.assertNotEqual(first, second)
+        self.assertEqual(sorted(p.name for p in snaps.iterdir()), sorted([Path(first).name, Path(second).name]))
+        r = self.data('--config', first, '--at', 'HEAD', 'validate')
+        self.assertEqual((r['source'], r['path']), ('file', first))
+
+    def test_a_repo_kitchen_takes_no_snapshot(self):
+        self.write('.agents/kitchen.toml', KITCHEN)
+        self.commit('kitchen')
+        self.assertEqual(self.run_kitchen('snapshot', str(Path(self.tmp.name) / 'snaps')), '')
+
+
 class DoctorTests(KitchenTests):
     def checks(self, *args, code=0):
         return {c['check']: c for c in self.data('doctor', *args, code=code)['checks']}
