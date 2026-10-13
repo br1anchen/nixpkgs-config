@@ -62,8 +62,9 @@ consult, advice. These differ or are new:
                                             is open
   revise <store> <verdict-path>             draft the fix brief for a rejected verdict
   land-check <store>                        every accepted unit verified
-  catch <store> <layer> <text>              record a miss found later (audit, human review): layer is
-                                            gate, policy, self, verify, review, triage, or escalation
+  catch <store> <layer> <text> [<unit>]     record a miss found later (audit, human review): layer is
+                                            gate, policy, self, verify, review, triage, or escalation;
+                                            the unit (e.g. 003) gives the ledger row its area
   new-handoff <store>                       write session-handoff.md from the template, with every unit's state
   rotate-master <store> [--model M]         record the filled handoff and this master's session, and start the
                                             next generation in a pane beside this one (MCP-free, remote control
@@ -1448,13 +1449,13 @@ cmd_land_check() {
 }
 
 cmd_catch() {
-	[ $# -eq 3 ] || die "usage: kitchen.sh catch <store> <layer> <text>"
-	local store="$1" layer="$2" text="$3" ledger
+	[ $# -eq 3 ] || [ $# -eq 4 ] || die "usage: kitchen.sh catch <store> <layer> <text> [<unit>]"
+	local store="$1" layer="$2" text="$3" unit="${4:-}"
 	case "$layer" in gate | policy | self | verify | review | triage | escalation) ;; *) die "layer is gate, policy, self, verify, review, triage, or escalation: the one that should have caught it" ;; esac
 	pair_file "$store" >/dev/null
-	ledger="$(kpy "$store" statedir)/ledger.tsv"
-	[ -f "$ledger" ] || printf 'ts\trun\tkind\tclass\tdetail\n' >"$ledger"
-	printf '%s\t%s\tcatch\t%s\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$(field "$store" .slug)" "$layer" "$(printf '%s' "$text" | tr '\t\n' '  ')" >>"$ledger"
+	[ -z "$unit" ] || [[ "$unit" =~ ^[0-9]{3}$ ]] || die "unit is a brief's number, like 003"
+	python3 "$here/kitchen.py" ledger-catch "$store" "$(kpy "$store" statedir)/ledger.tsv" "$layer" "$text" \
+		--run "$(field "$store" .slug)" --ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ${unit:+--unit "$unit"}
 	event "$store" master catch - "$layer"
 	printf 'caught at %s: %s\n' "$layer" "$text"
 }
@@ -1695,17 +1696,7 @@ cmd_retro() {
 	ledger="$(kpy "$store" statedir)/ledger.tsv"
 	run="$(field "$store" .slug)"
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-	[ -f "$ledger" ] || printf 'ts\trun\tkind\tclass\tdetail\n' >"$ledger"
-	# This run's rows replace any it wrote before, so retro can run again.
-	awk -F '\t' -v r="$run" 'NR == 1 || $2 != r || $3 == "catch"' "$ledger" >"$ledger.tmp" && mv "$ledger.tmp" "$ledger"
-	{
-		[ -f "$store/gates.tsv" ] && awk -F '\t' -v t="$now" -v r="$run" '$4 == "fail" {printf "%s\t%s\tgate-fail\t%s\t%s %s\n", t, r, $5, $2, $3}' "$store/gates.tsv"
-		for f in "$store"/verdicts/*-v[0-9]*.md; do
-			[ -e "$f" ] && [[ "$f" != *packet* ]] && [ "$(header_field "$f" status)" = reject ] && printf '%s\t%s\treject\tverify\t%s\n' "$now" "$run" "$(basename "$f" .md)"
-		done
-		for f in "$store"/steers/*-s[0-9]*.md; do [ -e "$f" ] && printf '%s\t%s\tsteer\tbrief\t%s\n' "$now" "$run" "$(basename "$f" .md)"; done
-		[ -f "$store/events.tsv" ] && awk -F '\t' -v t="$now" -v r="$run" '$4 == "gate-flaky" {printf "%s\t%s\tgate-flaky\t%s\t%s\n", t, r, $6, $5}' "$store/events.tsv"
-	} >>"$ledger"
+	python3 "$here/kitchen.py" ledger-retro "$store" "$ledger" --run "$run" --ts "$now"
 	retro_counts "$store"
 	retro_line "$store"
 	[ "$rc_verified" -eq 0 ] || printf 'master wakes per verified unit: %s\n' "$(awk -v w="$rc_wakes" -v v="$rc_verified" 'BEGIN{printf "%.1f", w / v}')"

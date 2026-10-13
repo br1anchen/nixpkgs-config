@@ -1260,6 +1260,158 @@ def open_feedback() -> dict[str, int]:
     return out
 
 
+# The repo's ledger: one row per class of trouble a run met (a failed gate, a
+# rejected verdict, a steer, a flaky gate, a catch). area and finding say
+# where and what, so a later run can tell one repeated problem from several
+# that share a kind. Rows from before those columns have five.
+LEDGER_HEAD = ('ts', 'run', 'kind', 'class', 'detail', 'unit', 'area', 'finding')
+TEST_DIR = re.compile(r'(^|/)(tests?|specs?|__tests__|testdata)(/|$)')
+
+
+def _cell(text: str, limit: int = 200) -> str:
+    text = ' '.join(text.replace('\t', ' ').split())
+    return text if len(text) <= limit else text[:limit - 1] + '…'
+
+
+def unit_brief(store: Path, unit: str) -> Path | None:
+    """A unit (`001`, or a brief's name) to its brief, the first attempt's when several."""
+    seq = unit[:3]
+    briefs = sorted((store / 'briefs').glob(f'{seq}-*.md'), key=lambda p: (len(p.name), p.name))
+    return briefs[0] if briefs else None
+
+
+def brief_scope(brief: Path) -> list[str]:
+    """A brief's `may write:` entries, as the kitchen reads them."""
+    out, on = [], False
+    try:
+        lines = brief.read_text().splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        if line.startswith('may write:'):
+            on = True
+        elif line.startswith('must not write:') or line.startswith('## '):
+            on = False
+        elif on and line.startswith('- '):
+            entry = line[2:].split(' — ')[0].strip().strip('`').strip('"\'')
+            if entry:
+                out.append(entry)
+    return out
+
+
+def scope_area(globs: list[str], depth: int = 2) -> list[str]:
+    """The directories a scope writes, at most `depth` deep, tests left out
+    unless the unit writes nothing else: `src/api/**` and `src/api/x.py` are
+    both `src/api`; a file at the root is `.`."""
+    def dir_of(g: str) -> str:
+        cut = min([i for i in (g.find(c) for c in '*?[{') if i >= 0], default=len(g))
+        head = g[:cut]
+        # What follows the last slash is a file name, or part of one.
+        parts = [p for p in head.rsplit('/', 1)[0].split('/') if p] if '/' in head else []
+        return '/'.join(parts[:depth]) or '.'
+    code = [g for g in globs if not TEST_DIR.search(g)]
+    return sorted({dir_of(g) for g in (code or globs)})
+
+
+def unit_area(store: Path, units: list[str]) -> str:
+    globs: list[str] = []
+    for u in units:
+        b = unit_brief(store, u)
+        if b:
+            globs += brief_scope(b)
+    return ','.join(scope_area(globs)) if globs else ''
+
+
+def _section(path: Path, title: str) -> str:
+    """The first line of a markdown section's text, list markers dropped."""
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return ''
+    on = False
+    for line in lines:
+        if line.startswith('## '):
+            on = line[3:].strip().lower() == title
+            continue
+        text = re.sub(r'^\s*(?:\d+[.)]|[-*])\s+', '', line).strip()
+        if on and text:
+            return text
+    return ''
+
+
+def gate_finding(store: Path, unit: str, sha: str) -> str:
+    """What a failed step's gates said: each failing command, then each policy finding."""
+    for out in sorted((store / 'steps/jobs').glob(f'{unit}-{sha}*/out')):
+        try:
+            lines = out.read_text().splitlines()
+        except OSError:
+            continue
+        found = [m.group(1) for m in (re.match(r'\s+exit [1-9]\d* \S+s (.+?)  log: ', ln) for ln in lines) if m]
+        found += [ln.strip() for ln in lines if re.match(r'\S+(:\d+)?: \[[a-z0-9-]+\] ', ln)]
+        return '; '.join(found[:3])
+    return ''
+
+
+def retro_rows(store: Path, run: str, ts: str) -> list[tuple[str, ...]]:
+    rows: list[tuple[str, ...]] = []
+    try:
+        gates = [ln.split('\t') for ln in (store / 'gates.tsv').read_text().splitlines()]
+    except OSError:
+        gates = []
+    for g in gates:
+        if len(g) >= 5 and g[3] == 'fail':
+            rows.append((ts, run, 'gate-fail', g[4], f'{g[1]} {g[2]}', g[1][:3], unit_area(store, [g[1]]),
+                         gate_finding(store, g[1], g[2])))
+    for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md')):
+        if 'packet' in v.name or _header(v, 'status').split(' ')[0] != 'reject':
+            continue
+        units = _header(v, 'units').split()
+        rows.append((ts, run, 'reject', 'verify', v.stem, ' '.join(units), unit_area(store, units),
+                     _section(v, 'findings')))
+    for s in sorted((store / 'steers').glob('*-s[0-9]*.md')):
+        kind, direction = _header(s, 'kind'), _section(s, 'direction')
+        rows.append((ts, run, 'steer', 'brief', s.stem, s.name[:3], unit_area(store, [s.name[:3]]),
+                     f'{kind}: {direction}' if kind else direction))
+    try:
+        events = [ln.split('\t') for ln in (store / 'events.tsv').read_text().splitlines()[1:]]
+    except OSError:
+        events = []
+    for e in events:
+        if len(e) >= 6 and e[3] == 'gate-flaky':
+            unit = e[4] if re.match(r'\d{3}', e[4]) else ''
+            rows.append((ts, run, 'gate-flaky', e[5], e[4], unit[:3], unit_area(store, [unit]) if unit else '', ''))
+    return [tuple(_cell(c) for c in r) for r in rows]
+
+
+def ledger_rows(ledger: Path) -> list[dict[str, str]]:
+    try:
+        lines = ledger.read_text().splitlines()
+    except OSError:
+        return []
+    return [dict(zip(LEDGER_HEAD, ln.split('\t') + [''] * len(LEDGER_HEAD))) for ln in lines[1:] if ln]
+
+
+def write_ledger(ledger: Path, rows: list[dict[str, str]]) -> None:
+    tmp = ledger.with_name(ledger.name + '.tmp')
+    tmp.write_text('\t'.join(LEDGER_HEAD) + '\n' + ''.join('\t'.join(r[k] for k in LEDGER_HEAD) + '\n' for r in rows))
+    tmp.replace(ledger)
+
+
+def ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
+    """This run's rows replace any it wrote before (catches stay), so retro can run again."""
+    rows = [r for r in ledger_rows(ledger) if r['run'] != run or r['kind'] == 'catch']
+    new = retro_rows(store, run, ts)
+    write_ledger(ledger, rows + [dict(zip(LEDGER_HEAD, r)) for r in new])
+    return len(new)
+
+
+def ledger_catch(store: Path, ledger: Path, run: str, ts: str, layer: str, text: str, unit: str | None) -> None:
+    rows = ledger_rows(ledger)
+    rows.append(dict(zip(LEDGER_HEAD, (ts, run, 'catch', layer, _cell(text), unit or '',
+                                       unit_area(store, [unit]) if unit else '', _cell(text)))))
+    write_ledger(ledger, rows)
+
+
 def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
     """Every kitchen run on the host and each skills build, read-only (it never runs retro)."""
     rows = []
@@ -1377,6 +1529,19 @@ def main(argv: list[str] | None = None) -> int:
     f.add_argument('--runs', type=Path, help='runs directory (default: the host kitchen runs)')
     c = sub.add_parser('counters', help="one run store's counters as JSON (no repo needed, read-only)")
     c.add_argument('store', type=Path)
+    lr = sub.add_parser('ledger-retro', help="write a run's rows to the repo ledger, replacing its earlier ones (no repo needed)")
+    lr.add_argument('store', type=Path)
+    lr.add_argument('ledger', type=Path)
+    lr.add_argument('--run', required=True)
+    lr.add_argument('--ts', required=True)
+    lc = sub.add_parser('ledger-catch', help='add a catch to the repo ledger (no repo needed)')
+    lc.add_argument('store', type=Path)
+    lc.add_argument('ledger', type=Path)
+    lc.add_argument('layer')
+    lc.add_argument('text')
+    lc.add_argument('--run', required=True)
+    lc.add_argument('--ts', required=True)
+    lc.add_argument('--unit', help='the unit whose scope is the area (e.g. 003)')
     sub.add_parser('statedir', help="this repo's kitchen state directory")
     t = sub.add_parser('timing', help="the slowest recent passing run of each profile's stage, and their sum")
     t.add_argument('profiles', nargs='*')
@@ -1391,6 +1556,12 @@ def main(argv: list[str] | None = None) -> int:
         return fleet(args.runs or pstack_state() / 'kitchen/runs', args.since, args.json)
     if args.cmd == 'counters':
         print(json.dumps(run_counters(args.store)))
+        return 0
+    if args.cmd == 'ledger-retro':
+        ledger_retro(args.store, args.ledger, args.run, args.ts)
+        return 0
+    if args.cmd == 'ledger-catch':
+        ledger_catch(args.store, args.ledger, args.run, args.ts, args.layer, args.text, args.unit)
         return 0
     try:
         if args.cmd == 'statedir':

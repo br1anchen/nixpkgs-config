@@ -688,6 +688,14 @@ class HostKitchenTests(KitchenTests):
         self.assertEqual(self.run_kitchen('snapshot', str(Path(self.tmp.name) / 'snaps')), '')
 
 
+class AreaTests(unittest.TestCase):
+    def test_a_scope_is_the_directories_it_writes(self):
+        for globs, area in [(['src/**', 'tests/**'], ['src']), (['src/api/v2/**', 'src/api/x.py'], ['src/api']),
+                            (['README.md', 'docs/*.md'], ['.', 'docs']), (['tests/unit/**'], ['tests/unit']),
+                            (['lib/foo*', 'pkg/'], ['lib', 'pkg']), ([], [])]:
+            self.assertEqual(kitchen.scope_area(globs), area, globs)
+
+
 class DoctorTests(KitchenTests):
     def checks(self, *args, code=0):
         return {c['check']: c for c in self.data('doctor', *args, code=code)['checks']}
@@ -2520,3 +2528,48 @@ esac
         self.assertRegex(out, r'2 gate-fail\s+app\s+in 1 runs')
         out = self.run_sh('retro', str(self.store))
         self.assertRegex(out, r'2 gate-fail\s+app\s+in 1 runs')
+
+    def ledger(self):
+        path = next((Path(self.env['XDG_STATE_HOME']) / 'pstack/kitchen/repos').glob('*/ledger.tsv'))
+        lines = path.read_text().splitlines()
+        return lines[0].split('\t'), [dict(zip(lines[0].split('\t'), ln.split('\t'))) for ln in lines[1:]]
+
+    def test_the_ledger_says_where_and_what(self):
+        b = self.brief('001', 'util', ['src/lib/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('FAIL', 'x\n')
+        self.write('src/lib/util.py', 'X = 7\n')
+        sha = self.commit('broken')
+        self.run_sh('step', str(self.store), sha, 'one', code=2)
+        (self.store / 'verdicts/001-util-v1.md').write_text(
+            '# Verdict\n\nstatus: reject\nunits: 001\n\n## Findings\n\n1. Acceptance 2: the\tcache is never cleared\n')
+        (self.store / 'steers').mkdir(exist_ok=True)
+        (self.store / 'steers/001-util-s1.md').write_text(
+            '# Steer\n\nkind: narrow\n\n## Direction\n\nLeave the CLI alone; only the library changes.\n')
+        self.run_sh('catch', str(self.store), 'review', 'missed a caller in api.py', '001')
+        self.run_sh('catch', str(self.store), 'review', 'unit not given')
+        self.run_sh('catch', str(self.store), 'review', 'bad unit', 'util', code=1)
+        self.run_sh('retro', str(self.store))
+        head, rows = self.ledger()
+        self.assertEqual(head, ['ts', 'run', 'kind', 'class', 'detail', 'unit', 'area', 'finding'])
+        by = {r['kind']: r for r in rows}
+        self.assertEqual((by['gate-fail']['unit'], by['gate-fail']['area'], by['gate-fail']['finding']),
+                         ('001', 'src/lib', 'test ! -e FAIL; src/lib/util.py: [test-touch] profile app requires tests: '
+                                            '1 source files changed and no file matching tests/** (.agents/kitchen.toml)'))
+        self.assertEqual((by['reject']['area'], by['reject']['finding']), ('src/lib', 'Acceptance 2: the cache is never cleared'))
+        self.assertEqual(by['steer']['finding'], 'narrow: Leave the CLI alone; only the library changes.')
+        catches = [r for r in rows if r['kind'] == 'catch']
+        self.assertEqual([(c['area'], c['finding']) for c in catches],
+                         [('src/lib', 'missed a caller in api.py'), ('', 'unit not given')])
+        # Retro again: the run's rows are replaced, the catches kept.
+        self.run_sh('retro', str(self.store))
+        self.assertEqual(len(self.ledger()[1]), len(rows))
+
+    def test_an_old_ledger_gains_the_new_columns(self):
+        state = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'], env=self.env,
+                                    capture_output=True, text=True, check=True).stdout.strip())
+        (state / 'ledger.tsv').write_text('ts\trun\tkind\tclass\tdetail\n2026-01-01T00:00:00Z\told\tsteer\tbrief\t004-x-s1\n')
+        self.run_sh('catch', str(self.store), 'gate', 'lint missed it')
+        head, rows = self.ledger()
+        self.assertEqual(len(head), 8)
+        self.assertEqual([(r['run'], r['kind'], r['area']) for r in rows], [('old', 'steer', ''), ('demo', 'catch', '')])

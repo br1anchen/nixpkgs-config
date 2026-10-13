@@ -155,8 +155,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    report's `review-delta` and the verdict, not the whole diff. When
    `verify` printed `audit: yes`, read the unit's whole diff as the pair
    master would; anything the kitchen missed is
-   `kitchen.sh catch <store> <layer> "<what>"`, naming the layer that should
-   have caught it.
+   `kitchen.sh catch <store> <layer> "<what>" <NNN>`, naming the layer that
+   should have caught it and the unit it was in.
 8. **Land.** `kitchen.sh land-check <store>`, then review the stack as a
    whole for anything between units, then the landing brief. Review it from
    where it leaves trunk (origin's default branch, else main or master), the
