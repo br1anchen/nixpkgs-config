@@ -170,14 +170,19 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `shipping`) goes as far as `[landing].mode` allows. The human reviews and
    lands.
 9. **Retro and close.** `kitchen.sh retro <store>`. It ends with the repo's
-   lessons and the candidates the ledger holds: trouble of one kind in one
-   area across runs, or a catch. For each candidate, read its evidence and
-   write the rule a sidekick or verifier could have followed to avoid it,
-   one sentence, then stage it:
-   `kitchen.py --repo <root> lessons add <kind> <class> <area> "<rule>"`.
-   Two candidates with one cause share one rule. A staged lesson is
-   `proposed`; the human makes it `active` (`lessons set <id> active`), and
-   its file lands with the run like any other change.
+   lessons and the strongest candidates the ledger holds: the same trouble
+   in one area across runs (a gate check failing in 3, a reject or a
+   redirecting steer in 2), or a catch. Each candidate prints its arguments.
+   Read its evidence; if one cause runs through it, write the rule a
+   sidekick or verifier could have followed to avoid it, one sentence, and
+   stage it: `kitchen.py --repo <root> lessons add <args> "<rule>"`. If the
+   evidence shares no cause, dismiss it, `kitchen.py --repo <root> lessons
+   dismiss <args> --note "<why>"`; it stays hidden until newer trouble of
+   its kind comes back. A staged lesson is `proposed`; the human makes it
+   `active` (`lessons set <id> active`). The lessons file is this run's
+   change in the shared worktree: commit it on its own, as `lessons add`
+   prints, so it lands with the run and no sidekick commit sweeps it up.
+   Other runs see it once it lands.
 
    A lesson marked `(promotable)` held in 3 units with no hit. Draft its
    proposal, `kitchen.py --repo <root> lessons promote <id> --out

@@ -149,16 +149,22 @@ kitchen.py gate <profile> fast|behavioral|landing     # exit 2 on failure; --kee
 kitchen.py policy --base <sha> [--head <sha>]         # forbid rules and test-touch; exit 2 on findings
 kitchen.py history [--last 20]                        # how each recent commit classifies, and its policy findings
 kitchen.py doctor [--run]                             # coverage, commands, features; --run records a baseline
-kitchen.py lessons                                    # staged lessons with held/hit counts, then candidates
-kitchen.py lessons add <kind> <class> <area> "<rule>" # stage an evidence-backed lesson (proposed)
+kitchen.py lessons [--all]                            # staged lessons with held/hit counts, then the top candidates
+kitchen.py lessons add <kind> <class> <area> [--match M] "<rule>" # stage an evidence-backed lesson (proposed)
+kitchen.py lessons dismiss <kind> <class> <area> [--match M] --note "<why>" # hide a candidate with no one cause
 kitchen.py lessons set <id> <status> [--rule] [--note] # proposed | active | promoted | retired
 kitchen.py lessons promote <id> [--out <file>]        # the promotion proposal for the human to decide
+kitchen.py ledger-backfill <ledger> [--runs <dir>]    # give rows from before area and match both, from the run stores
 ```
 
 Lessons live in `.agents/LESSONS.md` beside a repo kitchen, or beside a host
 kitchen as `<key>.lessons.md`; they are not a kitchen.toml key. The file holds
 each rule, its status and evidence, and any notes a human adds (a rewrite
-keeps them); held and hit counts stay in the host ledger.
+keeps them); held and hit counts stay in the host ledger, which also hands out
+lesson ids, so runs in parallel worktrees never stage the same one. A
+lesson's match is the trouble within its class: the stage and check a gate
+failed (`fast lint`), the policy rule (`test-touch`, class `policy`), or the
+steer's kind.
 
 `--json` gives each result as data, `--at <rev>` reads the kitchen (and, for
 `--paths`, the file list) at a revision, and `--repo` points at another

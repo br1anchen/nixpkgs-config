@@ -132,11 +132,14 @@ Verifier: [references/verifier.md](references/verifier.md).
    repeated; each repeated class becomes a rule, a lint, a profile command, or
    a standing order. A gap in the kitchen itself goes to `kitchen.sh feedback`.
    Trouble of one kind in one area across runs becomes a lesson:
-   - **Propose:** retro lists candidates from the ledger; the master writes
-     the rule and stages it (`kitchen.py lessons add`); the human activates it.
+   - **Propose:** retro lists the strongest candidates from the ledger,
+     grouped by what failed (gate check, policy rule, steer kind); the master
+     writes the rule and stages it (`kitchen.py lessons add`) or dismisses a
+     candidate with no one cause; the human activates it.
    - **Apply:** dispatch adds the active lessons for a brief's area to its
      Lessons section; the verifier proves the verification ones as Acceptance
-     and checks the rest after its own pass, marking each held or hit.
+     and checks the rest after its own pass, marking each held or hit. Gates
+     score gate lessons; the verifier never sees them.
    - **Score:** retro counts held and hit per unit in the host ledger.
    - **Promote:** after 3 held and no hit, `kitchen.py lessons promote` drafts
      the proposal (the check, which layer and why, an example, proof, false
@@ -188,6 +191,7 @@ maintainer), all written by `kitchen.sh feedback` and `maintainer`.
 
 The repo's ledger, across runs, is `ledger.tsv` in `kitchen.py statedir`; `timings.tsv` beside it
 records each gate's run time, which `kitchen.py timing` reads.
-Each ledger row names the unit, its area (the directories its brief may write) and the finding.
+Each ledger row names the unit, its area (the directories its brief may write, tests and docs aside), the finding and its match.
+`kitchen.py ledger-backfill` gives rows from older builds the same, from the run stores still on disk.
 `kitchen.py lessons` reads it into candidate lessons and lists the staged ones in `.agents/LESSONS.md`
 (beside the host file for a host kitchen); a lesson's held and hit counts stay in the ledger.
