@@ -35,7 +35,10 @@ the repo's.
   and `kitchen.py history --last 30`. Compare the CI workflows and task
   runners against the profiles for drift: a CI job or package with no
   profile, a profile command CI no longer runs, an AGENTS rule added since.
-  Fix only what drifted, then prove it as in step 6.
+  Fix only what drifted, then prove it as in step 6. A promoted lesson
+  (pstack-kitchen's `kitchen.py lessons promote`) arrives here as a brief
+  with its proposal: add the check it names, and prove it fails on the
+  lesson's evidence commit before it passes on HEAD.
 
 ## 1. Read the repo, not the human
 

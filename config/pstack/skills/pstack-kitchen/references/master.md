@@ -177,7 +177,20 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    `kitchen.py --repo <root> lessons add <kind> <class> <area> "<rule>"`.
    Two candidates with one cause share one rule. A staged lesson is
    `proposed`; the human makes it `active` (`lessons set <id> active`), and
-   its file lands with the run like any other change. For a class already
+   its file lands with the run like any other change.
+
+   A lesson marked `(promotable)` held in 3 units with no hit. Draft its
+   proposal, `kitchen.py --repo <root> lessons promote <id> --out
+   <store>/promotions/<id>.md`, and fill what it leaves to you: the exact
+   check, an example hunk from the evidence (before and after), the check
+   failing on the evidence commit and passing on HEAD, and its hits over
+   recent history. Ask the human with the file, one lesson at a time; never
+   promote without a yes. On yes the check is a brief like any other (a
+   kitchen.toml change through pstack-kitchen-setup's maintain path), and
+   once it lands, `lessons set <id> promoted --note "<commit> <check>"`. A
+   lesson hit twice while active is wrong or too weak: rewrite it with
+   `lessons set <id> active --rule "<rule>"`, or retire it with a note.
+   For a class already
    repeated and plain enough to enforce now, propose the encoding it names
    to the human, or run the `correct` skill on it; a kitchen change is a
    brief like any other, through pstack-kitchen-setup's maintain path. Reply as the pair master does, with

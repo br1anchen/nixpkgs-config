@@ -745,6 +745,50 @@ class LessonTests(KitchenTests):
         self.assertEqual(self.candidates(), [('reject', 'verify', 'src/api', ['run-c', 'run-d'])])
         self.assertIn('one repo directory', self.run_kitchen('lessons', 'add', 'reject', 'verify', 'src,docs', 'R.', code=1))
 
+    def doctor(self):
+        return {c['check']: c for c in self.data('doctor')['checks']}['lessons']
+
+    def test_a_promotion_draft_names_the_layer_and_why_and_leaves_the_proof_to_the_master(self):
+        self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller', detail='missed a caller')
+        self.run_kitchen('lessons', 'add', 'catch', 'review', 'src/lib', 'A renamed function has every caller updated.')
+        self.assertEqual(self.doctor()['status'], 'ok')
+        self.assertIn('1 proposed', self.doctor()['detail'])
+        draft = self.run_kitchen('lessons', 'promote', 'L001')
+        self.assertIn('promotable: no (status is proposed, not active; held 0 of 3)', draft)
+        self.run_kitchen('lessons', 'set', 'L001', 'active')
+        for n in range(3):
+            self.row(f'run-{n}', 'lesson', 'held', f'00{n}', 'src/lib', '', detail='L001')
+        d = self.doctor()
+        self.assertEqual((d['status'], d['items']), ('warn', ['L001: promotable (held 3); kitchen.py lessons promote L001']))
+        out = Path(self.tmp.name) / 'store/promotions/L001.md'
+        self.run_kitchen('lessons', 'promote', 'L001', '--out', str(out))
+        draft = out.read_text()
+        self.assertTrue(draft.startswith('# Promote L001: A renamed function has every caller updated.\n'))
+        self.assertIn('promotable: yes\n', draft)
+        self.assertIn('target: a lint, test or type through the correct skill; else a CODE_STANDARD.md section', draft)
+        self.assertIn('why this layer: review caught it by reading', draft)
+        self.assertIn('- 2026-10-01 run-a 001: missed a caller\n', draft)
+        self.assertIn('held or hit in: run-0 000 held, run-1 001 held, run-2 002 held', draft)
+        for section in ('## Example', '## Proof', '## False positives', '## Decision'):
+            self.assertIn(section, draft)
+        self.assertIn('no lesson L007', self.run_kitchen('lessons', 'promote', 'L007', code=1))
+
+    def test_doctor_flags_a_lesson_that_keeps_being_hit_or_cannot_be_read(self):
+        self.row('run-a', 'gate-fail', 'app', '001', 'src', 'lint', detail='001-x abc1234')
+        self.row('run-b', 'gate-fail', 'app', '002', 'src', 'lint', detail='002-y def5678')
+        self.run_kitchen('lessons', 'add', 'gate-fail', 'app', 'src', 'Run the formatter before each step.')
+        self.run_kitchen('lessons', 'set', 'L001', 'active')
+        self.assertIn('target: a lint rule, or a fast-gate command in profile `app`',
+                      self.run_kitchen('lessons', 'promote', 'L001'))
+        self.assertIn('ledger refs (run, then the unit, verdict or steer to open): run-a 001-x abc1234, run-b 002-y def5678',
+                      self.run_kitchen('lessons', 'promote', 'L001'))
+        for n in range(2):
+            self.row(f'run-{n}', 'lesson', 'hit', f'00{n}', 'src', 'lint again', detail='L001')
+        path = self.repo / '.agents/LESSONS.md'
+        path.write_text(path.read_text() + '\n## L002: Broken.\n\nstatus: active\n')
+        self.assertEqual(self.doctor()['items'], ['L001: hit 2 times while active; rewrite the rule or retire it',
+                                                  'L002: unreadable (kind, class, layer, area); fix it by hand'])
+
     def test_rewriting_the_file_keeps_what_a_human_wrote(self):
         self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
         self.run_kitchen('lessons', 'add', 'catch', 'review', 'src/lib', 'Rule one.')
@@ -871,7 +915,7 @@ class DoctorTests(KitchenTests):
     def test_clean_kitchen(self):
         c = self.checks()
         self.assertEqual({k: v['status'] for k, v in c.items()}, {
-            'kitchen': 'ok',
+            'kitchen': 'ok', 'lessons': 'ok',
             'coverage': 'ok', 'profiles': 'ok', 'commands': 'ok', 'fast gates': 'ok',
             'features': 'ok', 'verification skill': 'warn', 'scratch setup': 'ok',
             'verifier routine': 'ok', 'verifier fallback': 'ok', 'verifier escalated': 'ok'})

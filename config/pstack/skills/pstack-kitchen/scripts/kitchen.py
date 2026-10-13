@@ -957,6 +957,7 @@ def doctor(root: Path, kitchen: Kitchen, source: Source, run: bool) -> list[dict
         add('kitchen', 'warn', f'{source.label}; the host kitchen {host} is shadowed by it and unused')
     else:
         add('kitchen', 'ok', f'{source.kind} {source.label}')
+    add('lessons', *lessons_doctor(lessons_path(root, source), state_dir(root) / 'ledger.tsv'))
 
     files = tracked(root, None)
     uncovered = [f for f in files
@@ -1642,6 +1643,96 @@ def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str |
     return x
 
 
+# Promotion turns a lesson that held into a check, and the human decides each
+# one. The proposal names the cheapest layer that would have caught every
+# piece of evidence and why; the master fills in the example, the proof and
+# the false-positive scan before asking.
+PROMOTE_TO = {
+    'gate': ('a lint rule, or a fast-gate command in profile `{cls}` ([profiles.{cls}] in kitchen.toml), '
+             'through the correct skill',
+             'gates run at every step, so the sidekick meets the error, with its fix, before any verifier'),
+    'policy': ('a [[policy.forbid]] rule in kitchen.toml whose message names the fix',
+               'policy checks every added line at every step and costs no test time'),
+    'verify': ('kitchen.toml: a behavioral command for the profile that covers `{area}`, `require_tests`, or '
+               '`{area}/**` in escalate.paths',
+               'a verifier caught it, so the gates miss it; encoded, every unit in the area proves it'),
+    'brief': ('a standing-orders or plan-template line, or a lint when the steer is mechanical',
+              'the master kept steering the same decision; the brief should carry it'),
+    'code': ('a lint, test or type through the correct skill; else a CODE_STANDARD.md section listed in '
+             'review.standards',
+             'review caught it by reading; a check catches it without a reader, and a standard is the fallback '
+             'when no check can'),
+}
+PROMOTE_TO['escalation'] = PROMOTE_TO['verify']
+
+
+def promotion_draft(path: Path, ledger: Path, lid: str) -> str:
+    x = next((x for x in read_lessons(path) if x.id == lid), None)
+    if not x:
+        raise ConfigError(f'no lesson {lid} in {path}')
+    rows = ledger_rows(ledger)
+    n = lesson_counts(rows, lid)
+    f = x.fields
+    ready = f.get('status') == 'active' and n['held'] >= PROMOTE_AFTER and n['hits'] == 0
+    why_not = [] if ready else ([f'status is {f.get("status")}, not active'] * (f.get('status') != 'active')
+                                + [f'held {n["held"]} of {PROMOTE_AFTER}'] * (n['held'] < PROMOTE_AFTER)
+                                + [f'{n["hits"]} hits'] * (n['hits'] > 0))
+    layer = f.get('layer', '')
+    target, why = PROMOTE_TO.get(layer, PROMOTE_TO['code'])
+    if f.get('kind') == 'gate-flaky':
+        target, why = (f'related tests per step and the full suite in behavioral for profile `{f.get("class")}`',
+                       'the suite fails under load at the fast stage; moving it keeps every step deterministic')
+    target = target.format(cls=f.get('class', ''), area=f.get('area', ''))
+    source = [r for r in rows if r['kind'] == f.get('kind') and r['class'] == f.get('class') and r['area']
+              and any(covers(f.get('area', '.'), e) for e in r['area'].split(','))]
+    scored = [r for r in rows if r['kind'] == 'lesson' and r['detail'] == lid]
+    refs = list(dict.fromkeys(f'{r["run"]} {r["detail"]}' for r in source))
+    return '\n'.join([
+        f'# Promote {lid}: {x.rule}', '',
+        f'lesson: {path}',
+        f'kind: {f.get("kind")} {f.get("class")}, layer {layer}, area {f.get("area")}',
+        f'counters: held {n["held"]}, hits {n["hits"]} (promote after {PROMOTE_AFTER} held and no hit)',
+        f'promotable: {"yes" if ready else "no (" + "; ".join(why_not) + ")"}', '',
+        '## Evidence', '',
+        *[f'- {e}' for e in x.evidence],
+        *([''] + [f'ledger refs (run, then the unit, verdict or steer to open): {", ".join(refs)}'] if refs else []),
+        *([''] + ['held or hit in: ' + ', '.join(f'{r["run"]} {r["unit"]} {r["class"]}' for r in scored)] if scored else []),
+        '', '## Proposed check', '',
+        f'target: {target}',
+        f'why this layer: {why}',
+        '<the exact rule, command or section to add, and where>', '',
+        '## Example', '',
+        '<the offending hunk from an evidence commit (before) and its fix (after)>', '',
+        '## Proof', '',
+        '<the new check failing on the evidence commit and passing on HEAD, output verbatim; the gate time it adds>', '',
+        '## False positives', '',
+        '<the check over recent history (git log, or kitchen.py history --last 30 for a kitchen.toml rule): each hit '
+        'and whether it is real>', '',
+        '## Decision', '',
+        f'<the human: approve | edit the rule | keep active | retire. On approve, land the check, then '
+        f'kitchen.py lessons set {lid} promoted --note "<commit> <check>">', ''])
+
+
+def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
+    lessons = read_lessons(path)
+    if not lessons:
+        return 'ok', f'no lessons yet ({path})', []
+    rows = ledger_rows(ledger)
+    items = []
+    for x in lessons:
+        f, n = x.fields, lesson_counts(rows, x.id)
+        missing = [k for k in ('status', 'kind', 'class', 'layer', 'area') if not f.get(k)]
+        if missing or f.get('status') not in LESSON_STATUS:
+            items.append(f'{x.id}: unreadable ({", ".join(missing) or "status " + f.get("status", "")}); fix it by hand')
+        elif f.get('status') == 'active' and n['hits'] >= 2:
+            items.append(f'{x.id}: hit {n["hits"]} times while active; rewrite the rule or retire it')
+        elif f.get('status') == 'active' and n['held'] >= PROMOTE_AFTER and n['hits'] == 0:
+            items.append(f'{x.id}: promotable (held {n["held"]}); kitchen.py lessons promote {x.id}')
+    by = {s: sum(x.fields.get('status') == s for x in lessons) for s in LESSON_STATUS}
+    detail = ', '.join(f'{v} {k}' for k, v in by.items() if v) + f' ({path})'
+    return ('warn' if items else 'ok'), detail, items
+
+
 # At dispatch a brief carries the active lessons whose area meets its scope,
 # as a Lessons section the kitchen owns; the verifier packet reads them back
 # from it, so a unit is held to the lessons of the moment it was briefed.
@@ -1908,6 +1999,9 @@ def main(argv: list[str] | None = None) -> int:
     la.add_argument('--layer', help='the layer that should catch it (default: from the kind)')
     lst = lsub.add_parser('stamp', help="write the active lessons for a brief's scope into its Lessons section")
     lst.add_argument('brief', type=Path)
+    lpr = lsub.add_parser('promote', help="draft a lesson's promotion proposal for the human (writes nothing in the repo)")
+    lpr.add_argument('id')
+    lpr.add_argument('--out', type=Path, help='write the draft here instead of stdout')
     lt = lsub.add_parser('set', help="move a lesson's status: proposed, active, promoted, retired")
     lt.add_argument('id')
     lt.add_argument('status', choices=LESSON_STATUS)
@@ -1987,6 +2081,14 @@ def main(argv: list[str] | None = None) -> int:
             if args.lessons_cmd == 'add':
                 x = lessons_add(path, ledger, args.kind, args.cls, args.area, args.rule, args.layer, today)
                 emit({'id': x.id, 'path': str(path)}, args.json, f'{x.id} proposed in {path}: {x.rule}')
+            elif args.lessons_cmd == 'promote':
+                draft = promotion_draft(path, ledger, args.id)
+                if args.out:
+                    args.out.parent.mkdir(parents=True, exist_ok=True)
+                    args.out.write_text(draft)
+                    print(args.out)
+                else:
+                    sys.stdout.write(draft)
             elif args.lessons_cmd == 'stamp':
                 picked = stamp_lessons(args.brief, path)
                 if picked or args.json:
