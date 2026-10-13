@@ -865,7 +865,8 @@ cmd_verify() {
 			done
 			local -a ubriefs=()
 			local lessons
-			for u in "${all[@]}"; do ubriefs+=("$(unit_brief "$store" "$u")"); done
+			# Every brief of each unit: an amendment may not carry the Lessons.
+			for u in "${all[@]}"; do ubriefs+=("$store"/briefs/"$u"-*.md); done
 			lessons="$(python3 "$here/kitchen.py" lesson-packet "${ubriefs[@]}")"
 			[ -z "$lessons" ] || printf '%s\n\n' "$lessons"
 		fi
@@ -1460,8 +1461,9 @@ cmd_catch() {
 	case "$layer" in gate | policy | self | verify | review | triage | escalation) ;; *) die "layer is gate, policy, self, verify, review, triage, or escalation: the one that should have caught it" ;; esac
 	pair_file "$store" >/dev/null
 	[ -z "$unit" ] || [[ "$unit" =~ ^[0-9]{3}$ ]] || die "unit is a brief's number, like 003"
-	python3 "$here/kitchen.py" ledger-catch "$store" "$(kpy "$store" statedir)/ledger.tsv" "$layer" "$text" \
-		--run "$(field "$store" .slug)" --ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" ${unit:+--unit "$unit"}
+	# Options first, then --, so a text that starts with - stays text.
+	python3 "$here/kitchen.py" ledger-catch --run "$(field "$store" .slug)" --ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+		${unit:+--unit "$unit"} -- "$store" "$(kpy "$store" statedir)/ledger.tsv" "$layer" "$text" || exit 1
 	event "$store" master catch - "$layer"
 	printf 'caught at %s: %s\n' "$layer" "$text"
 }

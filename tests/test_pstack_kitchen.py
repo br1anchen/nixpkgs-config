@@ -737,6 +737,28 @@ class LessonTests(KitchenTests):
         self.assertEqual(self.data('lessons', 'add', 'reject', 'verify', 'src', 'Second rule.')['id'], 'L002')
         self.assertEqual([x['id'] for x in self.data('lessons')['lessons']], ['L001', 'L002'])
 
+    def test_a_narrow_lesson_leaves_trouble_outside_it_to_propose(self):
+        for run, area in [('run-a', 'src/lib'), ('run-b', 'src/lib'), ('run-c', 'src/api'), ('run-d', 'src/api')]:
+            self.row(run, 'reject', 'verify', '001', area, 'x')
+        self.run_kitchen('lessons', 'add', 'reject', 'verify', './src/lib/', 'Rule.')
+        self.assertEqual(self.data('lessons')['lessons'][0]['area'], 'src/lib')
+        self.assertEqual(self.candidates(), [('reject', 'verify', 'src/api', ['run-c', 'run-d'])])
+        self.assertIn('one repo directory', self.run_kitchen('lessons', 'add', 'reject', 'verify', 'src,docs', 'R.', code=1))
+
+    def test_rewriting_the_file_keeps_what_a_human_wrote(self):
+        self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
+        self.run_kitchen('lessons', 'add', 'catch', 'review', 'src/lib', 'Rule one.')
+        path = self.repo / '.agents/LESSONS.md'
+        path.write_text(path.read_text().replace('# Kitchen lessons\n', '# Our lessons\n\nTeam note.\n', 1)
+                        + '\nWhy: the API module has three entry points.\nreviewer: ana\n')
+        self.run_kitchen('lessons', 'set', 'L001', 'active')
+        text = path.read_text()
+        self.assertTrue(text.startswith('# Our lessons\n\nTeam note.\n\nRules learned'))
+        self.assertIn('is counted on the host, not here.\n\n## L001: Rule one.\n', text)
+        self.assertIn('evidence:\n- 2026-10-01 run-a 001: missed a caller\n\nWhy: the API module has three entry points.\n'
+                      'reviewer: ana\n', text)
+        self.assertIn('status: active\n', text)
+
     def test_three_clean_units_and_no_hit_make_a_lesson_promotable(self):
         self.row('run-a', 'catch', 'review', '001', 'src/lib', 'missed a caller')
         self.run_kitchen('lessons', 'add', 'catch', 'review', 'src/lib', 'A renamed function has every caller updated.')
@@ -791,6 +813,19 @@ class LessonScoreTests(unittest.TestCase):
         # Retro again replaces the rows.
         self.assertEqual(len(self.scores()), 3)
 
+    def test_gates_speak_only_for_gate_lessons_and_a_hit_stands(self):
+        (self.store / 'briefs/001-a.md').write_text('## Lessons\n\n- L001 (reject verify, layer verify, in src): r\n'
+                                                    '- L002 (gate-fail app, layer gate, in src): r\n')
+        (self.store / 'verdicts/001-a-v1.md').write_text('# V\n\nstatus: clean\nunits: 001\nverifier: gates\n')
+        self.assertEqual(self.scores(), [('L002', '001', 'held', '')])
+        self.brief('002-b.md', ['L001'])
+        self.verdict('002-b-v2.md', 'reject', '002', 'L001: hit again\n')
+        self.verdict('002-b-v10.md', 'clean', '002', 'L001: held\n')
+        self.brief('003-c.md', ['L001'])
+        self.verdict('003-c-v1.md', 'reject', '003', 'L001: held\n')
+        self.assertEqual(self.scores(), [('L001', '002', 'hit', 'again'), ('L001', '003', 'held', ''),
+                                         ('L002', '001', 'held', '')])
+
     def test_stamp_replaces_the_section_and_drops_it_when_nothing_applies(self):
         lessons = self.store / 'LESSONS.md'
         kitchen.write_lessons(lessons, [
@@ -813,10 +848,19 @@ class LessonScoreTests(unittest.TestCase):
 
 
 class AreaTests(unittest.TestCase):
+    def test_scope_entries_read_as_pair_core_reads_them(self):
+        with tempfile.TemporaryDirectory() as d:
+            b = Path(d) / '001-x.md'
+            b.write_text('## Scope\n\nmay write:\n- src/a/** — the module\n- src/b/** -- note\n- src/c/** – note\n'
+                         '- src/d.py (new)\n- `src/e f, g.py` — quoted\n\nmust not write:\n- src/z/**\n')
+            self.assertEqual(kitchen.brief_scope(b), ['src/a/**', 'src/b/**', 'src/c/**', 'src/d.py', 'src/e f, g.py'])
+
     def test_a_scope_is_the_directories_it_writes(self):
         for globs, area in [(['src/**', 'tests/**'], ['src']), (['src/api/v2/**', 'src/api/x.py'], ['src/api']),
                             (['README.md', 'docs/*.md'], ['.', 'docs']), (['tests/unit/**'], ['tests/unit']),
-                            (['lib/foo*', 'pkg/'], ['lib', 'pkg']), ([], [])]:
+                            (['lib/foo*', 'pkg/'], ['lib', 'pkg']), ([], []),
+                            (['/tmp/store/reports/001-x.md', '~/notes.md', 'src/a/**'], ['src/a']),
+                            (['/tmp/store/reports/001-x.md'], [])]:
             self.assertEqual(kitchen.scope_area(globs), area, globs)
 
 
@@ -2706,6 +2750,8 @@ esac
         self.run_sh('catch', str(self.store), 'review', 'missed a caller in api.py', '001')
         self.run_sh('catch', str(self.store), 'review', 'unit not given')
         self.run_sh('catch', str(self.store), 'review', 'bad unit', 'util', code=1)
+        self.assertIn('no brief for unit 009', self.run_sh('catch', str(self.store), 'review', 'x', '009', code=1))
+        self.run_sh('catch', str(self.store), 'gate', '--force push slipped through')
         self.run_sh('retro', str(self.store))
         head, rows = self.ledger()
         self.assertEqual(head, ['ts', 'run', 'kind', 'class', 'detail', 'unit', 'area', 'finding'])
@@ -2717,7 +2763,7 @@ esac
         self.assertEqual(by['steer']['finding'], 'narrow: Leave the CLI alone; only the library changes.')
         catches = [r for r in rows if r['kind'] == 'catch']
         self.assertEqual([(c['area'], c['finding']) for c in catches],
-                         [('src/lib', 'missed a caller in api.py'), ('', 'unit not given')])
+                         [('src/lib', 'missed a caller in api.py'), ('', 'unit not given'), ('', '--force push slipped through')])
         # Retro again: the run's rows are replaced, the catches kept.
         out = self.run_sh('retro', str(self.store))
         self.assertEqual(len(self.ledger()[1]), len(rows))

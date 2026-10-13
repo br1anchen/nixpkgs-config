@@ -1293,22 +1293,33 @@ def brief_scope(brief: Path) -> list[str]:
         elif line.startswith('must not write:') or line.startswith('## '):
             on = False
         elif on and line.startswith('- '):
-            entry = line[2:].split(' — ')[0].strip().strip('`').strip('"\'')
-            if entry:
-                out.append(entry)
+            # As pair-core's scope_entries: a backquoted entry is kept whole,
+            # else a " — " (or – or --) annotation and a trailing (...) note go.
+            e = line[2:]
+            if e.startswith('`'):
+                e = e[1:].split('`', 1)[0]
+            else:
+                e = re.sub(r' +\(.*\)$', '', re.sub(r' +(—|–|--) .*$', '', e))
+            if e:
+                out.append(e)
     return out
 
 
-def scope_area(globs: list[str], depth: int = 2) -> list[str]:
-    """The directories a scope writes, at most `depth` deep, tests left out
-    unless the unit writes nothing else: `src/api/**` and `src/api/x.py` are
-    both `src/api`; a file at the root is `.`."""
+AREA_DEPTH = 2
+
+
+def scope_area(globs: list[str]) -> list[str]:
+    """The repo directories a scope writes, at most AREA_DEPTH deep, tests
+    left out unless the unit writes nothing else: `src/api/**` and
+    `src/api/x.py` are both `src/api`; a file at the root is `.`. Paths
+    outside the repo (the run's own reports) are no area."""
     def dir_of(g: str) -> str:
         cut = min([i for i in (g.find(c) for c in '*?[{') if i >= 0], default=len(g))
         head = g[:cut]
         # What follows the last slash is a file name, or part of one.
         parts = [p for p in head.rsplit('/', 1)[0].split('/') if p] if '/' in head else []
-        return '/'.join(parts[:depth]) or '.'
+        return '/'.join(parts[:AREA_DEPTH]) or '.'
+    globs = [g for g in globs if not g.startswith(('/', '~', '../'))]
     code = [g for g in globs if not TEST_DIR.search(g)]
     return sorted({dir_of(g) for g in (code or globs)})
 
@@ -1397,8 +1408,20 @@ def write_ledger(ledger: Path, rows: list[dict[str, str]]) -> None:
     tmp.replace(ledger)
 
 
+def ledger_lock(ledger: Path):
+    """One writer at a time: runs in several worktrees share the ledger."""
+    f = open(ledger.with_name(ledger.name + '.lock'), 'w')
+    fcntl.flock(f, fcntl.LOCK_EX)
+    return f
+
+
 def ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
     """This run's rows replace any it wrote before (catches stay), so retro can run again."""
+    with ledger_lock(ledger):
+        return _ledger_retro(store, ledger, run, ts)
+
+
+def _ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
     rows = [r for r in ledger_rows(ledger) if r['run'] != run or r['kind'] == 'catch']
     new = retro_rows(store, run, ts)
     catches = [tuple(r[k] for k in LEDGER_HEAD) for r in rows if r['run'] == run and r['kind'] == 'catch']
@@ -1408,10 +1431,13 @@ def ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
 
 
 def ledger_catch(store: Path, ledger: Path, run: str, ts: str, layer: str, text: str, unit: str | None) -> None:
-    rows = ledger_rows(ledger)
-    rows.append(dict(zip(LEDGER_HEAD, (ts, run, 'catch', layer, _cell(text), unit or '',
-                                       unit_area(store, [unit]) if unit else '', _cell(text)))))
-    write_ledger(ledger, rows)
+    if unit and not unit_brief(store, unit):
+        raise ConfigError(f'no brief for unit {unit} in {store}/briefs')
+    with ledger_lock(ledger):
+        rows = ledger_rows(ledger)
+        rows.append(dict(zip(LEDGER_HEAD, (ts, run, 'catch', layer, _cell(text, 10_000), unit or '',
+                                           unit_area(store, [unit]) if unit else '', _cell(text)))))
+        write_ledger(ledger, rows)
 
 
 # Lessons: a rule learned from trouble the ledger saw in one area across runs
@@ -1425,6 +1451,7 @@ LESSONS = '.agents/LESSONS.md'
 LESSON_STATUS = ('proposed', 'active', 'promoted', 'retired')
 LESSON_KINDS = ('gate-fail', 'gate-flaky', 'reject', 'steer', 'catch')
 KIND_LAYER = {'gate-fail': 'gate', 'gate-flaky': 'gate', 'reject': 'verify', 'steer': 'brief'}
+LESSON_FIELDS = ('status', 'kind', 'class', 'layer', 'area', 'since', 'active', 'note')
 PROMOTE_AFTER = 3  # clean units in the area, with no hit, before a lesson can be promoted
 LESSONS_HEAD = """# Kitchen lessons
 
@@ -1441,9 +1468,12 @@ class Lesson:
     rule: str
     fields: dict[str, str]
     evidence: list[str]
+    notes: list[str] = field(default_factory=list)  # lines a human added, kept as written
 
 
 def lessons_path(root: Path, source: Source) -> Path:
+    # An absolute --config is a unit's snapshot of the host kitchen (kitchen.sh
+    # passes one at every step), so its lessons are the host file's, not the copy's.
     if source.kind == 'repo':
         return root / LESSONS
     return host_kitchen(root)[1].with_suffix('.lessons.md')
@@ -1456,7 +1486,7 @@ def read_lessons(path: Path) -> list[Lesson]:
         return []
     out: list[Lesson] = []
     for m in re.finditer(r'^## (L\d{3,}): (.*)\n((?:(?!## ).*\n?)*)', text, re.M):
-        fields, evidence, on = {}, [], False
+        fields, evidence, notes, on = {}, [], [], False
         for line in m.group(3).splitlines():
             if on and line.startswith('- '):
                 evidence.append(line[2:].strip())
@@ -1465,22 +1495,38 @@ def read_lessons(path: Path) -> list[Lesson]:
             k = re.match(r'^([a-z-]+):\s*(.*)$', line)
             if k and k.group(1) == 'evidence':
                 on = True
-            elif k:
+            elif k and k.group(1) in LESSON_FIELDS:
                 fields[k.group(1)] = k.group(2).strip()
-        out.append(Lesson(m.group(1), m.group(2).strip(), fields, evidence))
+            else:
+                notes.append(line)
+        while notes and not notes[-1].strip():
+            notes.pop()
+        while notes and not notes[0].strip():
+            notes.pop(0)
+        out.append(Lesson(m.group(1), m.group(2).strip(), fields, evidence, notes))
     return out
 
 
+def lessons_preamble(path: Path) -> str:
+    """The file's text before its first lesson, as the human left it."""
+    try:
+        text = path.read_text()
+    except OSError:
+        return LESSONS_HEAD
+    m = re.search(r'^## L\d{3,}: ', text, re.M)
+    return (text[:m.start()] if m else text).rstrip('\n') + '\n'
+
+
 def write_lessons(path: Path, lessons: list[Lesson]) -> None:
-    order = ('status', 'kind', 'class', 'layer', 'area', 'since', 'active', 'note')
+    head = lessons_preamble(path)
     body = []
     for x in lessons:
-        keys = [k for k in order if k in x.fields] + sorted(k for k in x.fields if k not in order)
-        body.append(f'## {x.id}: {x.rule}\n\n' + ''.join(f'{k}: {x.fields[k]}\n' for k in keys)
-                    + 'evidence:\n' + ''.join(f'- {e}\n' for e in x.evidence))
+        body.append(f'## {x.id}: {x.rule}\n\n' + ''.join(f'{k}: {x.fields[k]}\n' for k in LESSON_FIELDS if k in x.fields)
+                    + 'evidence:\n' + ''.join(f'- {e}\n' for e in x.evidence)
+                    + (''.join(f'{n}\n' for n in ['', *x.notes]) if x.notes else ''))
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_name(path.name + '.tmp')
-    tmp.write_text(LESSONS_HEAD + ''.join('\n' + b for b in body))
+    tmp.write_text(head + ''.join('\n' + b for b in body))
     tmp.replace(path)
 
 
@@ -1503,9 +1549,15 @@ def evidence_line(r: dict[str, str]) -> str:
 
 
 def lesson_candidates(rows: list[dict[str, str]], lessons: list[Lesson]) -> list[dict]:
-    """(kind, class, area) seen in two runs or more, or once by a catch, and no
-    open lesson covers it. The most specific area that keeps every run wins."""
-    trouble = [r for r in rows if r['area'] and r['kind'] in LESSON_KINDS]
+    """(kind, class, area) seen in two runs or more, or once by a catch, in rows
+    no open lesson already covers. The most specific area that keeps every
+    run wins."""
+    open_ = [x for x in lessons if x.fields.get('status') != 'retired']
+
+    def known(r: dict[str, str]) -> bool:
+        return any(x.fields.get('kind') == r['kind'] and x.fields.get('class') == r['class']
+                   and all(covers(x.fields.get('area', ''), e) for e in r['area'].split(',') if e) for x in open_)
+    trouble = [r for r in rows if r['area'] and r['kind'] in LESSON_KINDS and not known(r)]
     groups: dict[tuple[str, str], list[dict[str, str]]] = {}
     for r in trouble:
         groups.setdefault((r['kind'], r['class']), []).append(r)
@@ -1519,9 +1571,6 @@ def lesson_candidates(rows: list[dict[str, str]], lessons: list[Lesson]) -> list
                 found.append({'kind': kind, 'class': cls, 'area': d, 'runs': runs, 'rows': m})
         for c in found:
             if any(o is not c and covers(c['area'], o['area']) and o['runs'] == c['runs'] for o in found):
-                continue
-            if any(x.fields.get('kind') == kind and x.fields.get('class') == cls and x.fields.get('status') != 'retired'
-                   and overlaps(x.fields.get('area', ''), c['area']) for x in lessons):
                 continue
             out.append({k: c[k] for k in ('kind', 'class', 'area', 'runs')}
                        | {'evidence': list(dict.fromkeys(evidence_line(r) for r in c['rows']))[:5]})
@@ -1559,8 +1608,9 @@ def lessons_add(path: Path, ledger: Path, kind: str, cls: str, area: str, rule: 
     rule = ' '.join(rule.split())
     if not rule or len(rule) > 200:
         raise ConfigError('a rule is one sentence of at most 200 characters')
-    if kind not in LESSON_KINDS:
-        raise ConfigError(f'kind is one of {", ".join(LESSON_KINDS)}')
+    area = re.sub(r'^\./', '', area.strip()).rstrip('/') or '.'
+    if ',' in area or area.startswith(('/', '..')):
+        raise ConfigError('an area is one repo directory, like src/lib (or . for the root)')
     rows = [r for r in ledger_rows(ledger) if r['kind'] == kind and r['class'] == cls and r['area']
             and any(covers(area, e) for e in r['area'].split(','))]
     if not rows:
@@ -1579,8 +1629,6 @@ def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str |
     x = next((x for x in lessons if x.id == lid), None)
     if not x:
         raise ConfigError(f'no lesson {lid} in {path}')
-    if status not in LESSON_STATUS:
-        raise ConfigError(f'status is one of {", ".join(LESSON_STATUS)}')
     if status in ('promoted', 'retired') and not note:
         raise ConfigError(f'{status} needs --note: what enforces it now (commit and check), or why it is retired')
     x.fields['status'] = status
@@ -1677,11 +1725,16 @@ def verdict_lessons(verdict: Path) -> dict[str, str]:
 
 
 def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) -> list[tuple[str, ...]]:
-    """Each lesson a unit was briefed with: hit when its kind of trouble came
-    back in that unit or a verdict says so, held when the unit was verified
-    clean without either."""
-    verdicts = [(v, _header(v, 'status').split(' ')[0], _header(v, 'units').split())
-                for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md')) if 'packet' not in v.name]
+    """Each lesson a unit was briefed with: hit when a verdict says so, or its
+    kind of trouble came back in that unit and no verdict spoke for it; held
+    when a verdict says so, or the unit passed what checks that lesson (a
+    verifier, or gates for a gate lesson). An unverified unit scores nothing."""
+    def order(v: Path) -> tuple[str, int]:
+        m = re.match(r'^(.*)-v(\d+)$', v.stem)
+        return (m.group(1), int(m.group(2))) if m else (v.stem, 0)
+    # Oldest first (v10 after v2), so a later held never hides an earlier hit.
+    verdicts = [(v, _header(v, 'status').split(' ')[0], _header(v, 'units').split(), _header(v, 'verifier') == 'gates')
+                for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md'), key=order) if 'packet' not in v.name]
     by_unit: dict[str, list[dict[str, str]]] = {}
     for b in sorted((store / 'briefs').glob('[0-9][0-9][0-9]-*.md')):
         for x in brief_lessons(b):
@@ -1690,17 +1743,27 @@ def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) 
     rows = []
     for unit, lessons in sorted(by_unit.items()):
         mine = [v for v in verdicts if unit in v[2]]
-        clean = any(s == 'clean' for _, s, _ in mine)
-        said = {}
-        for v, _, _ in mine:
-            said.update(verdict_lessons(v))
+        # A gates-only verdict proves only what gates check: no one read the
+        # unit for the other lessons.
+        clean_by_verifier = any(s == 'clean' and not gates for _, s, _, gates in mine)
+        clean_by_gates = any(s == 'clean' for _, s, _, _ in mine)
+        said: dict[str, str] = {}
+        for v, _, _, _ in mine:
+            for lid, w in verdict_lessons(v).items():
+                # A hit stands: the trouble came back in this unit, even if a
+                # later verdict found it fixed.
+                if not said.get(lid, '').startswith('hit'):
+                    said[lid] = w
         for x in lessons:
+            word = said.get(x['id'], '')
+            # The verifier's word on a lesson beats a reject or catch of the same
+            # kind, which may be about something else; gates speak for themselves.
             back = [t for t in trouble if t[2] == x['kind'] and t[3] == x['class'] and unit in t[5].split()]
-            if back:
+            if word.startswith('hit'):
+                rows.append((ts, run, 'lesson', 'hit', x['id'], unit, x['area'], word[4:]))
+            elif back and not word:
                 rows.append((ts, run, 'lesson', 'hit', x['id'], unit, x['area'], back[0][7] or back[0][4]))
-            elif said.get(x['id'], '').startswith('hit'):
-                rows.append((ts, run, 'lesson', 'hit', x['id'], unit, x['area'], said[x['id']][4:]))
-            elif clean:
+            elif word == 'held' or (clean_by_gates if x['kind'] in ('gate-fail', 'gate-flaky') else clean_by_verifier):
                 rows.append((ts, run, 'lesson', 'held', x['id'], unit, x['area'], ''))
     return [tuple(_cell(c) for c in r) for r in rows]
 
@@ -1874,7 +1937,11 @@ def main(argv: list[str] | None = None) -> int:
         sys.stdout.write(lesson_packet(args.briefs))
         return 0
     if args.cmd == 'ledger-catch':
-        ledger_catch(args.store, args.ledger, args.run, args.ts, args.layer, args.text, args.unit)
+        try:
+            ledger_catch(args.store, args.ledger, args.run, args.ts, args.layer, args.text, args.unit)
+        except ConfigError as e:
+            print(f'kitchen: {e}', file=sys.stderr)
+            return 1
         return 0
     try:
         if args.cmd == 'statedir':
@@ -1922,8 +1989,8 @@ def main(argv: list[str] | None = None) -> int:
                 emit({'id': x.id, 'path': str(path)}, args.json, f'{x.id} proposed in {path}: {x.rule}')
             elif args.lessons_cmd == 'stamp':
                 picked = stamp_lessons(args.brief, path)
-                emit({'lessons': [x.id for x in picked]}, args.json,
-                     f'lessons: {" ".join(x.id for x in picked)}' if picked else '')
+                if picked or args.json:
+                    emit({'lessons': [x.id for x in picked]}, args.json, f'lessons: {" ".join(x.id for x in picked)}')
             elif args.lessons_cmd == 'set':
                 x = lessons_set(path, args.id, args.status, args.rule, args.note, today)
                 emit({'id': x.id, 'status': args.status, 'path': str(path)}, args.json, f'{x.id} {args.status}: {x.rule}')
