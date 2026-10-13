@@ -1263,9 +1263,11 @@ def open_feedback() -> dict[str, int]:
 
 # The repo's ledger: one row per class of trouble a run met (a failed gate, a
 # rejected verdict, a steer, a flaky gate, a catch). area and finding say
-# where and what, so a later run can tell one repeated problem from several
-# that share a kind. Rows from before those columns have five.
-LEDGER_HEAD = ('ts', 'run', 'kind', 'class', 'detail', 'unit', 'area', 'finding')
+# where and what, and match names the trouble within its class (the gate check
+# or policy rule that failed, the steer's kind), so a later run can tell one
+# repeated problem from several that share a kind. Rows from before those
+# columns have five, or eight.
+LEDGER_HEAD = ('ts', 'run', 'kind', 'class', 'detail', 'unit', 'area', 'finding', 'match')
 TEST_DIR = re.compile(r'(^|/)(tests?|specs?|__tests__|testdata)(/|$)')
 DOC_DIR = re.compile(r'(^|/)(docs?|adrs?|documentation)(/|$)')
 
@@ -1354,17 +1356,49 @@ def _section(path: Path, title: str) -> str:
     return ''
 
 
-def gate_finding(store: Path, unit: str, sha: str) -> str:
-    """What a failed step's gates said: each failing command, then each policy finding."""
+GATE_FAIL = re.compile(r'^(\S+) (fast|behavioral|landing): FAIL')
+GATE_EXIT = re.compile(r'^\s+exit [1-9]\d* \S+s (.+?)  log: ')
+GATE_OUT = re.compile(r'^\s+\| ?(.*)$')
+POLICY_LINE = re.compile(r'^\S+?(?::\d+)?: \[([a-z0-9-]+)\] ')
+# A failing command's checks, from the task runner's own words: turbo's
+# `Failed: pkg#task`, a package script's `error: script "x" exited`.
+CHECK_NAMES = (re.compile(r'Failed:\s+\S+#(\S+)'), re.compile(r'error: script "([^"]+)" exited'))
+RUNNER_NOISE = re.compile(r'script "[^"]+" exited|ERROR\s+run failed|"turbo" exited|build failed, waiting|'
+                          r'^\s*Failed:|For more information about this error')
+
+
+def gate_failures(store: Path, unit: str, sha: str) -> list[tuple[str, str, str]]:
+    """What a failed step's gates said, one (class, match, finding) per failing
+    check: class the profile (or `policy`), match the stage and check (or the
+    policy rule), finding the first error line the check printed, else its
+    command."""
     for out in sorted((store / 'steps/jobs').glob(f'{unit}-{sha}*/out')):
         try:
             lines = out.read_text().splitlines()
         except OSError:
             continue
-        found = [m.group(1) for m in (re.match(r'\s+exit [1-9]\d* \S+s (.+?)  log: ', ln) for ln in lines) if m]
-        found += [ln.strip() for ln in lines if re.match(r'\S+(:\d+)?: \[[a-z0-9-]+\] ', ln)]
-        return '; '.join(found[:3])
-    return ''
+        found: list[tuple[str, str, str]] = []
+        policy: list[tuple[str, str, str]] = []
+        profile = stage = ''
+        cmds: list[tuple[str, str, str, list[str]]] = []
+        for ln in lines:
+            if m := GATE_FAIL.match(ln):
+                profile, stage = m.groups()
+            elif (m := GATE_EXIT.match(ln)) and profile:
+                cmds.append((profile, stage, m.group(1), []))
+            elif (m := GATE_OUT.match(ln)) and cmds:
+                cmds[-1][3].append(m.group(1))
+            elif m := POLICY_LINE.match(ln):
+                policy.append(('policy', m.group(1), ln.strip()))
+        for profile, stage, cmd, out_lines in cmds:
+            checks = list(dict.fromkeys(n for rx in CHECK_NAMES for ln in out_lines for n in rx.findall(ln)))
+            errors = [ln for ln in out_lines if re.search(r'\berror\b|\bFAIL\b|failed', ln, re.I) and not RUNNER_NOISE.search(ln)]
+            for check in checks or [cmd]:
+                mine = [ln for ln in errors if f':{check}:' in ln] or errors
+                # A brief quotes the match, so it carries none of its own.
+                found.append((profile, f'{stage} {_cell(check, 60)}'.replace('"', "'"), mine[0].strip() if mine else cmd))
+        return list(dict.fromkeys(found + policy))
+    return []
 
 
 def retro_rows(store: Path, run: str, ts: str) -> list[tuple[str, ...]]:
@@ -1375,18 +1409,20 @@ def retro_rows(store: Path, run: str, ts: str) -> list[tuple[str, ...]]:
         gates = []
     for g in gates:
         if len(g) >= 5 and g[3] == 'fail':
-            rows.append((ts, run, 'gate-fail', g[4], f'{g[1]} {g[2]}', g[1][:3], unit_area(store, [g[1]]),
-                         gate_finding(store, g[1], g[2])))
+            area = unit_area(store, [g[1]])
+            # Without the step's output, the profiles that ran stand for the check.
+            for cls, match, finding in gate_failures(store, g[1], g[2]) or [(g[4], '', '')]:
+                rows.append((ts, run, 'gate-fail', cls, f'{g[1]} {g[2]}', g[1][:3], area, finding, match))
     for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md')):
         if 'packet' in v.name or _header(v, 'status').split(' ')[0] != 'reject':
             continue
         units = _header(v, 'units').split()
         rows.append((ts, run, 'reject', 'verify', v.stem, ' '.join(units), unit_area(store, units),
-                     _section(v, 'findings')))
+                     _section(v, 'findings'), ''))
     for s in sorted((store / 'steers').glob('*-s[0-9]*.md')):
         kind, direction = _header(s, 'kind'), _section(s, 'direction')
         rows.append((ts, run, 'steer', 'brief', s.stem, s.name[:3], unit_area(store, [s.name[:3]]),
-                     f'{kind}: {direction}' if kind else direction))
+                     f'{kind}: {direction}' if kind else direction, kind))
     try:
         events = [ln.split('\t') for ln in (store / 'events.tsv').read_text().splitlines()[1:]]
     except OSError:
@@ -1394,7 +1430,7 @@ def retro_rows(store: Path, run: str, ts: str) -> list[tuple[str, ...]]:
     for e in events:
         if len(e) >= 6 and e[3] == 'gate-flaky':
             unit = e[4] if re.match(r'\d{3}', e[4]) else ''
-            rows.append((ts, run, 'gate-flaky', e[5], e[4], unit[:3], unit_area(store, [unit]) if unit else '', ''))
+            rows.append((ts, run, 'gate-flaky', e[5], e[4], unit[:3], unit_area(store, [unit]) if unit else '', '', ''))
     return [tuple(_cell(c) for c in r) for r in rows]
 
 
@@ -1440,8 +1476,9 @@ def ledger_catch(store: Path, ledger: Path, run: str, ts: str, layer: str, text:
     with ledger_lock(ledger):
         rows = ledger_rows(ledger)
         rows.append(dict(zip(LEDGER_HEAD, (ts, run, 'catch', layer, _cell(text, 10_000), unit or '',
-                                           unit_area(store, [unit]) if unit else '', _cell(text)))))
+                                           unit_area(store, [unit]) if unit else '', _cell(text), ''))))
         write_ledger(ledger, rows)
+
 
 
 # Lessons: a rule learned from trouble the ledger saw in one area across runs
@@ -1454,8 +1491,17 @@ def ledger_catch(store: Path, ledger: Path, run: str, ts: str, layer: str, text:
 LESSONS = '.agents/LESSONS.md'
 LESSON_STATUS = ('proposed', 'active', 'promoted', 'retired')
 LESSON_KINDS = ('gate-fail', 'gate-flaky', 'reject', 'steer', 'catch')
+GATE_KINDS = ('gate-fail', 'gate-flaky')
+# A steer is trouble when it turned the sidekick: a scope grant, news or a
+# skipped step is the master's or the owner's, and no rule for the sidekick.
+STEER_TROUBLE = ('redirect', 'narrow')
 KIND_LAYER = {'gate-fail': 'gate', 'gate-flaky': 'gate', 'reject': 'verify', 'steer': 'brief'}
-LESSON_FIELDS = ('status', 'kind', 'class', 'layer', 'area', 'since', 'active', 'note')
+LESSON_FIELDS = ('status', 'kind', 'class', 'match', 'layer', 'area', 'since', 'active', 'note')
+CANDIDATES_SHOWN = 5  # retro prints the strongest; lessons --all prints every one
+# Runs a kind of trouble must recur in before it is a candidate. A failed gate
+# costs the sidekick a step it fixes alone; a reject or a steer costs the
+# master a wake; a catch is a miss that got past every layer.
+CANDIDATE_RUNS = {'gate-fail': 3, 'catch': 1}
 PROMOTE_AFTER = 3  # clean units in the area, with no hit, before a lesson can be promoted
 LESSONS_HEAD = """# Kitchen lessons
 
@@ -1568,37 +1614,67 @@ def lesson_counts(rows: list[dict[str, str]], x: Lesson) -> dict[str, int]:
     return {'held': sum(r['class'] == 'held' for r in mine), 'hits': sum(r['class'] == 'hit' for r in mine)}
 
 
+def row_match(r: dict[str, str]) -> str:
+    """What a row's trouble was within its class. Steer rows from before the
+    match column carry their kind at the head of the finding."""
+    if r['match'] or r['kind'] != 'steer':
+        return r['match']
+    head = r['finding'].split(':', 1)[0]
+    return head if ':' in r['finding'] and re.fullmatch(r'[a-z-]+', head) else ''
+
+
+def is_trouble(r: dict[str, str]) -> bool:
+    """A row a lesson could be learned from: it has an area, and a failed
+    gate names its check (one without its step's output does not)."""
+    if not r['area'] or r['kind'] not in LESSON_KINDS:
+        return False
+    if r['kind'] == 'steer':
+        return row_match(r) in STEER_TROUBLE
+    return r['kind'] != 'gate-fail' or bool(r['match'])
+
+
+def same_trouble(kind: str, cls: str, match: str, r: dict[str, str]) -> bool:
+    """A row is a lesson's trouble when kind and class agree and, where the
+    lesson names a match, so does the row."""
+    return r['kind'] == kind and r['class'] == cls and (not match or row_match(r) == match)
+
+
 def evidence_line(r: dict[str, str]) -> str:
     return f'{r["ts"][:10]} {r["run"]} {r["unit"] or "-"}: {r["finding"] or r["detail"]}'
 
 
 def lesson_candidates(rows: list[dict[str, str]], lessons: list[Lesson]) -> list[dict]:
-    """(kind, class, area) seen in two runs or more, or once by a catch, in rows
-    no open lesson already covers. The most specific area that keeps every
-    run wins."""
+    """(kind, class, match, area) seen in two runs or more, or once by a catch,
+    in rows no open lesson already covers and no dismissal has seen. The most
+    specific area that keeps every run wins; the most runs come first."""
     open_ = [x for x in lessons if x.fields.get('status') != 'retired']
+    dismissed = [r for r in rows if r['kind'] == 'dismiss']
 
     def known(r: dict[str, str]) -> bool:
-        return any(x.fields.get('kind') == r['kind'] and x.fields.get('class') == r['class']
+        return any(same_trouble(x.fields.get('kind', ''), x.fields.get('class', ''), x.fields.get('match', ''), r)
                    and all(covers(x.fields.get('area', ''), e) for e in r['area'].split(',') if e) for x in open_)
-    trouble = [r for r in rows if r['area'] and r['kind'] in LESSON_KINDS and not known(r)]
-    groups: dict[tuple[str, str], list[dict[str, str]]] = {}
+    trouble = [r for r in rows if is_trouble(r) and not known(r)]
+    groups: dict[tuple[str, str, str], list[dict[str, str]]] = {}
     for r in trouble:
-        groups.setdefault((r['kind'], r['class']), []).append(r)
+        groups.setdefault((r['kind'], r['class'], row_match(r)), []).append(r)
     out = []
-    for (kind, cls), rs in sorted(groups.items()):
+    for (kind, cls, match), rs in sorted(groups.items()):
         found = []
         for d in sorted({d for r in rs for d in r['area'].split(',') if d}):
             m = [r for r in rs if any(covers(d, e) for e in r['area'].split(','))]
             runs = sorted({r['run'] for r in m})
-            if len(runs) >= 2 or kind == 'catch':
-                found.append({'kind': kind, 'class': cls, 'area': d, 'runs': runs, 'rows': m})
+            # A dismissal holds until trouble newer than it comes back.
+            if any(x['class'] == kind and x['detail'] == cls and x['match'] == match and covers(x['area'], d)
+                   and x['ts'] >= max(r['ts'] for r in m) for x in dismissed):
+                continue
+            if len(runs) >= CANDIDATE_RUNS.get(kind, 2):
+                found.append({'kind': kind, 'class': cls, 'match': match, 'area': d, 'runs': runs, 'rows': m})
         for c in found:
             if any(o is not c and covers(c['area'], o['area']) and o['runs'] == c['runs'] for o in found):
                 continue
-            out.append({k: c[k] for k in ('kind', 'class', 'area', 'runs')}
+            out.append({k: c[k] for k in ('kind', 'class', 'match', 'area', 'runs')}
                        | {'evidence': list(dict.fromkeys(evidence_line(r) for r in c['rows']))[:5]})
-    return out
+    return sorted(out, key=lambda c: -len(c['runs']))
 
 
 def lessons_report(path: Path, ledger: Path) -> dict:
@@ -1611,41 +1687,77 @@ def lessons_report(path: Path, ledger: Path) -> dict:
     return {'path': str(path), 'lessons': listed, 'candidates': lesson_candidates(rows, lessons)}
 
 
-def lessons_text(r: dict) -> str:
+def candidate_args(c: dict) -> str:
+    """The candidate as `lessons add` and `lessons dismiss` take it."""
+    return ' '.join(shlex.quote(a) for a in (c['kind'], c['class'], c['area'])) + (
+        f' --match {shlex.quote(c["match"])}' if c['match'] else '')
+
+
+def lessons_text(r: dict, every: bool = False) -> str:
     lines = [f'lessons: {r["path"]}']
     for x in r['lessons']:
-        lines.append(f'  {x["id"]} {x.get("status", "?"):8} held {x["held"]} hits {x["hits"]}  [{x.get("kind", "")} '
-                     f'{x.get("class", "")} in {x.get("area", "")}] {x["rule"]}' + ('  (promotable)' if x['promotable'] else ''))
+        what = f'{x.get("kind", "")} {x.get("class", "")}' + (f' "{x["match"]}"' if x.get('match') else '')
+        lines.append(f'  {x["id"]} {x.get("status", "?"):8} held {x["held"]} hits {x["hits"]}  [{what} '
+                     f'in {x.get("area", "")}] {x["rule"]}' + ('  (promotable)' if x['promotable'] else ''))
     if not r['lessons']:
         lines.append('  none')
-    lines.append('candidates (write the rule, then: kitchen.py lessons add <kind> <class> <area> "<rule>"):')
-    for c in r['candidates']:
-        lines.append(f'  {c["kind"]} {c["class"]} in {c["area"]}: {len(c["runs"])} runs ({", ".join(c["runs"])})')
+    shown = r['candidates'] if every else r['candidates'][:CANDIDATES_SHOWN]
+    lines.append('candidates: write the rule and stage it (kitchen.py lessons add <args> "<rule>"), or, when the '
+                 'evidence shares no cause, dismiss it (kitchen.py lessons dismiss <args> --note "<why>"):')
+    for c in shown:
+        lines.append(f'  {len(c["runs"])} runs ({", ".join(c["runs"])}): {candidate_args(c)}')
         lines += [f'    {e}' for e in c['evidence']]
     if not r['candidates']:
         lines.append('  none')
+    elif len(shown) < len(r['candidates']):
+        lines.append(f'  {len(r["candidates"]) - len(shown)} more with fewer runs: kitchen.py lessons --all')
     return '\n'.join(lines)
 
 
-def lessons_add(path: Path, ledger: Path, kind: str, cls: str, area: str, rule: str, layer: str | None,
-                today: str) -> Lesson:
-    rule = ' '.join(rule.split())
-    if not rule or len(rule) > 200:
-        raise ConfigError('a rule is one sentence of at most 200 characters')
+def norm_area(area: str) -> str:
     area = re.sub(r'^\./', '', area.strip()).rstrip('/') or '.'
     if ',' in area or area.startswith(('/', '..')):
         raise ConfigError('an area is one repo directory, like src/lib (or . for the root)')
-    rows = [r for r in ledger_rows(ledger) if r['kind'] == kind and r['class'] == cls and r['area']
-            and any(covers(area, e) for e in r['area'].split(','))]
-    if not rows:
-        raise ConfigError(f'no ledger row for {kind} {cls} in {area}: a lesson needs evidence')
+    return area
+
+
+def lessons_add(path: Path, ledger: Path, kind: str, cls: str, area: str, rule: str, layer: str | None,
+                today: str, match: str = '') -> Lesson:
+    rule = ' '.join(rule.split())
+    if not rule or len(rule) > 200:
+        raise ConfigError('a rule is one sentence of at most 200 characters')
+    area = norm_area(area)
+    if '"' in match:
+        raise ConfigError('a match has no double quotes; copy it from the candidate')
+    evidence = [r for r in ledger_rows(ledger) if same_trouble(kind, cls, match, r) and r['area']
+                and any(covers(area, e) for e in r['area'].split(','))]
+    if not evidence:
+        raise ConfigError(f'no ledger row for {kind} {cls}{" " + match if match else ""} in {area}: '
+                          'a lesson needs evidence')
     lessons = read_lessons(path)
     n = max([int(x.id[1:]) for x in lessons], default=0) + 1
-    x = Lesson(f'L{n:03d}', rule, {'status': 'proposed', 'kind': kind, 'class': cls,
-                                     'layer': layer or KIND_LAYER.get(kind, cls), 'area': area, 'since': today},
-               list(dict.fromkeys(evidence_line(r) for r in rows))[:5])
+    fields = {'status': 'proposed', 'kind': kind, 'class': cls, 'match': match,
+              'layer': layer or ('policy' if kind == 'gate-fail' and cls == 'policy' else KIND_LAYER.get(kind, cls)),
+              'area': area, 'since': today}
+    x = Lesson(f'L{n:03d}', rule, {k: v for k, v in fields.items() if v},
+               list(dict.fromkeys(evidence_line(r) for r in evidence))[:5])
     write_lessons(path, lessons + [x])
     return x
+
+
+def lessons_dismiss(ledger: Path, kind: str, cls: str, area: str, match: str, note: str, now: str) -> None:
+    """A candidate whose evidence shares no cause stays hidden until trouble
+    newer than the dismissal comes back."""
+    if not note.strip():
+        raise ConfigError('dismiss needs --note: why the evidence shares no cause')
+    area = norm_area(area)
+    with ledger_lock(ledger):
+        rows = ledger_rows(ledger)
+        if not any(same_trouble(kind, cls, match, r) and r['area'] and any(covers(area, e) for e in r['area'].split(','))
+                   for r in rows):
+            raise ConfigError(f'no ledger row for {kind} {cls}{" " + match if match else ""} in {area}')
+        rows.append(dict(zip(LEDGER_HEAD, (now, '-', 'dismiss', kind, cls, '', area, _cell(note), match))))
+        write_ledger(ledger, rows)
 
 
 def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str | None, now: str) -> Lesson:
@@ -1709,14 +1821,15 @@ def promotion_draft(path: Path, ledger: Path, lid: str) -> str:
         target, why = (f'related tests per step and the full suite in behavioral for profile `{f.get("class")}`',
                        'the suite fails under load at the fast stage; moving it keeps every step deterministic')
     target = target.format(cls=f.get('class', ''), area=f.get('area', ''))
-    source = [r for r in rows if r['kind'] == f.get('kind') and r['class'] == f.get('class') and r['area']
+    source = [r for r in rows if same_trouble(f.get('kind', ''), f.get('class', ''), f.get('match', ''), r) and r['area']
               and any(covers(f.get('area', '.'), e) for e in r['area'].split(','))]
     scored = lesson_scores(rows, x)
     refs = list(dict.fromkeys(f'{r["run"]} {r["detail"]}' for r in source))
     return '\n'.join([
         f'# Promote {lid}: {x.rule}', '',
         f'lesson: {path}',
-        f'kind: {f.get("kind")} {f.get("class")}, layer {layer}, area {f.get("area")}',
+        f'kind: {f.get("kind")} {f.get("class")}' + (f' "{f["match"]}"' if f.get('match') else '')
+        + f', layer {layer}, area {f.get("area")}',
         f'counters: held {n["held"]}, hits {n["hits"]} (promote after {PROMOTE_AFTER} held and no hit)',
         f'promotable: {"yes" if ready else "no (" + "; ".join(why_not) + ")"}', '',
         '## Evidence', '',
@@ -1766,7 +1879,7 @@ def lessons_doctor(path: Path, ledger: Path) -> tuple[str, str, list[str]]:
 # coding pitfalls, which the verifier checks only after its own pass.
 VERIFY_LAYERS = ('verify', 'escalation')
 BRIEF_LESSONS = 5
-LESSON_LINE = re.compile(r'^- (L\d{3,}) \((\S+) (\S+), layer (\S+), in ([^,)]*)(?:, active (\S+))?\): (.*)$')
+LESSON_LINE = re.compile(r'^- (L\d{3,}) \((\S+) (\S+)(?: "([^"]*)")?, layer (\S+), in ([^,)]*)(?:, active (\S+))?\): (.*)$')
 
 
 def brief_lessons(brief: Path) -> list[dict[str, str]]:
@@ -1781,8 +1894,9 @@ def brief_lessons(brief: Path) -> list[dict[str, str]]:
             continue
         m = LESSON_LINE.match(line) if on else None
         if m:
-            out.append(dict(zip(('id', 'kind', 'class', 'layer', 'area', 'active', 'rule'), m.groups())))
+            out.append(dict(zip(('id', 'kind', 'class', 'match', 'layer', 'area', 'active', 'rule'), m.groups())))
             out[-1]['active'] = out[-1]['active'] or ''
+            out[-1]['match'] = out[-1]['match'] or ''
     return out
 
 
@@ -1797,8 +1911,9 @@ def stamp_lessons(brief: Path, path: Path) -> list[Lesson]:
     if picked:
         text += ('\n## Lessons\n\nTrouble this area met in earlier runs (kitchen.py lessons). Follow each; the\n'
                  'verifier checks them and reports each one held or hit.\n\n'
-                 + ''.join(f'- {x.id} ({x.fields.get("kind")} {x.fields.get("class")}, layer {x.fields.get("layer")}, '
-                           f'in {x.fields.get("area")}' + (f', active {x.fields["active"]}' if x.fields.get('active') else '')
+                 + ''.join(f'- {x.id} ({x.fields.get("kind")} {x.fields.get("class")}'
+                           + (f' "{x.fields["match"]}"' if x.fields.get('match') else '')
+                           + f', layer {x.fields.get("layer")}, in {x.fields.get("area")}' + (f', active {x.fields["active"]}' if x.fields.get('active') else '')
                            + f'): {x.rule}\n' for x in picked))
     if text != before and (picked or '## Lessons' in before):
         brief.write_text(text)
@@ -1860,6 +1975,7 @@ def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) 
             if x['id'] not in {y['id'] for y in by_unit.setdefault(b.name[:3], [])}:
                 by_unit[b.name[:3]].append(x)
     rows = []
+    seen = [dict(zip(LEDGER_HEAD, t)) for t in trouble]
     for unit, lessons in sorted(by_unit.items()):
         mine = [v for v in verdicts if unit in v[2]]
         # A gates-only verdict proves only what gates check: no one read the
@@ -1874,16 +1990,17 @@ def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) 
                 if not said.get(lid, '').startswith('hit'):
                     said[lid] = w
         for x in lessons:
+            key = lesson_key(x['id'], x['active'])
+            back = [t for t in seen if same_trouble(x['kind'], x['class'], x['match'], t) and unit in t['unit'].split()]
             word = said.get(x['id'], '')
             # The verifier's word on a lesson beats a reject or catch of the same
             # kind, which may be about something else; gates speak for themselves.
-            back = [t for t in trouble if t[2] == x['kind'] and t[3] == x['class'] and unit in t[5].split()]
             if word.startswith('hit'):
-                rows.append((ts, run, 'lesson', 'hit', lesson_key(x['id'], x['active']), unit, x['area'], word[4:]))
+                rows.append((ts, run, 'lesson', 'hit', key, unit, x['area'], word[4:], ''))
             elif back and not word:
-                rows.append((ts, run, 'lesson', 'hit', lesson_key(x['id'], x['active']), unit, x['area'], back[0][7] or back[0][4]))
-            elif word == 'held' or (clean_by_gates if x['kind'] in ('gate-fail', 'gate-flaky') else clean_by_verifier):
-                rows.append((ts, run, 'lesson', 'held', lesson_key(x['id'], x['active']), unit, x['area'], ''))
+                rows.append((ts, run, 'lesson', 'hit', key, unit, x['area'], back[0]['finding'] or back[0]['detail'], ''))
+            elif word == 'held' or (clean_by_gates if x['kind'] in GATE_KINDS else clean_by_verifier):
+                rows.append((ts, run, 'lesson', 'held', key, unit, x['area'], '', ''))
     return [tuple(_cell(c) for c in r) for r in rows]
 
 
@@ -2018,13 +2135,21 @@ def main(argv: list[str] | None = None) -> int:
     lc.add_argument('--ts', required=True)
     lc.add_argument('--unit', help='the unit whose scope is the area (e.g. 003)')
     ls = sub.add_parser('lessons', help="the repo's lessons with their counters, and candidates from the ledger")
+    ls.add_argument('--all', action='store_true', help=f'every candidate, not the {CANDIDATES_SHOWN} with the most runs')
     lsub = ls.add_subparsers(dest='lessons_cmd')
     la = lsub.add_parser('add', help='stage a proposed lesson for a candidate, with the rule the master wrote')
     la.add_argument('kind', choices=LESSON_KINDS)
     la.add_argument('cls', metavar='class')
     la.add_argument('area')
     la.add_argument('rule')
+    la.add_argument('--match', default='', help="the candidate's match: the gate check, policy rule or steer kind")
     la.add_argument('--layer', help='the layer that should catch it (default: from the kind)')
+    ld = lsub.add_parser('dismiss', help='hide a candidate whose evidence shares no cause, until newer trouble comes back')
+    ld.add_argument('kind', choices=LESSON_KINDS)
+    ld.add_argument('cls', metavar='class')
+    ld.add_argument('area')
+    ld.add_argument('--match', default='')
+    ld.add_argument('--note', required=True, help='why the evidence shares no cause')
     lst = lsub.add_parser('stamp', help="write the active lessons for a brief's scope into its Lessons section")
     lst.add_argument('brief', type=Path)
     lpr = lsub.add_parser('promote', help="draft a lesson's promotion proposal for the human (writes nothing in the repo)")
@@ -2107,8 +2232,12 @@ def main(argv: list[str] | None = None) -> int:
             path, ledger = lessons_path(root, source), state_dir(root) / 'ledger.tsv'
             today = time.strftime('%Y-%m-%d', time.gmtime())
             if args.lessons_cmd == 'add':
-                x = lessons_add(path, ledger, args.kind, args.cls, args.area, args.rule, args.layer, today)
+                x = lessons_add(path, ledger, args.kind, args.cls, args.area, args.rule, args.layer, today, args.match)
                 emit({'id': x.id, 'path': str(path)}, args.json, f'{x.id} proposed in {path}: {x.rule}')
+            elif args.lessons_cmd == 'dismiss':
+                lessons_dismiss(ledger, args.kind, args.cls, args.area, args.match, args.note,
+                                time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()))
+                emit({'dismissed': True}, args.json, 'dismissed until newer trouble of this kind comes back')
             elif args.lessons_cmd == 'promote':
                 draft = promotion_draft(path, ledger, args.id)
                 if args.out:
@@ -2127,7 +2256,7 @@ def main(argv: list[str] | None = None) -> int:
                 emit({'id': x.id, 'status': args.status, 'path': str(path)}, args.json, f'{x.id} {args.status}: {x.rule}')
             else:
                 r = lessons_report(path, ledger)
-                emit(r, args.json, lessons_text(r))
+                emit(r, args.json, lessons_text(r, args.all))
             return 0
         if args.cmd == 'snapshot':
             if source.kind in ('user', 'roster'):

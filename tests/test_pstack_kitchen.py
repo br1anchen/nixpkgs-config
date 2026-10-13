@@ -697,10 +697,10 @@ class LessonTests(KitchenTests):
         self.ledger = Path(self.run_kitchen('statedir').strip()) / 'ledger.tsv'
         self.ledger.write_text('ts\trun\tkind\tclass\tdetail\tunit\tarea\tfinding\n')
 
-    def row(self, run, kind, cls, unit, area, finding, detail='-'):
-        ts = f'2026-10-0{len(self.ledger.read_text().splitlines())}T00:00:00Z'
+    def row(self, run, kind, cls, unit, area, finding, detail='-', match='', ts=None):
+        ts = ts or f'2026-10-0{len(self.ledger.read_text().splitlines())}T00:00:00Z'
         with self.ledger.open('a') as f:
-            f.write(f'{ts}\t{run}\t{kind}\t{cls}\t{detail}\t{unit}\t{area}\t{finding}\n')
+            f.write(f'{ts}\t{run}\t{kind}\t{cls}\t{detail}\t{unit}\t{area}\t{finding}\t{match}\n')
 
     def candidates(self):
         return [(c['kind'], c['class'], c['area'], c['runs']) for c in self.data('lessons')['candidates']]
@@ -716,11 +716,69 @@ class LessonTests(KitchenTests):
         self.row('run-a', 'gate-fail', 'app', '002', 'src/lib', 'one run only')
         self.row('run-c', 'catch', 'review', '', '', 'no unit, no area')
         self.row('run-c', 'catch', 'review', '005', 'src/api', 'missed a caller')
-        self.assertEqual(self.candidates(), [('catch', 'review', 'src/api', ['run-c']),
-                                             ('reject', 'verify', 'src/lib', ['run-a', 'run-b'])])
-        r = self.data('lessons')['candidates'][1]
+        # The most runs first.
+        self.assertEqual(self.candidates(), [('reject', 'verify', 'src/lib', ['run-a', 'run-b']),
+                                             ('catch', 'review', 'src/api', ['run-c'])])
+        r = self.data('lessons')['candidates'][0]
         self.assertEqual(r['evidence'], ['2026-10-01 run-a 001: the cache is never cleared',
                                          '2026-10-02 run-b 003: cache stale after write'])
+
+    def test_a_gate_failure_is_a_candidate_by_its_check_after_three_runs(self):
+        for run in ('run-a', 'run-b'):
+            self.row(run, 'gate-fail', 'web', '001', 'apps/web', 'x.ts:1:1: error eslint(no-unused-vars)', match='fast lint')
+            self.row(run, 'gate-fail', 'web', '002', 'apps/web', 'x.ts(1,1): error TS2322', match='fast typecheck')
+        self.row('run-c', 'gate-fail', 'web', '001', 'apps/web', 'y.ts:2:1: error eslint(no-unused-vars)', match='fast lint')
+        # Without its step's output a failure names no check, and teaches nothing.
+        for run in ('run-d', 'run-e', 'run-f'):
+            self.row(run, 'gate-fail', 'web', '001', 'apps/web', '', detail='001-x abc1234')
+        self.assertEqual([(c['class'], c['match'], c['area'], c['runs']) for c in self.data('lessons')['candidates']],
+                         [('web', 'fast lint', 'apps/web', ['run-a', 'run-b', 'run-c'])])
+        self.assertIn("3 runs (run-a, run-b, run-c): gate-fail web apps/web --match 'fast lint'", self.run_kitchen('lessons'))
+        self.run_kitchen('lessons', 'add', 'gate-fail', 'web', 'apps/web', 'Lint the touched package before each step.',
+                         '--match', 'fast lint')
+        x = self.data('lessons')['lessons'][0]
+        self.assertEqual((x['match'], x['layer']), ('fast lint', 'gate'))
+        self.assertIn('2026-10-01 run-a 001: x.ts:1:1: error eslint(no-unused-vars)',
+                      (self.repo / '.agents/LESSONS.md').read_text())
+        self.assertNotIn('TS2322', (self.repo / '.agents/LESSONS.md').read_text())
+        self.assertEqual(self.data('lessons')['candidates'], [])
+
+    def test_a_policy_failure_is_a_policy_lesson(self):
+        for run in ('run-a', 'run-b', 'run-c'):
+            self.row(run, 'gate-fail', 'policy', '001', 'tooling', 'a.ts: [test-touch] no tests', match='test-touch')
+        self.run_kitchen('lessons', 'add', 'gate-fail', 'policy', 'tooling', 'Change a test with the source.',
+                         '--match', 'test-touch')
+        self.assertIn("target: a [[policy.forbid]] rule", self.run_kitchen('lessons', 'promote', 'L001'))
+
+    def test_only_a_steer_that_turned_the_sidekick_is_trouble(self):
+        for run in ('run-a', 'run-b'):
+            self.row(run, 'steer', 'brief', '001', 'src', 'scope: add the fixture', match='scope')
+            self.row(run, 'steer', 'brief', '002', 'src', 'info: news from the owner', match='info')
+        self.assertEqual(self.candidates(), [])
+        self.row('run-a', 'steer', 'brief', '003', 'src', 'redirect: read the cache first', match='redirect')
+        # A row from before the match column: the steer's kind leads its finding.
+        self.row('run-b', 'steer', 'brief', '003', 'src', 'redirect: not the CLI')
+        self.assertEqual([(c['match'], c['runs']) for c in self.data('lessons')['candidates']],
+                         [('redirect', ['run-a', 'run-b'])])
+
+    def test_a_dismissed_candidate_stays_hidden_until_newer_trouble(self):
+        self.row('run-a', 'reject', 'verify', '001', 'src', 'one thing')
+        self.row('run-b', 'reject', 'verify', '002', 'src', 'another thing')
+        self.run_kitchen('lessons', 'dismiss', 'reject', 'verify', 'src', '--note', 'two causes')
+        self.assertEqual(self.candidates(), [])
+        self.assertIn('none', self.run_kitchen('lessons'))
+        self.row('run-c', 'reject', 'verify', '003', 'src', 'a third', ts='2099-01-01T00:00:00Z')
+        self.assertEqual(self.candidates(), [('reject', 'verify', 'src', ['run-a', 'run-b', 'run-c'])])
+        self.assertIn('no ledger row', self.run_kitchen('lessons', 'dismiss', 'reject', 'verify', 'docs', '--note', 'x', code=1))
+
+    def test_retro_prints_the_strongest_candidates(self):
+        for n in range(7):
+            for run in ('run-a', 'run-b'):
+                self.row(run, 'reject', 'verify', f'00{n}', f'src/m{n}', 'x')
+        out = self.run_kitchen('lessons')
+        self.assertEqual(out.count(': reject verify src/m'), 5)
+        self.assertIn('2 more with fewer runs: kitchen.py lessons --all', out)
+        self.assertEqual(self.run_kitchen('lessons', '--all').count(': reject verify src/m'), 7)
 
     def test_the_area_is_the_narrowest_that_keeps_every_run(self):
         self.row('run-a', 'steer', 'brief', '001', 'src/lib', 'narrow: x')
@@ -2833,20 +2891,23 @@ esac
         self.run_sh('catch', str(self.store), 'gate', '--force push slipped through')
         self.run_sh('retro', str(self.store))
         head, rows = self.ledger()
-        self.assertEqual(head, ['ts', 'run', 'kind', 'class', 'detail', 'unit', 'area', 'finding'])
+        self.assertEqual(head, ['ts', 'run', 'kind', 'class', 'detail', 'unit', 'area', 'finding', 'match'])
         by = {r['kind']: r for r in rows}
-        self.assertEqual((by['gate-fail']['unit'], by['gate-fail']['area'], by['gate-fail']['finding']),
-                         ('001', 'src/lib', 'test ! -e FAIL; src/lib/util.py: [test-touch] profile app requires tests: '
-                                            '1 source files changed and no file matching tests/** (.agents/kitchen.toml)'))
+        # One row per failing check: the command (no task runner names one), then the policy rule.
+        self.assertEqual([(r['unit'], r['area'], r['class'], r['match'], r['finding']) for r in rows if r['kind'] == 'gate-fail'],
+                         [('001', 'src/lib', 'app', 'fast test ! -e FAIL', 'test ! -e FAIL'),
+                          ('001', 'src/lib', 'policy', 'test-touch', 'src/lib/util.py: [test-touch] profile app requires tests: '
+                                                                   '1 source files changed and no file matching tests/** (.agents/kitchen.toml)')])
         self.assertEqual((by['reject']['area'], by['reject']['finding']), ('src/lib', 'Acceptance 2: the cache is never cleared'))
-        self.assertEqual(by['steer']['finding'], 'narrow: Leave the CLI alone; only the library changes.')
+        self.assertEqual((by['steer']['finding'], by['steer']['match']),
+                         ('narrow: Leave the CLI alone; only the library changes.', 'narrow'))
         catches = [r for r in rows if r['kind'] == 'catch']
         self.assertEqual([(c['area'], c['finding']) for c in catches],
                          [('src/lib', 'missed a caller in api.py'), ('', 'unit not given'), ('', '--force push slipped through')])
         # Retro again: the run's rows are replaced, the catches kept.
         out = self.run_sh('retro', str(self.store))
         self.assertEqual(len(self.ledger()[1]), len(rows))
-        self.assertIn('catch review in src/lib: 1 runs (demo)', out)
+        self.assertIn('1 runs (demo): catch review src/lib', out)
 
     def test_an_old_ledger_gains_the_new_columns(self):
         state = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'], env=self.env,
@@ -2854,5 +2915,5 @@ esac
         (state / 'ledger.tsv').write_text('ts\trun\tkind\tclass\tdetail\n2026-01-01T00:00:00Z\told\tsteer\tbrief\t004-x-s1\n')
         self.run_sh('catch', str(self.store), 'gate', 'lint missed it')
         head, rows = self.ledger()
-        self.assertEqual(len(head), 8)
+        self.assertEqual(len(head), 9)
         self.assertEqual([(r['run'], r['kind'], r['area']) for r in rows], [('old', 'steer', ''), ('demo', 'catch', '')])
