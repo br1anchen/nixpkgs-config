@@ -756,6 +756,62 @@ class LessonTests(KitchenTests):
         self.assertIn('no lesson L009', self.run_kitchen('lessons', 'set', 'L009', 'active', code=1))
 
 
+class LessonScoreTests(unittest.TestCase):
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.store = Path(tmp.name)
+        for d in ('briefs', 'verdicts'):
+            (self.store / d).mkdir()
+        self.ledger = self.store / 'ledger.tsv'
+
+    def brief(self, name, lessons):
+        (self.store / 'briefs' / name).write_text('# Brief\n\n## Scope\n\nmay write:\n- src/**\n\n## Lessons\n\nx\n\n'
+                                                  + ''.join(f'- {l} (reject verify, layer verify, in src): rule\n' for l in lessons))
+
+    def verdict(self, name, status, units, lessons=''):
+        (self.store / 'verdicts' / name).write_text(f'# V\n\nstatus: {status}\nunits: {units}\n\n## Findings\n\n'
+                                                    f'{"1. broke" if status == "reject" else "none"}\n\n## Lessons\n\n{lessons}')
+
+    def scores(self):
+        kitchen.ledger_retro(self.store, self.ledger, 'r', '2026-10-13T00:00:00Z')
+        return sorted((r['detail'], r['unit'], r['class'], r['finding'])
+                      for r in kitchen.ledger_rows(self.ledger) if r['kind'] == 'lesson')
+
+    def test_held_hit_or_unscored(self):
+        self.brief('001-a.md', ['L001', 'L002'])
+        self.brief('001-a-a1.md', ['L001'])
+        self.brief('002-b.md', ['L001'])
+        self.brief('003-c.md', ['L001'])
+        self.verdict('001-a-v1.md', 'clean', '001', 'L001: held\n- `L002`: hit the CLI path again\n')
+        self.verdict('002-b-v1.md', 'reject', '002')
+        self.verdict('002-b-v2.md', 'clean', '002')
+        self.assertEqual(self.scores(), [('L001', '001', 'held', ''), ('L001', '002', 'hit', 'broke'),
+                                         ('L002', '001', 'hit', 'the CLI path again')])
+        # Retro again replaces the rows.
+        self.assertEqual(len(self.scores()), 3)
+
+    def test_stamp_replaces_the_section_and_drops_it_when_nothing_applies(self):
+        lessons = self.store / 'LESSONS.md'
+        kitchen.write_lessons(lessons, [
+            kitchen.Lesson('L001', 'Rule one.', {'status': 'active', 'kind': 'reject', 'class': 'verify',
+                                                 'layer': 'verify', 'area': 'src/lib'}, ['e']),
+            kitchen.Lesson('L002', 'Rule two.', {'status': 'proposed', 'kind': 'reject', 'class': 'verify',
+                                                 'layer': 'verify', 'area': 'src'}, ['e'])])
+        b = self.store / 'briefs/004-d.md'
+        b.write_text('# Brief\n\n## Scope\n\nmay write:\n- src/**\n- tests/**\n\n## Acceptance\n\n- works\n')
+        self.assertEqual([x.id for x in kitchen.stamp_lessons(b, lessons)], ['L001'])
+        kitchen.stamp_lessons(b, lessons)
+        text = b.read_text()
+        self.assertEqual(text.count('## Lessons'), 1)
+        self.assertTrue(text.startswith('# Brief\n\n## Scope\n\nmay write:\n- src/**\n- tests/**\n\n## Acceptance\n\n- works\n\n## Lessons\n'))
+        self.assertEqual(kitchen.brief_lessons(b)[0]['rule'], 'Rule one.')
+        kitchen.lessons_set(lessons, 'L001', 'retired', None, 'wrong area', '2026-10-13')
+        kitchen.stamp_lessons(b, lessons)
+        self.assertEqual(b.read_text(), '# Brief\n\n## Scope\n\nmay write:\n- src/**\n- tests/**\n\n## Acceptance\n\n- works\n')
+        self.assertEqual(kitchen.lesson_packet([b]), '')
+
+
 class AreaTests(unittest.TestCase):
     def test_a_scope_is_the_directories_it_writes(self):
         for globs, area in [(['src/**', 'tests/**'], ['src']), (['src/api/v2/**', 'src/api/x.py'], ['src/api']),
@@ -1675,6 +1731,39 @@ esac
         for name in ('001-util', '002-util-fix'):
             (self.store / f'reviews/{name}.md').write_text('verdict: accept\n')
         self.assertIn('land-check: pass', self.run_sh('land-check', str(self.store)))
+
+    def test_a_unit_carries_its_lessons_to_the_verifier_and_retro_scores_them(self):
+        self.write('.agents/LESSONS.md', '# Kitchen lessons\n\n'
+                   '## L001: Every write to the store clears the cache.\n\nstatus: active\nkind: reject\nclass: verify\n'
+                   'layer: verify\narea: src\nevidence:\n- 2026-10-01 run-a 001: stale cache\n\n'
+                   '## L002: Callers of a renamed function are updated.\n\nstatus: active\nkind: catch\nclass: review\n'
+                   'layer: review\narea: src\nevidence:\n- 2026-10-01 run-a 002: missed a caller\n\n'
+                   '## L003: Docs only.\n\nstatus: active\nkind: steer\nclass: brief\nlayer: brief\narea: docs\n'
+                   'evidence:\n- 2026-10-01 run-a 003: x\n')
+        self.commit('lessons')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        text = b.read_text()
+        self.assertIn('- L001 (reject verify, layer verify, in src): Every write to the store clears the cache.\n', text)
+        self.assertIn('- L002 (catch review, layer review, in src)', text)
+        self.assertNotIn('L003', text)
+        self.write('src/util.py', 'X = 5\n')
+        self.write('tests/test_app.py', 'x = 5\n')
+        self.done(b, self.commit('util'))
+        self.assertIn('status: clean', self.run_sh('verify', str(self.store), '001'))
+        packet = (self.store / 'verdicts/001-util-v1-packet.md').read_text()
+        lessons = packet[packet.index('## Lessons'):packet.index('## Changed')]
+        self.assertRegex(lessons, r'Acceptance lines too[^-]*- L001: Every write')
+        self.assertRegex(lessons, r'Only after your own pass[^-]*- L002: Callers')
+        self.run_sh('catch', str(self.store), 'review', 'a caller still used the old name', '001')
+        self.run_sh('retro', str(self.store))
+        head, rows = self.ledger()
+        self.assertEqual(sorted((r['class'], r['detail'], r['unit']) for r in rows if r['kind'] == 'lesson'),
+                         [('held', 'L001', '001'), ('hit', 'L002', '001')])
+        x = {l['id']: l for l in json.loads(subprocess.run(
+            [sys.executable, str(script), '--repo', str(self.repo), '--json', 'lessons'], env=self.env,
+            capture_output=True, text=True, check=True).stdout)['lessons']}
+        self.assertEqual((x['L001']['held'], x['L002']['hits']), (1, 1))
 
     def three_units(self, scope=('src/**', 'tests/**')):
         heads = []

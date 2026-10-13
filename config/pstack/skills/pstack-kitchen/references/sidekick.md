@@ -23,6 +23,10 @@ differ:
 - **A routine brief is the plan.** Its Steps name the files and functions to
   change. If one cannot be done as written, do not redesign it: report
   `blocked` with the conflict and the option you would pick.
+- **A brief's Lessons are known trouble here.** The kitchen appends them at
+  dispatch from earlier runs in the same area. Follow each as you would a
+  standing order; the verifier checks them, and one you cannot follow is a
+  Question, not a silent skip.
 - **Before done,** run the review skills the standing orders name (from the
   kitchen's `review.self`) on your diff, and fix what they find in a commit
   of its own.

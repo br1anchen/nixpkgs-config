@@ -40,6 +40,10 @@ work?", and then your pane closes.
 5. Try to break it within the brief's scope: the edge the Acceptance implies
    (empty input, the error path, a second run), and the nearest feature the
    change could have regressed.
+   When the packet has a Lessons section, its first list is Acceptance too;
+   its second you check only now, after your own pass, so known trouble does
+   not narrow what you look for. Mark each lesson held or hit in the
+   verdict's Lessons section; a hit that breaks Acceptance is also a finding.
 6. Write the verdict from the template, copying the packet's `verifier-agent:`
    line into the verdict header:
    - `clean`: every Acceptance line proven, nothing broken.

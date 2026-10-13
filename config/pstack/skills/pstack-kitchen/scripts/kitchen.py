@@ -1401,6 +1401,8 @@ def ledger_retro(store: Path, ledger: Path, run: str, ts: str) -> int:
     """This run's rows replace any it wrote before (catches stay), so retro can run again."""
     rows = [r for r in ledger_rows(ledger) if r['run'] != run or r['kind'] == 'catch']
     new = retro_rows(store, run, ts)
+    catches = [tuple(r[k] for k in LEDGER_HEAD) for r in rows if r['run'] == run and r['kind'] == 'catch']
+    new += lesson_rows(store, run, ts, new + catches)
     write_ledger(ledger, rows + [dict(zip(LEDGER_HEAD, r)) for r in new])
     return len(new)
 
@@ -1592,6 +1594,117 @@ def lessons_set(path: Path, lid: str, status: str, rule: str | None, note: str |
     return x
 
 
+# At dispatch a brief carries the active lessons whose area meets its scope,
+# as a Lessons section the kitchen owns; the verifier packet reads them back
+# from it, so a unit is held to the lessons of the moment it was briefed.
+# Lessons for the layers that verify are extra acceptance; the rest are
+# coding pitfalls, which the verifier checks only after its own pass.
+VERIFY_LAYERS = ('verify', 'escalation')
+BRIEF_LESSONS = 5
+LESSON_LINE = re.compile(r'^- (L\d{3,}) \((\S+) (\S+), layer (\S+), in ([^)]*)\): (.*)$')
+
+
+def brief_lessons(brief: Path) -> list[dict[str, str]]:
+    try:
+        lines = brief.read_text().splitlines()
+    except OSError:
+        return []
+    out, on = [], False
+    for line in lines:
+        if line.startswith('## '):
+            on = line[3:].strip() == 'Lessons'
+            continue
+        m = LESSON_LINE.match(line) if on else None
+        if m:
+            out.append(dict(zip(('id', 'kind', 'class', 'layer', 'area', 'rule'), m.groups())))
+    return out
+
+
+def stamp_lessons(brief: Path, path: Path) -> list[Lesson]:
+    """Replace the brief's Lessons section with the active lessons for its scope."""
+    globs = brief_scope(brief)
+    dirs = ','.join(sorted({d for g in globs for d in scope_area([g])}))
+    picked = [x for x in read_lessons(path) if x.fields.get('status') == 'active'
+              and overlaps(x.fields.get('area', ''), dirs)][:BRIEF_LESSONS]
+    before = brief.read_text()
+    text = re.sub(r'\n*^## Lessons\n(?:(?!## ).*\n?)*', '\n', before, flags=re.M).rstrip('\n') + '\n'
+    if picked:
+        text += ('\n## Lessons\n\nTrouble this area met in earlier runs (kitchen.py lessons). Follow each; the\n'
+                 'verifier checks them and reports each one held or hit.\n\n'
+                 + ''.join(f'- {x.id} ({x.fields.get("kind")} {x.fields.get("class")}, layer {x.fields.get("layer")}, '
+                           f'in {x.fields.get("area")}): {x.rule}\n' for x in picked))
+    if text != before and (picked or '## Lessons' in before):
+        brief.write_text(text)
+    return picked
+
+
+def lesson_packet(briefs: list[Path]) -> str:
+    seen: dict[str, dict[str, str]] = {}
+    for b in briefs:
+        for x in brief_lessons(b):
+            seen.setdefault(x['id'], x)
+    if not seen:
+        return ''
+    check = [x for x in seen.values() if x['layer'] in VERIFY_LAYERS]
+    after = [x for x in seen.values() if x['layer'] not in VERIFY_LAYERS]
+    text = '## Lessons\n\n'
+    if check:
+        text += ('Prove these as Acceptance lines too: each is trouble a verifier met here\nbefore.\n\n'
+                 + ''.join(f'- {x["id"]}: {x["rule"]}\n' for x in check) + '\n')
+    if after:
+        text += ('Only after your own pass, check the diff against these; a breach is a\nfinding when it breaks '
+                 'Acceptance, and a hit either way.\n\n' + ''.join(f'- {x["id"]}: {x["rule"]}\n' for x in after) + '\n')
+    return text + ('In the verdict\'s Lessons section write one line per lesson: `L001: held`, or\n'
+                   '`L001: hit <what recurred>`.\n')
+
+
+def verdict_lessons(verdict: Path) -> dict[str, str]:
+    """Lesson id to `held` or `hit <what>`, from a verdict's Lessons section."""
+    out: dict[str, str] = {}
+    on = False
+    try:
+        lines = verdict.read_text().splitlines()
+    except OSError:
+        return out
+    for line in lines:
+        if line.startswith('## '):
+            on = line[3:].strip() == 'Lessons'
+            continue
+        m = re.match(r'^\W*(L\d{3,})\W*:?\s*(held|hit)\b\W*(.*)$', line) if on else None
+        if m:
+            out[m.group(1)] = m.group(2) + (f' {m.group(3).strip()}' if m.group(3).strip() else '')
+    return out
+
+
+def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) -> list[tuple[str, ...]]:
+    """Each lesson a unit was briefed with: hit when its kind of trouble came
+    back in that unit or a verdict says so, held when the unit was verified
+    clean without either."""
+    verdicts = [(v, _header(v, 'status').split(' ')[0], _header(v, 'units').split())
+                for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md')) if 'packet' not in v.name]
+    by_unit: dict[str, list[dict[str, str]]] = {}
+    for b in sorted((store / 'briefs').glob('[0-9][0-9][0-9]-*.md')):
+        for x in brief_lessons(b):
+            if x['id'] not in {y['id'] for y in by_unit.setdefault(b.name[:3], [])}:
+                by_unit[b.name[:3]].append(x)
+    rows = []
+    for unit, lessons in sorted(by_unit.items()):
+        mine = [v for v in verdicts if unit in v[2]]
+        clean = any(s == 'clean' for _, s, _ in mine)
+        said = {}
+        for v, _, _ in mine:
+            said.update(verdict_lessons(v))
+        for x in lessons:
+            back = [t for t in trouble if t[2] == x['kind'] and t[3] == x['class'] and unit in t[5].split()]
+            if back:
+                rows.append((ts, run, 'lesson', 'hit', x['id'], unit, x['area'], back[0][7] or back[0][4]))
+            elif said.get(x['id'], '').startswith('hit'):
+                rows.append((ts, run, 'lesson', 'hit', x['id'], unit, x['area'], said[x['id']][4:]))
+            elif clean:
+                rows.append((ts, run, 'lesson', 'held', x['id'], unit, x['area'], ''))
+    return [tuple(_cell(c) for c in r) for r in rows]
+
+
 def fleet(runs_dir: Path, since: str | None, as_json: bool) -> int:
     """Every kitchen run on the host and each skills build, read-only (it never runs retro)."""
     rows = []
@@ -1730,11 +1843,15 @@ def main(argv: list[str] | None = None) -> int:
     la.add_argument('area')
     la.add_argument('rule')
     la.add_argument('--layer', help='the layer that should catch it (default: from the kind)')
+    lst = lsub.add_parser('stamp', help="write the active lessons for a brief's scope into its Lessons section")
+    lst.add_argument('brief', type=Path)
     lt = lsub.add_parser('set', help="move a lesson's status: proposed, active, promoted, retired")
     lt.add_argument('id')
     lt.add_argument('status', choices=LESSON_STATUS)
     lt.add_argument('--rule', help='rewrite the rule')
     lt.add_argument('--note', help='promoted: the commit and check that enforce it; retired: why')
+    lp = sub.add_parser('lesson-packet', help="the verifier packet's Lessons section for these briefs (no repo needed)")
+    lp.add_argument('briefs', type=Path, nargs='+')
     sub.add_parser('statedir', help="this repo's kitchen state directory")
     t = sub.add_parser('timing', help="the slowest recent passing run of each profile's stage, and their sum")
     t.add_argument('profiles', nargs='*')
@@ -1752,6 +1869,9 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.cmd == 'ledger-retro':
         ledger_retro(args.store, args.ledger, args.run, args.ts)
+        return 0
+    if args.cmd == 'lesson-packet':
+        sys.stdout.write(lesson_packet(args.briefs))
         return 0
     if args.cmd == 'ledger-catch':
         ledger_catch(args.store, args.ledger, args.run, args.ts, args.layer, args.text, args.unit)
@@ -1800,6 +1920,10 @@ def main(argv: list[str] | None = None) -> int:
             if args.lessons_cmd == 'add':
                 x = lessons_add(path, ledger, args.kind, args.cls, args.area, args.rule, args.layer, today)
                 emit({'id': x.id, 'path': str(path)}, args.json, f'{x.id} proposed in {path}: {x.rule}')
+            elif args.lessons_cmd == 'stamp':
+                picked = stamp_lessons(args.brief, path)
+                emit({'lessons': [x.id for x in picked]}, args.json,
+                     f'lessons: {" ".join(x.id for x in picked)}' if picked else '')
             elif args.lessons_cmd == 'set':
                 x = lessons_set(path, args.id, args.status, args.rule, args.note, today)
                 emit({'id': x.id, 'status': args.status, 'path': str(path)}, args.json, f'{x.id} {args.status}: {x.rule}')

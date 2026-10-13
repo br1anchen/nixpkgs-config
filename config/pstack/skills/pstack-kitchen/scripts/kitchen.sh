@@ -416,6 +416,7 @@ classify_brief() {
 	set_header "$brief" profiles "$(jq -r '.profiles | join(", ") | if . == "" then "none" else . end' <<<"$json")"
 	set_header "$brief" verify "$(jq -r '"\(.verify.mode) by \(.verify.kind) verifier"' <<<"$json")"
 	printf 'risk: %s\n' "$risk"
+	kpy "$store" "${kitchen_cfg[@]}" lessons stamp "$brief" || die "kitchen.py lessons stamp failed; run kitchen.py lessons in the repo"
 	jq -r '"profiles: \(.profiles | join(", "))", "verify: \(.verify.mode) by \(.verify.kind) verifier", (.escalate[] | "escalate: \(.)"),
 		(if .bookkeeping then "bookkeeping: the Scope is outside the repo; gates only, nothing to escalate" else empty end)' <<<"$json"
 	if [ "$risk" = escalated ] && [ "$(agent_status "$(field "$store" .consultant.name)")" = absent ]; then
@@ -862,6 +863,11 @@ cmd_verify() {
 				awk '/^## (Goal|Acceptance)/{p=1; print; next} /^## /{p=0} p' "$b"
 				printf '\n'
 			done
+			local -a ubriefs=()
+			local lessons
+			for u in "${all[@]}"; do ubriefs+=("$(unit_brief "$store" "$u")"); done
+			lessons="$(python3 "$here/kitchen.py" lesson-packet "${ubriefs[@]}")"
+			[ -z "$lessons" ] || printf '%s\n\n' "$lessons"
 		fi
 		printf '## Changed\n\n```\n%s\n```\n\n' "$(git -C "$root" diff --stat "$base...$head" | tail -40)"
 		printf '## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo'"'"'s scripts give you\nyour own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n```bash\nexport PSTACK_KITCHEN_ROLE=verifier'

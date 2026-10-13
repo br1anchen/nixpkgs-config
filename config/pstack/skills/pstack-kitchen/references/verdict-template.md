@@ -29,3 +29,8 @@ $ <command>
 ## Not covered
 
 <Acceptance lines or surfaces you did not exercise, and why, or "none".>
+
+## Lessons
+
+<One line per lesson the packet lists: `L001: held`, or `L001: hit <what
+recurred>`. "none" when the packet lists none.>
