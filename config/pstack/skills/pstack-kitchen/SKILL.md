@@ -131,6 +131,17 @@ Verifier: [references/verifier.md](references/verifier.md).
 7. **Learn.** `kitchen.sh retro` shows where the master was needed and what
    repeated; each repeated class becomes a rule, a lint, a profile command, or
    a standing order. A gap in the kitchen itself goes to `kitchen.sh feedback`.
+   Trouble of one kind in one area across runs becomes a lesson:
+   - **Propose:** retro lists candidates from the ledger; the master writes
+     the rule and stages it (`kitchen.py lessons add`); the human activates it.
+   - **Apply:** dispatch adds the active lessons for a brief's area to its
+     Lessons section; the verifier proves the verification ones as Acceptance
+     and checks the rest after its own pass, marking each held or hit.
+   - **Score:** retro counts held and hit per unit in the host ledger.
+   - **Promote:** after 3 held and no hit, `kitchen.py lessons promote` drafts
+     the proposal (the check, which layer and why, an example, proof, false
+     positives); the human decides each one, and the check lands through a
+     brief. A lesson hit twice is rewritten or retired; `doctor` flags both.
 
 ## Feedback
 
