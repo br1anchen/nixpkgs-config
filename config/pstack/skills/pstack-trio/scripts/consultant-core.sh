@@ -236,7 +236,7 @@ cmd_new_consult() {
 	sed -e "s|{{SEQ}}|$seq|g" -e "s|{{SLUG}}|$slug|g" -e "s|{{K}}|$k|g" -e "s|{{STORE}}|$store|g" \
 		-e "s|{{KIND}}|$kind|g" -e "s|{{UNIT}}|$unit|g" \
 		"$skill_root/references/consult-template.md" >"$path"
-	[ "$kind" = glance ] && sed -i -E 's|^timebox: .*|timebox: 5|' "$path"
+	[ "$kind" = glance ] && perl -i -pe 's/^timebox: .*/timebox: 5/' "$path"
 	printf '%s\n' "$path"
 }
 
@@ -266,7 +266,8 @@ cmd_consult() {
 	sstatus="$(agent_status "$sidekick")"
 	# The one header line the script owns: the sidekick's state and the head
 	# at send time, so the consultant knows how live the tree it reads is.
-	sed -i -E "s|^sidekick state at send:.*|sidekick state at send: $sstatus at $(git -C "$(field "$store" .cwd)" rev-parse --short HEAD 2>/dev/null || printf '?')|" "$consult"
+	VAL="sidekick state at send: $sstatus at $(git -C "$(field "$store" .cwd)" rev-parse --short HEAD 2>/dev/null || printf '?')" \
+		perl -i -pe 's/^sidekick state at send:.*/$ENV{VAL}/' "$consult"
 	if grep -q '{{' "$consult" || grep -qE '^kind: .*\|' "$consult"; then
 		die "$consult still has unfilled placeholders"
 	fi

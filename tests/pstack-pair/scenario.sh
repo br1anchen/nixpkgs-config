@@ -10,7 +10,8 @@ pair) skill=pstack-pair prefix=pstack-pair ;;
 guided) skill=pstack-pair-guided prefix=pstack-pair-guided ;;
 trio) skill=pstack-trio prefix=pstack-trio ;;
 esac
-T="$(mktemp -d)"
+# Resolved, as the scripts see it (macOS keeps temp dirs under the /var link).
+T="$(cd "$(mktemp -d)" && pwd -P)"
 export PAIR_SETTLE_HOLD=10 PAIR_SUBMIT_CHECK_S=0 PAIR_BUSY_POLL=1 PAIR_SETTLE_POLL_S=0.2 PAIR_FILE_POLL_MS=200 PAIR_STOP_POLL_S=0.2 HOME="$T/home" FAKE="$T/fake" PATH="$H/bin:$PATH" HERDR_ENV=1 HERDR_SOCKET_PATH="$T/herdr.sock" HERDR_PANE_ID=p0 HERDR_WORKSPACE_ID=w1 HERDR_TAB_ID=t1 XDG_STATE_HOME="$T/state"
 unset CLAUDE_CODE_SESSION_ID
 mkdir -p "$FAKE" "$T/repo" "$T/home"
@@ -50,9 +51,9 @@ collapse_polls() {
 	uniq | awk '{ l[NR] = $0 } END { i = 1; while (i <= NR) { if (i + 3 <= NR && l[i] == l[i + 2] && l[i + 1] == l[i + 3]) { i += 2; continue } print l[i]; i++ } }' | uniq
 }
 
-norm() { sed -E -e "s#$T#<T>#g" -e 's/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/<TS>/g' -e 's#/tmp/tmp\.[A-Za-z0-9]+#<TMP>#g' \
-	-e 's#/tmp/pair-spawn-err\.[0-9]+#<ERR>#g' -e 's/(^| )[0-9]{2}:[0-9]{2} /\1<HM> /' -e 's/elapsed [0-9]+m/elapsed <N>m/' -e 's/last [0-9]+m ago/last <N>m ago/' -e 's/last change [0-9]+m ago/last change <N>m ago/' \
-	-e 's/\b1[0-9]{9}\b/<EPOCH>/g' -e 's/[0-9a-f]{7,40}/<SHA>/g'; }
+norm() { T="$T" perl -pe 's#\Q$ENV{T}\E#<T>#g; s/[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:]{8}Z/<TS>/g; s#/tmp/tmp\.[A-Za-z0-9]+#<TMP>#g;
+	s#/tmp/pair-spawn-err\.[0-9]+#<ERR>#g; s/(^| )[0-9]{2}:[0-9]{2} /$1<HM> /; s/elapsed [0-9]+m/elapsed <N>m/; s/last [0-9]+m ago/last <N>m ago/; s/last change [0-9]+m ago/last change <N>m ago/;
+	s/\b1[0-9]{9}\b/<EPOCH>/g; s/[0-9a-f]{7,40}/<SHA>/g'; }
 run() {
 	printf '\n$ pair.sh %s\n' "$*" | norm
 	local out code
@@ -63,7 +64,7 @@ run() {
 	if [ -s "$FAKE/calls.log" ]; then sed -E 's/^(agent wait .*--timeout )[0-9]+$/\1<MS>/' "$FAKE/calls.log" | sed 's/^/  herdr /' | norm | collapse_polls; : >"$FAKE/calls.log"; fi
 }
 fill() { perl -0pi -e 's/\{\{.*?\}\}/x/gs' "$1"; }
-set_hdr() { sed -i -E "s#^$2:.*#$2: $3#" "$1"; }
+set_hdr() { KEY="$2" VAL="$3" perl -i -pe 's/^\Q$ENV{KEY}\E:.*/$ENV{KEY}: $ENV{VAL}/' "$1"; }
 status() { printf '%s %s\n' "$2" "$3" >"$FAKE/agents/$1"; }
 
 run help
@@ -327,23 +328,23 @@ rm -f "$FAKE/devin-input" "$FAKE/queued/demo-sidekick"
 # a report written in the same second as the STOP still counts; only reports
 # that existed before the send are ignored
 cp "$FAKE/hook" "$FAKE/hook.same"
-sed -i 's#sleep 1.1; body stop partial >"\(.*\)-stop.md"#body STOP partial >"\1-same-second.md"#' "$FAKE/hook"
+perl -i -pe 's#sleep 1\.1; body stop partial >"(.*)-stop\.md"#body STOP partial >"$1-same-second.md"#' "$FAKE/hook"
 status "demo-sidekick" working devin
 run stop "$store"
 # a STOP the pane never shows gets one fallback Enter and a warning, and the
 # pane watch ends at the caller's --timeout
-sed -i 's#body STOP partial >"\(.*\)-same-second.md"#:#' "$FAKE/hook"
+perl -i -pe 's#body STOP partial >"(.*)-same-second\.md"#:#' "$FAKE/hook"
 status "demo-sidekick" working devin
 run stop "$store" --timeout 3000
 mv "$FAKE/hook.same" "$FAKE/hook"
 # a stop report under another name, with STOP in its heading, as Devin writes
 # it ("060-862-land-partial1.md": "partial (STOP)"), also ends the wait
 cp "$FAKE/hook" "$FAKE/hook.orig"
-sed -i 's#body stop partial#body STOP partial#; s#-stop.md"#-land-partial1.md"#' "$FAKE/hook"
+perl -i -pe 's#body stop partial#body STOP partial#; s#-stop\.md"#-land-partial1.md"#' "$FAKE/hook"
 status "demo-sidekick" working devin
 run stop "$store"
 # an ordinary report whose slug ends in -stop does not end the wait
-sed -i 's#body STOP partial#body report partial#; s#-land-partial1.md"#-bus-stop.md"#' "$FAKE/hook"
+perl -i -pe 's#body STOP partial#body report partial#; s#-land-partial1\.md"#-bus-stop.md"#' "$FAKE/hook"
 status "demo-sidekick" working devin
 run stop "$store" --timeout 3000
 mv "$FAKE/hook.orig" "$FAKE/hook"

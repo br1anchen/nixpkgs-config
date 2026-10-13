@@ -13,6 +13,10 @@ from pathlib import Path
 
 import tomllib
 
+# git and the scripts report resolved paths; on macOS the temp dir is under
+# /var, a link to /private/var, so tests work in the resolved one.
+tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
+
 root = Path(__file__).resolve().parents[1]
 skill = root / 'config/pstack/skills/pstack-kitchen'
 script = skill / 'scripts/kitchen.py'
@@ -2230,6 +2234,7 @@ esac
         self.assertIn(f'next: pair.sh failover {self.store} --reason provider-error', out)
         self.assertIn('pi:unready', (self.store / 'events.tsv').read_text())
 
+    @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
     def test_a_running_command_is_not_a_stale_log(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

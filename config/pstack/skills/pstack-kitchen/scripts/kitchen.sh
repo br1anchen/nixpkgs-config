@@ -614,7 +614,7 @@ cmd_step() {
 		jq -r '.profiles[]' <<<"$json" >"$job/profiles"
 		printf '%s\n' "$base" >"$job/base"
 		# shellcheck disable=SC2016
-		PSTACK_KITCHEN_RUN="$(field "$store" .slug)" setsid bash -c '
+		PSTACK_KITCHEN_RUN="$(field "$store" .slug)" detached bash -c '
 			cd "$1" || exit 1
 			rc=0
 			while IFS= read -r p; do
@@ -978,7 +978,7 @@ verifier_identity() {
 # one of clean, reject, inconclusive, invalid, provider, missing, start-failed.
 set_outcome() {
 	[ -f "$1" ] || return 0
-	sed -i "s/^verifier-outcome:.*/verifier-outcome: $2/" "$1"
+	VAL="$2" perl -i -pe 's/^verifier-outcome:.*/verifier-outcome: $ENV{VAL}/' "$1"
 }
 
 # A verifier starts with its entry's arguments, then its kind's permission
@@ -1770,7 +1770,7 @@ fb_inbox() {
 		[ -e "$f" ] || continue
 		[ ! -e "$fb/done/$(basename "$f")" ] || continue
 		filed="$(header_field "$f" filed)"
-		secs="$(date -u -d "$filed" +%s 2>/dev/null || stat -c %Y "$f")"
+		secs="$(iso_epoch "$filed" 2>/dev/null || file_mtime "$f")"
 		age=$(( (now - secs) / 60 ))
 		if [ "$age" -ge 2880 ]; then age="$((age / 1440))d"; elif [ "$age" -ge 120 ]; then age="$((age / 60))h"; else age="${age}m"; fi
 		rows+="$secs	$(header_field "$f" id)	$(sed -n 's/^run: \([^ ]*\) .*/\1/p' "$f" | head -1)	$(head -1 "$f" | sed -n 's/^.*(\(.*\))$/\1/p')	$(header_field "$f" build | cut -d' ' -f1)	$(grep -c '^### ' "$f")	$age

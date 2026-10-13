@@ -131,7 +131,7 @@ case "$1 $2" in
 	elif [ -e "$FAKE/busy-guide/$3" ]; then printf '❭ Guide Devin while it\n  works\n'
 	elif [ -e "$FAKE/busy-queue/$3" ]; then printf '── 1 ↑ edit · ↵ send now ──\n○ pstack-trio STOP\n❭ Press Enter to send\n  queued messages now\n'
 	else printf 'pane text\n'; fi ;;
-"pane split") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/p$n"; printf '{"result":{"pane":{"pane_id":"p%s"}}}\n' "$n" ;;
+"pane split") n=$(ls "$FAKE/panes" | wc -l | tr -d " "); : >"$FAKE/panes/p$n"; printf '{"result":{"pane":{"pane_id":"p%s"}}}\n' "$n" ;;
 "pane get") [ -f "$FAKE/panes/$3" ] || exit 1; printf '{"result":{}}\n' ;;
 "pane process-info")
 	[ -f "$FAKE/panes/$4" ] || exit 1
@@ -142,7 +142,7 @@ case "$1 $2" in
 	held="$(cat "$FAKE/panes/$3" 2>/dev/null)"
 	[ -z "$held" ] || rm -f "$FAKE/agents/$held"
 	rm -f "$FAKE/panes/$3"; printf '{"result":{"type":"ok"}}\n' ;;
-"tab create") n=$(ls "$FAKE/panes" | wc -l); : >"$FAKE/panes/t$n"; printf '{"result":{"type":"tab_created","tab":{"tab_id":"tab%s"},"root_pane":{"pane_id":"t%s"}}}\n' "$n" "$n" ;;
+"tab create") n=$(ls "$FAKE/panes" | wc -l | tr -d " "); : >"$FAKE/panes/t$n"; printf '{"result":{"type":"tab_created","tab":{"tab_id":"tab%s"},"root_pane":{"pane_id":"t%s"}}}\n' "$n" "$n" ;;
 "pane read")
 	if [ -e "$FAKE/trust-dialog" ]; then printf ' Quick safety check: Is this a project you created or one you\n trust?\n ❯ No, exit\n'
 	else printf 'pane text\n'; fi ;;

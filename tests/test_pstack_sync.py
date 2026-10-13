@@ -5,6 +5,10 @@ import os
 import subprocess
 import unittest
 
+# git and the scripts report resolved paths; on macOS the temp dir is under
+# /var, a link to /private/var, so tests work in the resolved one.
+tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
+
 spec = importlib.util.spec_from_file_location('pstack_sync', Path(__file__).resolve().parents[1] / 'scripts/pstack-sync.py')
 sync_module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sync_module)

@@ -16,6 +16,10 @@ import tempfile
 import time
 import unittest
 
+# git and the scripts report resolved paths; on macOS the temp dir is under
+# /var, a link to /private/var, so tests work in the resolved one.
+tempfile.tempdir = os.path.realpath(tempfile.gettempdir())
+
 root = Path(__file__).resolve().parents[1]
 here = root / 'tests/pstack-pair'
 skills = root / 'config/pstack/skills'
@@ -441,6 +445,7 @@ class ReadinessTests(unittest.TestCase):
         self.age('f.txt', 3600)
         self.assertIn('editing: last change', self.wait(4))
 
+    @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
     def test_a_running_command_wins_over_editing(self):
         self.quiet_log()
         (self.cwd / 'f.txt').write_text('changed')
@@ -531,6 +536,7 @@ class ReadinessTests(unittest.TestCase):
         out = self.run_command('wait', str(self.store), '--timeout', str(timeout_ms), code=code)
         return out, time.time() - t0
 
+    @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
     def test_a_settle_is_not_believed_while_background_work_runs(self):
         (self.fake / 'agents/demo-sidekick').write_text('done pi\n')
         out, took = self.timed_wait(5000, 4)
@@ -543,6 +549,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('running: sleep for 0m', out)
         self.assertIn('progress: none yet', out)
 
+    @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
     def test_the_digest_names_background_work_even_when_the_log_is_fresh(self):
         self.quiet_log(minutes=0)
         self.background()
@@ -550,6 +557,7 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual(out.count('running: sleep for 0m'), 1)
         self.assertNotIn('STALE', out)
 
+    @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
     def test_an_already_shown_reply_does_not_end_the_wait_while_background_work_runs(self):
         c1 = self.commit('one')
         self.step(c1)
@@ -1036,11 +1044,13 @@ esac
         brief = self.store / 'briefs/001-first.md'
         brief.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
         (self.fake / 'prompt-delay').write_text('3')
-        result = subprocess.run(['timeout', '1', str(self.script), 'dispatch', str(self.store), str(brief), '--send-only'],
-                                cwd=self.cwd, env=self.env, capture_output=True, text=True, check=False)
-        # timeout reports 124 once its limit passes, however the command ends;
-        # what matters is that the TERM did not stop the delivery.
-        self.assertIn(f'sent: BRIEF {brief}', result.stdout, result.stderr)
+        proc = subprocess.Popen([str(self.script), 'dispatch', str(self.store), str(brief), '--send-only'],
+                                cwd=self.cwd, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(1)
+        proc.terminate()
+        stdout, stderr = proc.communicate()
+        # What matters is that the TERM did not stop the delivery.
+        self.assertIn(f'sent: BRIEF {brief}', stdout, stderr)
         self.assertIn(f'agent prompt demo-sidekick pstack-pair BRIEF {brief}', (self.fake / 'calls.log').read_text())
 
     def test_live_pi_skips_the_preflight(self):

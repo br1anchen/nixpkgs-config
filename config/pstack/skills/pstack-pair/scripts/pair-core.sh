@@ -248,6 +248,35 @@ file_mtime() {
 	stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
 }
 
+# Epoch seconds of a UTC stamp as the store writes them
+# (date -u +%Y-%m-%dT%H:%M:%SZ). jq parses it, since BSD date has no -d.
+iso_epoch() {
+	jq -rn --arg t "$1" '$t | fromdateiso8601'
+}
+
+# timeout(1) where coreutils has it. macOS ships none, so perl stands in with
+# the same contract: $1 seconds, then the command; exit 124 when it runs out.
+with_timeout() {
+	if command -v timeout >/dev/null 2>&1; then
+		timeout "$@"
+	else
+		perl -e 'my $s = shift; my $p = fork // die "fork: $!\n";
+			unless ($p) { exec { $ARGV[0] } @ARGV or exit 127 }
+			local $SIG{ALRM} = sub { kill "TERM", $p; waitpid $p, 0; exit 124 };
+			alarm $s; waitpid $p, 0; exit($? & 127 ? 128 + ($? & 127) : $? >> 8)' "$@"
+	fi
+}
+
+# setsid(1) where util-linux has it. macOS ships none, so perl starts the
+# command in a session of its own.
+detached() {
+	if command -v setsid >/dev/null 2>&1; then
+		setsid "$@"
+	else
+		perl -MPOSIX -e 'POSIX::setsid(); exec { $ARGV[0] } @ARGV or exit 127' "$@"
+	fi
+}
+
 # The sidekick's reply to the last message sent: the newest report written
 # since the send that answers it: the unit's report or plan response
 # (reports/<unit>.md), a steer objection (-s<k>), or an ask (-q<k>). A stop
@@ -334,7 +363,7 @@ sidekick_activity() {
 	pane="$(field "$1" '.sidekick.pane_id // empty')"
 	at="$(field "$1" '.dispatch.at // empty')"
 	[ -n "$pane" ] && [ -n "$at" ] || return 0
-	since="$(date -d "$at" +%s 2>/dev/null)" || return 0
+	since="$(iso_epoch "$at" 2>/dev/null)" || return 0
 	busy_command "$pane" "$since"
 }
 
@@ -476,7 +505,7 @@ tree_activity() {
 		if [ "$skip" -eq 1 ]; then skip=0; continue; fi
 		case "${entry:0:2}" in R* | C*) skip=1 ;; esac
 		path="${entry:3}"
-		t="$(stat -c %Y "$cwd/$path" 2>/dev/null)" || continue
+		t="$(file_mtime "$cwd/$path" 2>/dev/null)" || continue
 		# A clock skew of a minute counts as now; a stamp further ahead is no evidence.
 		[ "$t" -le $(( now + 60 )) ] || continue
 		[ "$t" -le "$now" ] || t="$now"
@@ -496,7 +525,7 @@ tree_activity() {
 # Scope, commits since dispatch, and steer counts. Bounded, so the master can
 # poll it cheaply instead of reading the pane. $2 is the interval in minutes.
 checkin() {
-	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale run active timebox elapsed_m now
+	local store="$1" interval="${2:-9}" brief at head cwd seq slug prog total seen new age_m stale run active timebox elapsed_m now since
 	brief="$(field "$store" '.dispatch.brief // empty')"
 	[ -n "$brief" ] && [ -f "$brief" ] || return 0
 	at="$(field "$store" '.dispatch.at // empty')"
@@ -512,17 +541,19 @@ checkin() {
 	seq="$(basename "$brief" | cut -c1-3)"
 	now="$(date +%s)"
 	timebox="$(header_field "$brief" timebox | grep -oE '^[0-9]+' || true)"
-	elapsed_m=$(( (now - $(date -d "$at" +%s)) / 60 ))
-	printf 'check-in: %s  elapsed %dm of %sm\n' "$(basename "$brief")" "$elapsed_m" "${timebox:-?}"
+	# An unreadable dispatch time shows as ?, not as a failed check-in.
+	elapsed_m='?'
+	! since="$(iso_epoch "$at" 2>/dev/null)" || elapsed_m=$(( (now - since) / 60 ))
+	printf 'check-in: %s  elapsed %sm of %sm\n' "$(basename "$brief")" "$elapsed_m" "${timebox:-?}"
 	run="$(sidekick_activity "$store")"
 	prog="$(progress_path "$store")"
 	if [ -f "$prog" ]; then
-		total="$(wc -l <"$prog")"
+		total=$(( $(wc -l <"$prog") ))
 		seen=0
 		[ -f "$prog.seen" ] && seen="$(cat "$prog.seen")"
 		[ "$seen" -le "$total" ] || seen=0
 		new=$((total - seen))
-		age_m=$(( (now - $(stat -c %Y "$prog")) / 60 ))
+		age_m=$(( (now - $(file_mtime "$prog")) / 60 ))
 		stale=""
 		if [ "$age_m" -ge "$interval" ]; then
 			if [ -n "$run" ]; then
@@ -569,8 +600,8 @@ checkin() {
 		printf '  %s\n' "${outside[@]:0:30}"
 	fi
 	local sent=0 applied=0 objected=0
-	sent="$(ls "$store"/steers/"$seq"-*-s[0-9]*.md 2>/dev/null | wc -l || true)"
-	objected="$(ls "$store"/reports/"$seq"-*-s[0-9]*.md 2>/dev/null | wc -l || true)"
+	sent=$(( $(ls "$store"/steers/"$seq"-*-s[0-9]*.md 2>/dev/null | wc -l || true) ))
+	objected=$(( $(ls "$store"/reports/"$seq"-*-s[0-9]*.md 2>/dev/null | wc -l || true) ))
 	[ -f "$prog" ] && applied="$(grep -cE ' steer s[0-9]+ applied' "$prog" || true)"
 	printf 'steers: %d sent, %d applied, %d objected\n' "$sent" "${applied:-0}" "$objected"
 	local sfile
@@ -1177,7 +1208,7 @@ mcp_args() {
 	claude) printf -- '--strict-mcp-config\n--mcp-config\n%s\n' "$pair_core_dir/../references/no-mcp.json" ;;
 	codex)
 		printf -- '--disable\nplugins\n'
-		{ (cd "${2:-.}" 2>/dev/null && timeout 20 codex mcp list --json </dev/null 2>/dev/null) || true; } |
+		{ (cd "${2:-.}" 2>/dev/null && with_timeout 20 codex mcp list --json </dev/null 2>/dev/null) || true; } |
 			jq -r '.[]? | select(.enabled != false) | .name' 2>/dev/null |
 			while IFS= read -r name; do
 				[[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] && printf -- '-c\nmcp_servers.%s.enabled=false\n' "$name"
@@ -1462,7 +1493,7 @@ preflight_muse() {
 		*) shift ;;
 		esac
 	done
-	out="$(cd /tmp && timeout "$preflight_timeout_s" muse exec "${args[@]}" 'Reply with exactly: OK' </dev/null 2>&1)" || rc=$?
+	out="$(cd /tmp && with_timeout "$preflight_timeout_s" muse exec "${args[@]}" 'Reply with exactly: OK' </dev/null 2>&1)" || rc=$?
 	[ "$rc" -eq 0 ] && grep -q OK <<<"$out" && return 0
 	printf '%s\n' "$out" | tail -5 >&2
 	return 1
@@ -1488,7 +1519,7 @@ preflight_kind() {
 	local attempt rc=0
 	for attempt in 1 2; do
 		rc=0
-		out="$(timeout "$preflight_timeout_s" pi --no-session --no-approve --no-context-files --no-skills -p "${args[@]}" 'Reply with exactly: OK' 2>&1)" || rc=$?
+		out="$(with_timeout "$preflight_timeout_s" pi --no-session --no-approve --no-context-files --no-skills -p "${args[@]}" 'Reply with exactly: OK' 2>&1)" || rc=$?
 		[ "$rc" -eq 0 ] && grep -q OK <<<"$out" && return 0
 		[ "$attempt" -eq 2 ] || sleep "${PAIR_PREFLIGHT_RETRY_S:-3}"
 	done
@@ -2556,7 +2587,7 @@ cmd_status() {
 				if advice="$(latest_advice "$store" "$seq")"; then
 					astatus="$(header_field "$advice" status)"
 					[ -n "$astatus" ] || astatus="unlabelled"
-					n="$(ls "$store"/advice/"$seq"-*-c[0-9]*.md 2>/dev/null | wc -l || true)"
+					n=$(( $(ls "$store"/advice/"$seq"-*-c[0-9]*.md 2>/dev/null | wc -l || true) ))
 					[ "${n:-0}" -gt 0 ] && astatus="$astatus (c$n)"
 				fi
 				printf '| %s | %s | %s | %s | %s | %s |\n' "$seq" "$kind" "$slug" "$rstatus" "$astatus" "$verdict"
@@ -2761,7 +2792,7 @@ cmd_metrics() {
 		end = (sk_on || co_on) && now >= last ? now : last
 		if (sk_on) { running = sprintf("running: %s for %s\n", sk_unit, m(end - sk_since)); sk_busy += end - sk_since }
 		wall = end - first
-		printf "wall: %s from first event to %s\n", m(wall), sk_on || co_on ? "now" : "last"
+		printf "wall: %s from first event to %s\n", m(wall), ((sk_on || co_on) ? "now" : "last")
 		printf "sidekick: busy %s (%d%% of wall), idle %s across %d gaps; %d briefs (median %s), %d plan responses (%s)\n", \
 			m(sk_busy), wall ? 100 * sk_busy / wall : 0, m(sk_idle), sk_gaps, nb, m(median(bd, nb)), np, m(plan_sk)
 		q = 0; for (k in queued) q++
@@ -2773,8 +2804,8 @@ cmd_metrics() {
 		if (nsteps) printf "steps: %d committed, %d notes (%d blocking); step to note median %s\n", nsteps, nnotes, nblock, m(median(sl, nsl))
 		v = ""; n = split("agreed accept revise reject", order, " ")
 		for (i = 1; i <= n; i++) if (order[i] in verdicts) v = v sprintf(" %s %d", order[i], verdicts[order[i]])
-		printf "verdicts:%s\n", v == "" ? " none" : v
-		if (nb || running != "") printf "briefs:\n%s%s", bl, running == "" ? "" : "  " running
+		printf "verdicts:%s\n", (v == "" ? " none" : v)
+		if (nb || running != "") printf "briefs:\n%s%s", bl, (running == "" ? "" : "  " running)
 	}' "$store/events.tsv"
 }
 

@@ -28,7 +28,7 @@ prime_command() {
 	esac
 	local -a socket_args=()
 	[ -z "$socket" ] || socket_args=(--socket "$socket")
-	timeout "${PAIR_PRIME_COMMAND_TIMEOUT:-30}" prime-agent "$@" "${socket_args[@]}"
+	with_timeout "${PAIR_PRIME_COMMAND_TIMEOUT:-30}" prime-agent "$@" "${socket_args[@]}"
 }
 
 prime_sessions() {
@@ -115,7 +115,7 @@ preflight_prime() {
 	dir="$(mktemp -d)" || return 1
 	for attempt in 1 2; do
 		rc=0
-		out="$(HERDR_ENV=0 timeout "${PAIR_PREFLIGHT_TIMEOUT:-90}" prime-agent "$@" --cwd "$dir" --no-session \
+		out="$(HERDR_ENV=0 with_timeout "${PAIR_PREFLIGHT_TIMEOUT:-90}" prime-agent "$@" --cwd "$dir" --no-session \
 			--no-context-files --no-skills --no-prompt-templates --print --mode text \
 			'Reply with exactly: OK. Do not use tools.' 2>&1)" || rc=$?
 		if [ "$rc" -eq 0 ] && grep -qxE '[[:space:]]*OK[[:space:]]*' <<<"$out"; then
