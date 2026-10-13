@@ -204,11 +204,17 @@ def parse(data: dict) -> Kitchen:
 
     review = data.get('review', {})
     # The kitchen runs no reviewer: review is the master's step, done with
-    # whatever the repo's owner chose (a read, the agent's own review, an
-    # external tool). These keys configured one and still parse, ignored.
-    legacy_review = {'engine', 'routine', 'escalated', 'landing'}
-    _check_keys(review, 'review', {'self', 'standards', 'max_batch_diff', *legacy_review})
+    # whatever the repo's owner chose. An owner who names an engine makes it
+    # required: land-check refuses a unit whose review note cites no run of
+    # it. The per-class tables tuned a reviewer the kitchen ran; they still
+    # parse, ignored.
+    legacy_review = {'routine', 'escalated', 'landing'}
+    _check_keys(review, 'review', {'self', 'standards', 'max_batch_diff', 'engine', *legacy_review})
+    engine = review.get('engine', '')
+    if not isinstance(engine, str) or (engine and not re.fullmatch(r'[A-Za-z0-9_.-]+', engine)):
+        raise ConfigError('review.engine: expected a tool name such as "joo"')
     rev = {
+        'engine': engine,
         'self': _strings(review.get('self', []), 'review.self'),
         'standards': _strings(review.get('standards', []), 'review.standards'),
         'max_batch_diff': _int(review.get('max_batch_diff', 800), 'review.max_batch_diff', 1),
@@ -1018,8 +1024,14 @@ def doctor(root: Path, kitchen: Kitchen, source: Source, run: bool) -> list[dict
     add('verifier routine', 'ok', describe_verifier(routine))
     add('verifier fallback', 'ok', describe_verifier({**routine['fallback'], 'source': routine['source']}) if routine['fallback'] else 'none')
     add('verifier escalated', 'ok', describe_verifier(vr['verifier']['escalated']) + '; also used by verify --landing')
+    if kitchen.review['engine']:
+        engine = kitchen.review['engine']
+        found = shutil.which(f'{engine}-dev') or shutil.which(engine)
+        add('review engine', 'ok' if found else 'warn',
+            f'{engine} ({found}); land-check requires each accepted unit\'s review note to cite a run' if found
+            else f'{engine} is required by [review].engine, but neither {engine}-dev nor {engine} is on PATH')
     if kitchen.review['legacy']:
-        add('review', 'warn', f'review.{", review.".join(kitchen.review["legacy"])} configured a reviewer the kitchen no longer '
+        add('review', 'warn', f'review.{", review.".join(kitchen.review["legacy"])} tuned a reviewer the kitchen no longer '
             'runs; remove them from kitchen.toml')
     if run:
         dirty = git(root, 'status', '--porcelain').strip()
@@ -1407,7 +1419,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f'kitchen: warning: [verify] {", ".join(sorted(kitchen.verify))} moved to the host roster\'s '
                   '[verifier]; remove it from kitchen.toml', file=sys.stderr)
         if kitchen.review['legacy'] and args.cmd in ('validate', 'doctor'):
-            print(f'kitchen: warning: review.{", review.".join(kitchen.review["legacy"])} are ignored: the kitchen runs no '
+            print(f'kitchen: warning: review.{", review.".join(kitchen.review["legacy"])} are ignored: the kitchen tunes no '
                   'reviewer; remove them from kitchen.toml', file=sys.stderr)
         if args.cmd == 'snapshot':
             if source.kind in ('user', 'roster'):
@@ -1421,8 +1433,11 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.cmd == 'validate':
             emit({'ok': True, 'source': source.kind, 'path': source.label, 'profiles': list(kitchen.profiles),
-                  'self': kitchen.review['self'], 'landing': kitchen.landing, 'setup': kitchen.scratch_setup}, args.json,
-                 f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})\nsource: {source.kind} {source.label}')
+                  'self': kitchen.review['self'], 'review_engine': kitchen.review['engine'] or None,
+                  'landing': kitchen.landing, 'setup': kitchen.scratch_setup}, args.json,
+                 f'ok: {len(kitchen.profiles)} profiles ({", ".join(kitchen.profiles)})\nsource: {source.kind} {source.label}'
+                 + (f'\nreview engine: {kitchen.review["engine"]} (required: each accepted unit\'s review note cites a run)'
+                    if kitchen.review['engine'] else ''))
             return 0
         if args.cmd == 'setup':
             r = run_setup(root, kitchen, args.role)

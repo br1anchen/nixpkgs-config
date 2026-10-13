@@ -134,7 +134,15 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    - Review the unit's range (from the dispatch head, or the base `verify`
      used) with what the repo's owner uses: your own read, your agent's
      built-in review, or an external tool you run yourself. The kitchen runs
-     none of them and reads no tool's output. Decide each blocking finding:
+     none of them and reads no tool's output. When `[review].engine` is set
+     (`kitchen.py validate` prints `review engine:`), the owner requires that
+     engine on every unit: run it on the unit's range and add
+     `engine: <name> <run id or artifact path>` under the review note's
+     `head:` line, or land-check refuses the unit. For `joo`:
+     `joo-dev engine review --repo <root> --range <base>..<head> --json --out <store>/scratch/joo-NNN.json`
+     (or `joo`), cite that artifact path, and read its findings with
+     `joo-dev connected review context --artifact <path> --json`.
+     Decide each blocking finding:
      fixed (a note or a fix brief to the sidekick, queued behind its running
      unit when it is busy), a follow-up in the review note (it goes to
      `followups.md`), or dismissed with the reason. A finding that a file is

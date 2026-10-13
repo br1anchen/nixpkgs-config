@@ -119,7 +119,8 @@ Verifier: [references/verifier.md](references/verifier.md).
 4. **Review.** The master reviews the unit's range with whatever the repo's
    owner uses: its own read, the agent's built-in review, or an external
    tool it runs itself. The kitchen runs no reviewer and reads no tool's
-   output; blocking findings become notes or a fix brief, follow-ups go to
+   output, but when `[review].engine` names one, the owner requires it: the
+   master runs it on every unit and its review note cites the run; blocking findings become notes or a fix brief, follow-ups go to
    `followups.md`.
 5. **Accept.** The master's review note is short when the verdict is clean;
    a sampled unit (`audit: yes`) gets a full read.

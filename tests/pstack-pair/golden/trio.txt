@@ -159,8 +159,12 @@ consultant_status: agree
   herdr agent read demo-sidekick --source visible --lines 40
   herdr agent get demo-consultant
   herdr agent read demo-consultant --source visible --lines 40
-  herdr agent prompt demo-sidekick pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md
-  herdr agent prompt demo-consultant pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md
+  herdr agent prompt demo-sidekick pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md --wait --until working --timeout 30000
+  herdr agent get demo-sidekick
+  herdr agent read demo-sidekick --source visible --lines 12
+  herdr agent prompt demo-consultant pstack-trio PLAN <T>/state/pstack/trio/demo/plans/001-design.md --wait --until working --timeout 30000
+  herdr agent get demo-consultant
+  herdr agent read demo-consultant --source visible --lines 12
   herdr agent wait demo-sidekick --timeout <MS>
   herdr agent wait demo-consultant --timeout <MS>
 

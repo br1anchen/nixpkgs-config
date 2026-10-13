@@ -132,7 +132,10 @@ not in that set: give CI config an escalate path, and let manifests escalate.
 - **Review.** `self` lists the skills the sidekick runs on its diff;
   `standards` points at the style sections the review should hold the diff
   to. The kitchen runs no reviewer: how the master reviews (its own read, the
-  agent's built-in review, an external tool) is the owner's choice.
+  agent's built-in review, an external tool) is the owner's choice. Set
+  `engine` only when the owner requires a review tool on every unit (such as
+  `"joo"` for Judge of Owls): land-check then refuses a unit whose review
+  note cites no run of it.
 - **Landing.** Take the mode from the repo's rules (a `jj spr` stack is
   `stack`, "commit only" is `commit`). Ask the human only when the rules do
   not say. The kitchen never merges.

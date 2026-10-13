@@ -71,7 +71,7 @@ discuss_with_consultant() {
 	[[ " ${send[*]} " != *" sidekick "* ]] || require_fresh_session "$store"
 	for role in "${send[@]}"; do
 		name="$(field "$store" ".$role.name")"
-		herdr agent prompt "$name" "$PAIR_SKILL PLAN $plan" >/dev/null || die "herdr prompt failed for $name" 2
+		deliver_plan "$store" "$role" "$name" "$seq" "$plan"
 		event "$store" master send-plan "$plan" "$role"
 		printf 'sent PLAN %s to %s %s\n' "$(basename "$plan")" "$role" "$name"
 		wait_on+=("$role")
@@ -119,6 +119,32 @@ discuss_with_consultant() {
 		[ "$status" = blocked ] && rc=3
 	done
 	exit "$rc"
+}
+
+# A plan prompt must be seen working: an agent that only just went idle (the
+# last turn of its bootstrap) can drop it whole. One never seen working, with
+# nothing typed and no answer, still idle, gets the plan once more.
+deliver_plan() {
+	local store="$1" role="$2" name="$3" seq="$4" plan="$5" errfile took=0
+	errfile="$(mktemp)"
+	if herdr agent prompt "$name" "$PAIR_SKILL PLAN $plan" --wait --until working --timeout 30000 >/dev/null 2>"$errfile"; then
+		took=1
+	else
+		case "$(jq -r '.error.code // empty' "$errfile" 2>/dev/null || true)" in
+		timeout | agent_prompt_stalled) ;;
+		*) cat "$errfile" >&2; rm -f "$errfile"; die "herdr prompt failed for $name" 2 ;;
+		esac
+	fi
+	rm -f "$errfile"
+	submit_typed "$name" "$(basename "$plan")"
+	[ "$took" -eq 0 ] && [ "$submitted" -eq 0 ] && [ -z "$(plan_answer "$store" "$role" "$seq" "$plan")" ] || return 0
+	case "$(agent_status "$name")" in
+	idle | done)
+		event "$store" master plan-redeliver "$plan" "$role"
+		printf 'redelivered: %s %s sat idle without the plan; sent it again\n' "$role" "$name"
+		herdr agent prompt "$name" "$PAIR_SKILL PLAN $plan" --wait --until working --timeout 30000 >/dev/null 2>&1 || true
+		submit_typed "$name" "$(basename "$plan")" ;;
+	esac
 }
 
 # The role's answer to this plan round: its latest report or advice for the

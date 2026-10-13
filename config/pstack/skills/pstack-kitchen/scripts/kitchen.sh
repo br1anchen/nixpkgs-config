@@ -107,6 +107,12 @@ copy_fn steps_due core_steps_due
 copy_fn require_agreed_plan core_require_agreed_plan
 copy_fn plan_gate_extra advice_gate
 
+# A plan's or brief's risk class: the first word of its risk: header, which
+# a master may follow with the reason ("escalated (contract X)").
+risk_of() {
+	header_field "$1" risk | awk '{print $1}'
+}
+
 kpy() {
 	# kitchen.py against the store's repo: $1 store, rest: its arguments.
 	local store="$1"
@@ -367,10 +373,10 @@ cmd_consultant() {
 # brief's risk from these, never lowers it.
 brief_escalations() {
 	local plan
-	[ "$(header_field "$1" risk)" != escalated ] || printf 'the brief says risk: escalated\n'
+	[ "$(risk_of "$1")" != escalated ] || printf 'the brief says risk: escalated\n'
 	plan="$(header_field "$1" plan)"
 	case "$plan" in "" | none) return 0 ;; esac
-	[ ! -f "$plan" ] || [ "$(header_field "$plan" risk)" != escalated ] || printf 'escalated plan: %s\n' "$(basename "$plan")"
+	[ ! -f "$plan" ] || [ "$(risk_of "$plan")" != escalated ] || printf 'escalated plan: %s\n' "$(basename "$plan")"
 }
 
 # A host kitchen has no history, so a brief is classified, stepped and
@@ -428,7 +434,7 @@ cmd_classify() {
 # names a plan still needs it agreed.
 require_agreed_plan() {
 	local store="$1" brief="$2" plan
-	if [ "$(header_field "$brief" risk)" = escalated ]; then
+	if [ "$(risk_of "$brief")" = escalated ]; then
 		kitchen_escalated=1 core_require_agreed_plan "$@"
 		return
 	fi
@@ -544,11 +550,15 @@ cmd_queue() {
 cmd_discuss() {
 	[ $# -ge 2 ] || die "usage: kitchen.sh discuss <store> <plan-path> [--timeout MS]"
 	[ -f "$2" ] || die "plan not found: $2"
-	if [ "$(header_field "$2" risk)" = escalated ]; then
+	case "$(risk_of "$2")" in
+	routine | escalated) ;;
+	*) die "$2: risk: must start with routine or escalated, as kitchen.sh classify prints it" 2 ;;
+	esac
+	if [ "$(risk_of "$2")" = escalated ]; then
 		[ "$(agent_status "$(field "$1" .consultant.name)")" != absent ] || die "an escalated plan goes to the consultant too; start it: kitchen.sh consultant $1 --reason TEXT" 5
 	fi
 	rotate_if_due "$1" plan
-	if [ "$(header_field "$2" risk)" = escalated ]; then
+	if [ "$(risk_of "$2")" = escalated ]; then
 		discuss_with_consultant "$@"
 	else
 		core_discuss "$@"
@@ -560,7 +570,7 @@ cmd_discuss() {
 steps_due() {
 	local brief
 	brief="$(field "$1" '.dispatch.brief // empty')"
-	[ -n "$brief" ] && [ "$(header_field "$brief" risk)" = escalated ] || return 1
+	[ -n "$brief" ] && [ "$(risk_of "$brief")" = escalated ] || return 1
 	core_steps_due "$@"
 }
 
@@ -894,7 +904,7 @@ cmd_verify() {
 		 | if $kind == "prime-agent" then .verifier.start_args = $native | .verifier.session = null | .verifier.session_stopped = false | .verifier.closed = false | .verifier.launch_cwd = $launch_cwd else . end
 		 | .verifying = {verdict: $verdict, packet: $packet, brief: $brief, scratch: $scratch, units: $units,
 		                 risk: $risk, sample: $sample, unit: $unit, started: $started, deadline: $deadline,
-		                 class: $class, entry: $entry, retried: $retried, argv: $argv}'
+		                 class: $class, entry: $entry, retried: $retried, argv: $argv, delivered: false}'
 	set_outcome "$packet" running
 	if [ "$kind" = prime-agent ]; then
 		if [ "$start_failed" -eq 1 ]; then
@@ -912,18 +922,15 @@ cmd_verify() {
 	# idle agent gets one more Enter, which submits the typed text. A startup
 	# screen can also swallow the prompt whole: an agent never seen working,
 	# with nothing typed and no verdict, still idle, gets the packet once more.
-	local vprompt="Load the $PAIR_SKILL skill from ~/.agents/skills/$PAIR_SKILL/SKILL.md and take the verifier role. $PAIR_SKILL VERIFY $packet" took=0
-	herdr agent prompt "$name" "$vprompt" --wait --until working --timeout 30000 >/dev/null 2>&1 && took=1
+	local took=0
+	herdr agent prompt "$name" "$(verify_prompt "$packet")" --wait --until working --timeout 30000 >/dev/null 2>&1 && took=1
 	submit_typed "$name" "$(basename "$packet")"
 	if [ "$took" -eq 0 ] && [ "$submitted" -eq 0 ] && [ ! -f "$verdict" ]; then
 		case "$(agent_status "$name")" in
-		idle | "done")
-			event "$store" master verify-redeliver "$brief" "$kind"
-			printf 'redelivered: the verifier sat idle without the packet; sent it again\n'
-			herdr agent prompt "$name" "$vprompt" --wait --until working --timeout 30000 >/dev/null 2>&1 || true
-			submit_typed "$name" "$(basename "$packet")" ;;
+		idle | "done") redeliver_packet "$store" "the verifier sat idle without the packet" ;;
 		esac
 	fi
+	json_update "$store" '.verifying.delivered = true'
 	record_verifier_session "$store" "$name"
 	verify_wait "$store" "$every_m"
 }
@@ -1106,12 +1113,35 @@ verify_grace() {
 # stall: a verifier idle for KITCHEN_VERIFY_IDLE_S (default 600) with no
 # verdict and no process of its own still running in its pane, which would
 # otherwise sit out the whole deadline.
+verify_prompt() {
+	printf 'Load the %s skill from ~/.agents/skills/%s/SKILL.md and take the verifier role. %s VERIFY %s' "$PAIR_SKILL" "$PAIR_SKILL" "$PAIR_SKILL" "$1"
+}
+
+# Sends the open verification's packet once more; $2 says why.
+redeliver_packet() {
+	local store="$1" name packet
+	name="$(field "$store" .verifier.name)"
+	packet="$(field "$store" .verifying.packet)"
+	event "$store" master verify-redeliver "$(field "$store" .verifying.brief)" "$(field "$store" .verifier.kind)"
+	printf 'redelivered: %s; sent it again\n' "$2"
+	herdr agent prompt "$name" "$(verify_prompt "$packet")" --wait --until working --timeout 30000 >/dev/null 2>&1 || true
+	submit_typed "$name" "$(basename "$packet")"
+}
+
 verify_wait() {
 	local store="$1" every_m="$2" verdict name kind until state="" now idle_since stalled=0
 	verdict="$(field "$store" .verifying.verdict)"
 	name="$(field "$store" .verifier.name)"
 	kind="$(field "$store" .verifier.kind)"
 	until=$(( $(date +%s) + every_m * 60 ))
+	# A verify stopped between the verifier's start and its packet leaves the
+	# verifier idle with nothing to do, until the stall check closes it.
+	if [ "$(field "$store" .verifying.delivered)" = false ] && [ ! -f "$verdict" ]; then
+		case "$(agent_status "$name")" in
+		idle | "done") redeliver_packet "$store" "the verify that started this verifier stopped before sending its packet" ;;
+		esac
+		json_update "$store" '.verifying.delivered = true'
+	fi
 	while :; do
 		[ -f "$verdict" ] && [ -n "$(header_field "$verdict" status)" ] && break
 		state="$(agent_status "$name")"
@@ -1353,9 +1383,13 @@ PY
 land_check() {
 	# Prints one line per problem; returns 1 when there is any. A unit with no
 	# clean verdict of its own is covered by the latest landing verdict when
-	# that one is clean and its range's head contains the unit's head.
-	local store="$1" r seq brief verdict f problems=0 uhead
+	# that one is clean and its range's head contains the unit's head. A
+	# kitchen that names a review engine requires each accepted unit's review
+	# note to cite a run of it: "engine: <name> <run id or artifact path>".
+	local store="$1" r seq brief verdict f problems=0 uhead engine cited
 	local landing_verdict="" landing_head="" lk best=0
+	engine="$(kpy "$store" --json validate 2>/dev/null | jq -r '.review_engine // empty')" ||
+		{ printf 'kitchen: validate fails (kitchen.py validate shows why)\n'; return 1; }
 	for f in "$store"/verdicts/landing-v[0-9]*.md; do
 		[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
 		lk="${f##*-v}"
@@ -1372,6 +1406,14 @@ land_check() {
 		brief="$(ls "$store"/briefs/"$seq"-*.md 2>/dev/null | head -1 || true)"
 		[ -n "$brief" ] && [ "$(header_field "$brief" commit | cut -c1-3)" = yes ] || continue
 		is_landing "$brief" && continue
+		if [ -n "$engine" ]; then
+			cited="$(header_field "$r" engine)"
+			if [ "${cited%% *}" != "$engine" ] || [ "${cited#* }" = "$cited" ]; then
+				printf 'unreviewed: unit %s cites no %s run; review its range with %s and add "engine: %s <run id or artifact path>" to %s\n' \
+					"$seq" "$engine" "$engine" "$engine" "$r"
+				problems=$((problems + 1))
+			fi
+		fi
 		verdict=""
 		for f in "$store"/verdicts/*-v[0-9]*.md; do
 			[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
@@ -1396,7 +1438,7 @@ land_check() {
 		printf 'landing verification: none; kitchen.sh verify %s --landing proves the stack tip with a fresh verifier\n' "$store"
 	fi
 	[ "$problems" -eq 0 ] || return 1
-	printf 'land-check: pass\n'
+	printf 'land-check: pass (review engine: %s)\n' "${engine:-none}"
 }
 
 cmd_land_check() {

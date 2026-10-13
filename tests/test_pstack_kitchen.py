@@ -637,15 +637,30 @@ class DoctorTests(KitchenTests):
         self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["true"]', 'fast = ["nosuchtool --x"]'))
         self.assertEqual(self.checks(code=3)['commands']['items'], ['contracts.fast: nosuchtool'])
 
-    def test_verification_skill_and_a_legacy_reviewer_warns(self):
+    def test_verification_skill_a_required_engine_and_a_legacy_reviewer_table(self):
         self.write('.agents/skills/verify-demo/SKILL.md', '---\nname: verify-demo\n---\n')
         self.write('.agents/kitchen.toml', KITCHEN + '\n[review]\nengine = "joo"\n[review.escalated]\nstyle = "thorough"\n')
+        bin_dir = Path(self.tmp.name) / 'bin'
+        bin_dir.mkdir()
+        self.env['PATH'] = f'{bin_dir}:/usr/bin:/bin'
         c = self.checks()
         self.assertEqual(c['verification skill'], {'check': 'verification skill', 'status': 'ok',
                                                    'detail': '.agents/skills/verify-demo', 'items': []})
         self.assertEqual(c['review']['status'], 'warn')
-        self.assertIn('review.engine, review.escalated', c['review']['detail'])
-        self.assertIn('the kitchen runs no reviewer', self.run_kitchen('validate'))
+        self.assertIn('review.escalated tuned a reviewer', c['review']['detail'])
+        self.assertEqual(c['review engine']['status'], 'warn')
+        self.assertIn('neither joo-dev nor joo is on PATH', c['review engine']['detail'])
+        (bin_dir / 'joo').write_text('#!/bin/sh\n')
+        (bin_dir / 'joo').chmod(0o755)
+        c = self.checks()
+        self.assertEqual(c['review engine']['status'], 'ok')
+        self.assertIn(f'joo ({bin_dir}/joo); land-check requires', c['review engine']['detail'])
+        out = self.run_kitchen('validate')
+        self.assertIn('review.escalated are ignored: the kitchen tunes no reviewer', out)
+        self.assertIn('review engine: joo (required', out)
+        self.assertEqual(self.data('validate')['review_engine'], 'joo')
+        self.write('.agents/kitchen.toml', KITCHEN + '\n[review]\nengine = "joo; rm"\n')
+        self.assertIn('review.engine: expected a tool name', self.run_kitchen('validate', code=1))
 
     def test_run_records_a_baseline_and_fails_on_red(self):
         c = self.checks('--run')
@@ -1370,6 +1385,25 @@ esac
         start = [line for line in (self.fake / 'calls.log').read_text().splitlines() if line.startswith('agent start demo-master-g2')][-1]
         self.assertNotIn('--remote-control', start)
 
+    def test_a_required_review_engine_holds_land_check_until_each_review_note_cites_a_run(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        self.run_sh('verify', str(self.store), '001')
+        review = self.store / 'reviews/001-util.md'
+        review.write_text('verdict: accept\n')
+        self.assertIn('land-check: pass (review engine: none)', self.run_sh('land-check', str(self.store)))
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + 'engine = "joo"\n')
+        for note in ('verdict: accept\n', 'verdict: accept\nengine: joo\n', 'verdict: accept\nengine: codex r1\n'):
+            review.write_text(note)
+            out = self.run_sh('land-check', str(self.store), code=2)
+            self.assertIn(f'unreviewed: unit 001 cites no joo run; review its range with joo and add "engine: joo <run id or artifact path>" to {review}', out)
+        review.write_text('verdict: accept\nhead: x\nengine: joo /tmp/joo-001.json\n')
+        self.assertIn('land-check: pass (review engine: joo)', self.run_sh('land-check', str(self.store)))
+
     def test_verify_nudges_a_handoff_after_the_configured_number_of_units(self):
         self.env['KITCHEN_MASTER_ROTATE_UNITS'] = '2'
         heads = self.three_units()
@@ -1687,6 +1721,24 @@ esac
     def test_a_verifier_that_got_its_packet_is_not_sent_it_again(self):
         self.deadline_verify('clean')
         self.assertNotIn('verify-redeliver', (self.store / 'events.tsv').read_text())
+
+    def test_wait_sends_the_packet_a_stopped_verify_never_sent(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 9\n')
+        self.write('tests/test_app.py', 'x = 9\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        state = self.state()
+        self.assertTrue(state['verifying']['delivered'])
+        # Stopped between the verifier's start and its packet.
+        state['verifying']['delivered'] = False
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.fake / 'verdict-mode').write_text('clean')
+        out = self.run_sh('verify', str(self.store), '--wait')
+        self.assertIn('redelivered: the verify that started this verifier stopped before sending its packet', out)
+        self.assertIn('status: clean', out)
 
     def test_an_idle_verifier_with_nothing_running_stalls_before_its_deadline(self):
         self.env.update({'KITCHEN_VERIFY_IDLE_S': '0', 'KITCHEN_VERIFY_POLL_S': '0'})
@@ -2137,6 +2189,33 @@ esac
         out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1', code=5)
         self.assertIn('consultant demo-consultant is working; wait for it before a plan round', out)
 
+    def consultant_plan(self, risk):
+        state = self.state()
+        state['consultant'] = {'name': 'demo-consultant', 'kind': 'codex'}
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.fake / 'agents/demo-consultant').write_text('idle codex\n')
+        plan = self.store / 'plans/001-api.md'
+        plan.parent.mkdir(exist_ok=True)
+        plan.write_text(f'# Plan 001: api\n\nrisk: {risk}\n')
+        return plan
+
+    def test_a_plan_whose_risk_carries_its_reason_still_reaches_the_consultant(self):
+        plan = self.consultant_plan('escalated (contract `Card`, Firestore schema)')
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        self.assertIn('sent PLAN 001-api.md to consultant', out)
+        self.assertIn('consultant_status: agree', out)
+        plan.write_text('# Plan 001: api\n\nrisk: high\n')
+        self.assertIn('risk: must start with routine or escalated', self.run_sh('discuss', str(self.store), str(plan), code=2))
+
+    def test_a_plan_dropped_by_an_idle_recipient_is_sent_once_more(self):
+        plan = self.consultant_plan('escalated')
+        (self.fake / 'prompt-drop').touch()
+        out = self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        self.assertRegex(out, r'redelivered: (sidekick demo-sidekick|consultant demo-consultant) sat idle without the plan')
+        self.assertIn('sidekick_status: agree', out)
+        self.assertIn('consultant_status: agree', out)
+        self.assertEqual((self.store / 'events.tsv').read_text().count('\tplan-redeliver\t'), 1)
+
     def test_a_rotation_that_never_gets_ready_names_the_provider_error_and_the_failover(self):
         state = self.state()
         state['sidekick']['rotation_required'] = True
@@ -2319,7 +2398,7 @@ esac
         landing = self.brief('002', 'land', ['src/**'], playbook='opening-a-pr')
         self.assertIn('landing refused', self.dispatch(landing, code=2))
         self.run_sh('verify', str(self.store), '001')
-        self.assertIn('land-check: pass\n', self.run_sh('land-check', str(self.store)))
+        self.assertIn('land-check: pass (review engine: none)\n', self.run_sh('land-check', str(self.store)))
         self.run_sh('review', str(self.store), '001', code=1)
         self.assertFalse((self.store / 'joo').exists())
 
