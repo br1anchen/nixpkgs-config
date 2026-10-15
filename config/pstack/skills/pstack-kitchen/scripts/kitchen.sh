@@ -470,6 +470,12 @@ is_landing() {
 # Scope, an objection, an open blocking note, a timebox overrun, a pause),
 # or after --max minutes (KITCHEN_QUIET_MAX_S; default an hour) with the
 # latest digest. Run it in the harness's background mode where there is one.
+# KITCHEN_QUIET_CLOCK, a file holding epoch seconds, replaces the wall clock
+# for that --max check; tests move it at a fixed point instead of waiting.
+quiet_now() {
+	if [ -n "${KITCHEN_QUIET_CLOCK:-}" ] && [ -r "$KITCHEN_QUIET_CLOCK" ]; then cat "$KITCHEN_QUIET_CLOCK"; else date +%s; fi
+}
+
 quiet_flagged() {
 	grep -qE 'STALE|^outside scope: [1-9]|[1-9][0-9]* objected|[1-9][0-9]* blocking notes open|^paused:' <<<"$1" && return 0
 	local spent box
@@ -487,16 +493,16 @@ quiet_wait() {
 		*) args+=("$1"); shift ;;
 		esac
 	done
-	start="$(date +%s)"
+	start="$(quiet_now)"
 	while :; do
 		rc=0
 		out="$(PAIR_QUIET_WAIT=1 core_wait "$store" "${args[@]}")" || rc=$?
-		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out" && [ $(( $(date +%s) - start )) -lt "$max" ]; then
+		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out" && [ $(( $(quiet_now) - start )) -lt "$max" ]; then
 			sleep "${KITCHEN_QUIET_POLL_S:-1}"
 			continue
 		fi
 		[ "$rc" -ne 4 ] || ! grep -q '^check-in:' <<<"$out" || quiet_flagged "$out" ||
-			printf 'quiet: %sm with nothing flagged; the sidekick works on\n' "$(( ($(date +%s) - start) / 60 ))"
+			printf 'quiet: %sm with nothing flagged; the sidekick works on\n' "$(( ($(quiet_now) - start) / 60 ))"
 		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then
 			event "$store" master wake "$(field "$store" '.dispatch.brief // empty')" \
 				"$(grep -q 'written but not ready' <<<"$out" && echo report:unready || echo checkin)"
