@@ -189,17 +189,22 @@ require_filled() {
 checkin_interval_m=9
 
 # Recorded at dispatch so a check-in can measure elapsed time, commits, and
-# files touched against this brief.
+# files touched against this brief. A brief sent again whose report is still
+# on disk has that report marked shown, so only a write after the send is the
+# reply.
 record_dispatch() {
-	local store="$1" brief="$2" cwd now head
+	local store="$1" brief="$2" cwd now head old seen=""
+	old="$(expected_report "$store" "$brief")"
+	[ ! -f "$old" ] || seen="$old:$(file_mtime "$old")"
 	cwd="$(field "$store" .cwd)"
 	now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 	head="$(git -C "$cwd" rev-parse HEAD 2>/dev/null || printf '')"
-	json_update "$store" --arg brief "$brief" --arg now "$now" --arg head "$head" \
+	json_update "$store" --arg brief "$brief" --arg now "$now" --arg head "$head" --arg seen "$seen" \
 		--argjson epoch "$(date +%s)" \
 		'.dispatch = {brief: $brief, at: $now, head: $head, generation: (.sidekick.generation // 0)} | .sent = {file: $brief, kind: "BRIEF", at: $now, epoch: $epoch}
+		 | (if $seen == "" then . else .sent.seen = $seen end)
 		 | .heads[$brief | split("/") | last | rtrimstr(".md")] //= $head
-		 | .pending = ((.pending // []) + [$brief] | unique)'
+		 | .pending = ((.pending // []) + (if $seen == "" then [$brief] else [] end) | unique)'
 }
 
 # Briefs whose report the master has not been shown yet. A wait surfaces the

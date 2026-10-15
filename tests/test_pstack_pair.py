@@ -395,6 +395,19 @@ class ReadinessTests(unittest.TestCase):
         out = self.wait(0)
         self.assertIn(f'report: {self.report}\nreport_status: done', out)
 
+    def test_a_resent_brief_is_not_answered_by_its_earlier_report(self):
+        self.write_report(self.commit('one'), 'blocked')
+        os.utime(self.report, (1_000_000, 1_000_000))
+        self.assertIn('report_status: blocked', self.wait(0))
+        (self.fake / 'agents/demo-sidekick').write_text('idle pi\n')
+        self.run_command('dispatch', str(self.store), str(self.brief), '--timeout', '1', code=4)
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        out = self.wait(4)
+        self.assertNotIn('report_status', out)
+        self.assertNotIn(f'report: {self.report}', out)
+        self.write_report(self.commit('two'))
+        self.assertIn(f'report: {self.report}\nreport_status: done', self.wait(0))
+
     def test_finish_refuses_a_report_that_is_not_ready(self):
         c1 = self.commit('one')
         self.step(c1)
