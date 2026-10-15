@@ -1224,6 +1224,13 @@ class FleetTests(unittest.TestCase):
         runs, _ = self.fleet()
         self.assertEqual((runs['p']['verified_units'], runs['p']['clean_first_try']), (1, 1))
 
+    def test_last_ends_at_the_final_working_event_not_the_close_rows(self):
+        self.store('c', pair={}, events=[(100, 'master', 'init', ''), (500, 'master', 'feedback', 'x'),
+                                         (4100, 'master', 'close', 'master'), (4101, 'master', 'close', 'sidekick')])
+        self.store('only', pair={}, events=[(7, 'master', 'close', 'master')])
+        runs, _ = self.fleet()
+        self.assertEqual((runs['c']['last'], runs['only']['last']), (500, 7))
+
     def test_mixed_and_unstamped_runs_get_their_own_build_rows(self):
         self.store('m', pair={'skill_builds': [{'path': '/s/one'}, {'path': '/s/two'}]}, events=[(10, 'master', 'wake', '')])
         self.store('u', pair={}, events=[(20, 'master', 'wake', '')])

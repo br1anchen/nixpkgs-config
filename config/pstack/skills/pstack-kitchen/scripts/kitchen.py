@@ -1307,6 +1307,13 @@ def repo_label(git_root: str) -> str:
     return common.parent.name if common.name == '.git' else common.name.removesuffix('.git')
 
 
+def last_working_event(events: list[list[str]]) -> int | None:
+    """The newest event time, ignoring the `close` rows written when the panes are freed, often hours after the work."""
+    stamps = [e[1] for e in events if len(e) > 3 and e[3] != 'close' and e[1].isdigit()] or \
+             [e[1] for e in events if len(e) > 1 and e[1].isdigit()]
+    return int(stamps[-1]) if stamps else None
+
+
 def run_counters(store: Path) -> dict:
     """One run's counters, read-only. Every file is optional: an older or partial store gives zeros."""
     pair = _json(store / 'pair.json')
@@ -1358,7 +1365,7 @@ def run_counters(store: Path) -> dict:
     return {
         'run': store.name, 'repo': repo_label(pair.get('git_root') or ''), 'build': build,
         'started': int(events[0][1]) if events and events[0][1].isdigit() else None,
-        'last': int(events[-1][1]) if events and events[-1][1].isdigit() else None,
+        'last': last_working_event(events),
         'done_units': done, 'verified_units': len(verified), 'gates_only_units': len(gates_only),
         'clean_first_try': clean_first, 'landing': landing, 'wakes': wakes,
         'wakes_per_verified': round(wakes / len(verified), 1) if verified else None,
