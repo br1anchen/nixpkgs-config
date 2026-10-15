@@ -1218,6 +1218,12 @@ class FleetTests(unittest.TestCase):
         self.assertEqual((a['clean_first_try'], a['build'], a['started'], a['last']), (2, 'abc123', 100, 400))
         self.assertEqual(builds['abc123']['runs'], 1)
 
+    def test_a_verdict_slug_containing_packet_still_counts(self):
+        self.store('p', pair={}, events=[(10, 'master', 'init', '')],
+                   verdicts=[('003-packet-hardening-v1', 'clean', '003'), ('003-packet-hardening-v1-packet', 'clean', '999')])
+        runs, _ = self.fleet()
+        self.assertEqual((runs['p']['verified_units'], runs['p']['clean_first_try']), (1, 1))
+
     def test_mixed_and_unstamped_runs_get_their_own_build_rows(self):
         self.store('m', pair={'skill_builds': [{'path': '/s/one'}, {'path': '/s/two'}]}, events=[(10, 'master', 'wake', '')])
         self.store('u', pair={}, events=[(20, 'master', 'wake', '')])

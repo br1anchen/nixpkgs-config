@@ -1325,7 +1325,7 @@ def run_counters(store: Path) -> dict:
     clean_first = 0
     landing = None
     for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md')):
-        if v.stem.endswith('-packet') or 'packet' in v.name:
+        if v.stem.endswith('-packet'):
             continue
         status = _header(v, 'status')
         ok = status.startswith('clean')
@@ -1540,7 +1540,7 @@ def retro_rows(store: Path, run: str, ts: str) -> list[tuple[str, ...]]:
             for cls, match, finding in gate_failures(store, g[1], g[2]) or [(g[4], '', '')]:
                 rows.append((ts, run, 'gate-fail', cls, f'{g[1]} {g[2]}', g[1][:3], area, finding, match))
     for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md')):
-        if 'packet' in v.name or _header(v, 'status').split(' ')[0] != 'reject':
+        if v.stem.endswith('-packet') or _header(v, 'status').split(' ')[0] != 'reject':
             continue
         units = _header(v, 'units').split()
         rows.append((ts, run, 'reject', 'verify', v.stem, ' '.join(units), unit_area(store, units),
@@ -2156,7 +2156,7 @@ def lesson_rows(store: Path, run: str, ts: str, trouble: list[tuple[str, ...]]) 
         return (m.group(1), int(m.group(2))) if m else (v.stem, 0)
     # Oldest first (v10 after v2), so a later held never hides an earlier hit.
     verdicts = [(v, _header(v, 'status').split(' ')[0], _header(v, 'units').split(), _header(v, 'verifier') == 'gates')
-                for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md'), key=order) if 'packet' not in v.name]
+                for v in sorted((store / 'verdicts').glob('*-v[0-9]*.md'), key=order) if not v.stem.endswith('-packet')]
     by_unit: dict[str, list[dict[str, str]]] = {}
     for b in sorted((store / 'briefs').glob('[0-9][0-9][0-9]-*.md')):
         for x in brief_lessons(b):
