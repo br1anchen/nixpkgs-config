@@ -947,25 +947,28 @@ esac
         self.assertEqual(len(self.bootstrap_prompts()), 1)
         self.assertNotIn('send-keys', (self.fake / 'calls.log').read_text())
 
+    def once(self, subcommand, script):
+        """Run `script` at the fake herdr's next `agent <subcommand>` call."""
+        f = self.fake / 'once' / subcommand
+        f.parent.mkdir(exist_ok=True)
+        f.write_text(f'#!/usr/bin/env bash\n{script}\n')
+        f.chmod(0o755)
+
     def test_a_ready_file_that_lands_between_the_stall_and_the_recheck_is_not_resent(self):
         (self.fake / 'prompt-drop').write_text('')
-        ready = self.store / 'reports/000-ready.md'
-        env = {**self.env, 'PAIR_SUBMIT_CHECK_S': '2'}
-        self.env = env
-        # The agent answers late: the ready file appears during the recheck pause.
-        late = subprocess.Popen(['bash', '-c', f'sleep 1; printf "status: done\\n" >{ready}'])
-        self.addCleanup(late.wait)
+        # The agent answers late: the ready file appears after the stall, at the
+        # pane read that looks for a typed prompt, before the recheck.
+        self.once('read', f'printf "status: done\\n" >{self.store}/reports/000-ready.md')
         out = self.spawn_pi()
         self.assertEqual(len(self.bootstrap_prompts()), 1)
         self.assertIn('ready:', out)
 
     def test_a_generation_change_before_the_recheck_stops_the_recovery(self):
         (self.fake / 'prompt-drop').write_text('')
-        self.env = {**self.env, 'PAIR_SUBMIT_CHECK_S': '2', 'PAIR_BOOTSTRAP_WAIT_MS': '1000'}
-        bump = (f"sleep 1; jq '.sidekick.generation += 1' {self.store}/pair.json >{self.store}/pair.json.new"
-                f" && mv {self.store}/pair.json.new {self.store}/pair.json")
-        late = subprocess.Popen(['bash', '-c', bump])
-        self.addCleanup(late.wait)
+        self.env = {**self.env, 'PAIR_BOOTSTRAP_WAIT_MS': '1000'}
+        # Another spawn takes the role after the stall, before the recheck.
+        self.once('read', f"jq '.sidekick.generation += 1' {self.store}/pair.json >{self.store}/pair.json.new"
+                          f" && mv {self.store}/pair.json.new {self.store}/pair.json")
         self.spawn_pi(code=3)
         self.assertEqual(len(self.bootstrap_prompts()), 1)
         self.assertNotIn('send-keys', (self.fake / 'calls.log').read_text())

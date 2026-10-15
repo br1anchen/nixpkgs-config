@@ -485,7 +485,7 @@ quiet_wait() {
 		rc=0
 		out="$(core_wait "$store" "${args[@]}")" || rc=$?
 		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out" && [ $(( $(date +%s) - start )) -lt "$max" ]; then
-			sleep 1
+			sleep "${KITCHEN_QUIET_POLL_S:-1}"
 			continue
 		fi
 		[ "$rc" -ne 4 ] || ! grep -q '^check-in:' <<<"$out" || quiet_flagged "$out" ||

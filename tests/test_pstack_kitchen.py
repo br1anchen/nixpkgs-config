@@ -1293,7 +1293,7 @@ class KitchenScriptTests(unittest.TestCase):
                     'PATH': f'{root / "tests/pstack-pair/bin"}:{os.environ["PATH"]}',
                     'HOME': str(t / 'home'), 'XDG_STATE_HOME': str(t / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SETTLE_HOLD': '0',
-                    'PAIR_SUBMIT_CHECK_S': '0', 'KITCHEN_QUIET_MAX_S': '20', 'PSTACK_KITCHEN_LOAD': '1 8',
+                    'PAIR_SUBMIT_CHECK_S': '0', 'KITCHEN_QUIET_MAX_S': '20', 'KITCHEN_QUIET_POLL_S': '0', 'PSTACK_KITCHEN_LOAD': '1 8',
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
@@ -1575,17 +1575,28 @@ esac
         self.assertTrue(any(w >= 2 for w in waited), waited)
 
     def test_quiet_wait_skips_unflagged_check_ins(self):
-        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
-        self.env['KITCHEN_QUIET_MAX_S'] = '3'
-        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
-        self.assertIn('quiet: 0m with nothing flagged', out)
-        checkins = [l for l in (self.store / 'events.tsv').read_text().splitlines() if l.endswith('\tcheckin')]
-        self.assertGreater(len(checkins), 1)
+        checkins = lambda: sum(l.endswith('\tcheckin') for l in (self.store / 'events.tsv').read_text().splitlines())
+        # Past --max, an unflagged check-in comes back, marked quiet.
+        self.env['KITCHEN_QUIET_MAX_S'] = '0'
+        self.assertIn('quiet: 0m with nothing flagged', self.run_sh('wait', str(self.store), '--timeout', '1', code=4))
+        # A flagged one comes back at once, unmarked.
+        self.env['KITCHEN_QUIET_MAX_S'] = '3600'
         self.write('elsewhere.txt', 'x\n')
         out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
         self.assertIn('outside scope: 1', out)
         self.assertNotIn('quiet:', out)
+        (self.repo / 'elsewhere.txt').unlink()
+        # The sidekick reports on the second wait: the master sleeps through the
+        # unflagged check-in before it and wakes on the report.
+        (self.fake / 'report-after').write_text(f'2 {self.store / "reports" / b.name} partial\n')
+        before = checkins()
+        out = self.run_sh('wait', str(self.store), '--timeout', '1')
+        self.assertIn('report_status: partial', out)
+        self.assertNotIn('check-in:', out)
+        self.assertEqual(checkins(), before + 1)
 
     def test_gates_see_the_step_base(self):
         self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()

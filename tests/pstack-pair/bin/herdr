@@ -6,6 +6,12 @@ set -u
 : "${FAKE:?}"
 mkdir -p "$FAKE/agents" "$FAKE/panes"
 printf '%s\n' "$*" >>"$FAKE/calls.log"
+# $FAKE/once/<subcommand>: a script run once, at the next `agent <subcommand>`
+# call, so a scenario changes state at a set point rather than after a sleep.
+if [ "$1" = agent ] && [ -x "$FAKE/once/$2" ]; then
+	mv "$FAKE/once/$2" "$FAKE/once/$2.ran"
+	"$FAKE/once/$2.ran"
+fi
 ok() { printf '{"result":{"agent":{"agent_status":"%s","agent":"%s"}}}\n' "$1" "${2:-}"; }
 resolve() { if [ -s "$FAKE/panes/$1" ]; then cat "$FAKE/panes/$1"; else printf '%s' "$1"; fi; }
 status_of() { [ -f "$FAKE/agents/$1" ] && cut -d' ' -f1 "$FAKE/agents/$1"; }
@@ -90,14 +96,15 @@ case "$1 $2" in
 	if [ "$s" = working ] && [ -s "$FAKE/lies" ] && [ "$(cat "$FAKE/lies")" -gt 0 ]; then
 		echo $(( $(cat "$FAKE/lies") - 1 )) >"$FAKE/lies"; ok idle; exit 0
 	fi
-	# $FAKE/report-after "N path": the agent finishes on the Nth wait call.
+	# $FAKE/report-after "N path [status]": the agent finishes on the Nth wait
+	# call, with a report of that status (done by default).
 	if [ -s "$FAKE/report-after" ]; then
-		read -r n path <"$FAKE/report-after"
+		read -r n path rstatus <"$FAKE/report-after"
 		if [ "$n" -le 1 ]; then
-			printf '# Report\n\nstatus: done\n' >"$path"; rm -f "$FAKE/report-after"
+			printf '# Report\n\nstatus: %s\n' "${rstatus:-done}" >"$path"; rm -f "$FAKE/report-after"
 			printf 'idle devin\n' >"$FAKE/agents/$3"; ok idle; exit 0
 		fi
-		printf '%s %s\n' $((n - 1)) "$path" >"$FAKE/report-after"
+		printf '%s %s %s\n' $((n - 1)) "$path" "${rstatus:-}" >"$FAKE/report-after"
 	fi
 	if [ "$s" = working ]; then sleep 0.2; printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
 	ok "$s" ;;
