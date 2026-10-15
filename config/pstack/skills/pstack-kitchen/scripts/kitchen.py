@@ -10,6 +10,7 @@ Exit codes: 0 ok, 1 usage or config error, 2 a gate or policy check failed,
 from __future__ import annotations
 
 import argparse
+import contextlib
 import fcntl
 import hashlib
 import json
@@ -570,7 +571,12 @@ def acquire_slot(lock_dir: Path, prefix: str, slots: int, on_wait=None):
 # Heavy profiles share max_parallel_heavy slots across every kitchen on the
 # machine, so a verifier's build never races the sidekick's.
 def heavy_slot(root: Path, kitchen: Kitchen):
-    return acquire_slot(state_dir(root).parent, 'heavy', kitchen.max_parallel_heavy)[0]
+    """The held heavy slot and the seconds spent waiting for it."""
+    slot, waited = acquire_slot(state_dir(root).parent, 'heavy', kitchen.max_parallel_heavy)
+    if waited >= 2:
+        n = kitchen.max_parallel_heavy
+        print(f'kitchen: waited {waited:.0f}s for one of {n} heavy slot{"s" if n > 1 else ""}', file=sys.stderr)
+    return slot, waited
 
 
 # Every gate takes one of the machine's gate slots, shared by all kitchens on
@@ -823,52 +829,53 @@ def gate_timing(root: Path, profiles: list[str], stage: str, last: int = 10) -> 
 
 def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str, commands: list, log_dir: Path,
               keep_going: bool, only: int | None, result: Path | None, role: str, inside: bool, wrap: str) -> dict:
-    pool, waited = (None, 0.0)
-    if commands and not inside:
-        slots = machine_gate_slots()
-        def queued(pos, n):
-            print(f'kitchen: queued {pos} of {n} for {slots} machine gate slot{"s" if slots > 1 else ""}',
-                  file=sys.stderr, flush=True)
-        pool, waited = acquire_slot(state_dir(root).parent, 'gate', slots, queued)
-        if waited >= 2:
-            print(f'kitchen: waited {waited:.0f}s for one of {slots} machine gate slots', file=sys.stderr)
-    if wrap and commands and not inside:
-        slot = heavy_slot(root, kitchen) if p.heavy else None
-        try:
+    # A heavy gate takes the heavy slot first and the machine gate slot second,
+    # so one waiting for a build to finish holds nothing the other kitchens'
+    # gates need; every heavy gate takes them in that order, so none deadlock.
+    held = contextlib.ExitStack()
+    with held:
+        waited, heavy_waited = 0.0, 0.0
+        if commands and not inside:
+            if p.heavy:
+                slot, heavy_waited = heavy_slot(root, kitchen)
+                held.enter_context(slot)
+            slots = machine_gate_slots()
+            def queued(pos, n):
+                print(f'kitchen: queued {pos} of {n} for {slots} machine gate slot{"s" if slots > 1 else ""}',
+                      file=sys.stderr, flush=True)
+            pool, waited = acquire_slot(state_dir(root).parent, 'gate', slots, queued)
+            held.enter_context(pool)
+            if waited >= 2:
+                print(f'kitchen: waited {waited:.0f}s for one of {slots} machine gate slots', file=sys.stderr)
+        if wrap and commands and not inside:
             out = run_wrapped(root, wrap, profile, stage, log_dir, keep_going, only, role)
             out['waited'] = waited
             return out
-        finally:
-            if slot:
-                slot.close()
-            pool.close()
-    slot = heavy_slot(root, kitchen) if p.heavy and commands and not inside else None
+        return _run_commands(profile, stage, commands, log_dir, keep_going, result, role, root, waited)
+
+
+def _run_commands(profile: str, stage: str, commands: list, log_dir: Path, keep_going: bool, result: Path | None,
+                  role: str, root: Path, waited: float) -> dict:
     results = []
-    try:
-        for i, cmd in commands:
-            log = log_dir / f'{profile}-{stage}-{i}.log'
-            start = time.monotonic()
+    for i, cmd in commands:
+        log = log_dir / f'{profile}-{stage}-{i}.log'
+        start = time.monotonic()
+        code = run_command(root, cmd, log, role)
+        r = {'command': cmd, 'exit': code, 'seconds': round(time.monotonic() - start, 1), 'log': str(log)}
+        load = overloaded() if code != 0 else None
+        if load is not None:
+            # A suite that times out on a loaded machine is not a broken
+            # change: it gets one rerun, recorded as flaky when it passes.
+            first = log.with_name(f'{log.stem}.first.log')
+            log.rename(first)
             code = run_command(root, cmd, log, role)
-            r = {'command': cmd, 'exit': code, 'seconds': round(time.monotonic() - start, 1), 'log': str(log)}
-            load = overloaded() if code != 0 else None
-            if load is not None:
-                # A suite that times out on a loaded machine is not a broken
-                # change: it gets one rerun, recorded as flaky when it passes.
-                first = log.with_name(f'{log.stem}.first.log')
-                log.rename(first)
-                code = run_command(root, cmd, log, role)
-                r.update(exit=code, seconds=round(time.monotonic() - start, 1),
-                         retried={'load': load, 'first_exit': r['exit'], 'first_log': str(first)}, flaky=code == 0)
-            if code != 0:
-                r['tail'] = log.read_text(errors='replace').splitlines()[-20:]
-            results.append(r)
-            if code != 0 and not keep_going:
-                break
-    finally:
-        if slot:
-            slot.close()
-        if pool:
-            pool.close()
+            r.update(exit=code, seconds=round(time.monotonic() - start, 1),
+                     retried={'load': load, 'first_exit': r['exit'], 'first_log': str(first)}, flaky=code == 0)
+        if code != 0:
+            r['tail'] = log.read_text(errors='replace').splitlines()[-20:]
+        results.append(r)
+        if code != 0 and not keep_going:
+            break
     out = {'profile': profile, 'stage': stage, 'role': role, 'passed': all(r['exit'] == 0 for r in results),
            'commands': results, 'waited': waited}
     if result:

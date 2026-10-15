@@ -338,6 +338,40 @@ class GateTests(KitchenTests):
         locks = list((Path(self.tmp.name) / 'state/pstack/kitchen/repos').glob('heavy-*.lock'))
         self.assertEqual([p.name for p in locks], ['heavy-0.lock'])
 
+    def slot_order(self, toml):
+        """The slot kinds a gate takes, in order, with the machine gate slot held (or not) as each is asked for."""
+        from unittest import mock
+        self.write('.agents/kitchen.toml', toml)
+        real, taken = kitchen.acquire_slot, []
+        def spy(lock_dir, prefix, slots, on_wait=None):
+            held = [f.name for f in lock_dir.glob('gate-*.lock') if self.is_locked(f)]
+            taken.append((prefix, held))
+            return real(lock_dir, prefix, slots, on_wait)
+        k, _ = kitchen.load(self.repo, None, None)
+        env = {**self.env, 'PSTACK_KITCHEN_GATE_SLOTS': '1'}
+        with mock.patch.dict(os.environ, env), mock.patch.object(kitchen, 'acquire_slot', spy), \
+                mock.patch.object(kitchen, 'machine_gate_slots', lambda: 1):
+            os.environ.pop(kitchen.WRAPPED, None)
+            kitchen.run_gate(self.repo, k, 'app', 'fast', None)
+        return taken
+
+    @staticmethod
+    def is_locked(path):
+        import fcntl
+        with open(path) as f:
+            try:
+                fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                return True
+            return False
+
+    def test_a_heavy_gate_takes_the_heavy_slot_before_a_machine_gate_slot(self):
+        taken = self.slot_order(KITCHEN.replace('sample = 0.2', 'sample = 0.2\nheavy = true'))
+        self.assertEqual(taken, [('heavy', []), ('gate', [])])
+
+    def test_a_gate_that_is_not_heavy_takes_only_a_machine_gate_slot(self):
+        self.assertEqual(self.slot_order(KITCHEN), [('gate', [])])
+
     def test_commands_see_the_role_they_run_for(self):
         self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]',
                                                            'fast = ["test \\"$PSTACK_KITCHEN_ROLE\\" = sidekick"]'))
