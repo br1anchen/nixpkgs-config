@@ -59,8 +59,11 @@ differs.
 
    Gates waiting for a slot take it in arrival order, whichever kitchen
    they come from; a step still waiting prints its place (`gates: queued 2
-   of 3 for 1 machine gate slot`), and `timings.tsv` records each gate's
-   wait in its last column.
+   of 3 for 1 machine gate slot`). A heavy gate (`heavy` in its profile) takes
+   its heavy slot first and the machine gate slot second, so it never holds a
+   gate slot while it waits for a build. `timings.tsv` records each gate's
+   gate-slot wait in column 7, its heavy-slot wait in column 8 and its wall
+   seconds, from holding its slots to its end, in column 9.
 
    Without `[verifier]`, a routine unit is verified by the sidekick now
    implementing the run (its kind and arguments from `pair.json`, so after a
@@ -196,7 +199,7 @@ Beside the runs, on the host: `pstack/feedback/inbox/<date>-<repo>-<run>[-k].md`
 maintainer), all written by `kitchen.sh feedback` and `maintainer`.
 
 The repo's ledger, across runs, is `ledger.tsv` in `kitchen.py statedir`; `timings.tsv` beside it
-records each gate's run time, which `kitchen.py timing` reads.
+records each gate's run time (column 6), its slot waits and its wall seconds (columns 7 to 9; rows from older builds stop at 7), which `kitchen.py timing` reads.
 Each ledger row names the unit, its area (the directories its brief may write, tests and docs aside), the finding and its match.
 `kitchen.py ledger-backfill` gives rows from older builds the same, from the run stores still on disk.
 `kitchen.py lessons` reads it into candidate lessons and lists the staged ones in `.agents/LESSONS.md`
