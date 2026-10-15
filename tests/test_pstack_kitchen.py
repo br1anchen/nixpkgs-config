@@ -2207,6 +2207,8 @@ esac
         Path(open_['verdict']).write_text('status: clean\nunits: 001\n\n## Evidence\n\n```\n$ true\n```\n')
         out = self.run_sh('verify', str(self.store), '--wait')
         self.assertIn('status: clean', out)
+        wakes = [r.split('\t')[5] for r in (self.store / 'events.tsv').read_text().splitlines() if '\tmaster\twake\t' in r]
+        self.assertEqual([w for w in wakes if w.startswith('verify:')], ['verify:progress', 'verify:clean'])
         self.assertNotIn('verifying', json.loads((self.store / 'pair.json').read_text()))
         self.assertEqual(list((self.store / 'scratch').iterdir()), [])
         self.assertIn('no verification is open', self.run_sh('verify', str(self.store), '--wait', code=5))

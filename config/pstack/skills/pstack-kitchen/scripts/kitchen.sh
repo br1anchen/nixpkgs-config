@@ -914,6 +914,7 @@ cmd_verify() {
 			printf '```\n'
 		} >"$verdict"
 		event "$store" master verify "$brief" "gates:clean"
+		event "$store" master wake "$brief" "verify:clean"
 		printf 'verdict: %s\nstatus: clean (gates only; mode gates)\n' "$verdict"
 		exit 0
 	fi
@@ -1217,6 +1218,7 @@ verify_grace() {
 			printf 'verifying: units %s by %s, past its deadline; grace %ss left (%s), verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
 				"$(( grace_until - now ))" "$(field "$store" .verifying.grace_delivery)" "$state"
 			printf 'next: other work, then kitchen.sh verify %s --wait\n' "$store"
+			event "$store" master wake "$brief" "verify:grace"
 			exit 4
 		fi
 		sleep "${KITCHEN_VERIFY_GRACE_POLL_S:-5}"
@@ -1268,6 +1270,7 @@ verify_wait() {
 			printf 'verifying: units %s by %s, %sm of %sm, verifier %s\n' "$(field "$store" .verifying.units)" "$kind" \
 				"$(( (now - $(field "$store" .verifying.started)) / 60 ))" "$(( ($(field "$store" .verifying.deadline) - $(field "$store" .verifying.started)) / 60 ))" "$state"
 			printf 'next: other work, then kitchen.sh verify %s --wait\n' "$store"
+			event "$store" master wake "$(field "$store" .verifying.brief)" "verify:progress"
 			exit 4
 		fi
 		# A verifier that ended its turn on a provider error will not write.
@@ -1370,6 +1373,7 @@ verify_wait() {
 		die "no verdict at $verdict (verifier ${state:-gone}); read the packet and verify by hand, or rerun" 4
 	fi
 	event "$store" master verify "$brief" "$status"
+	event "$store" master wake "$brief" "verify:${status%% *}"
 	printf 'verdict: %s\nstatus: %s%s\n' "$verdict" "$status" "${problem:+ ($problem)}"
 	case "$status" in
 	clean)
