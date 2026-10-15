@@ -46,7 +46,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    escalated unit's steps, a blocked sidekick, a digest that carries a flag
    (a stale log, a write outside Scope, an objection, an open blocking note,
    a timebox overrun, a pause), or after `--max` minutes (an hour) with the
-   latest digest. Read a digest for direction only, as the pair master does;
+   latest digest. A check-in the wait swallows is not logged as a wake; the
+   one it returns is. Read a digest for direction only, as the pair master does;
    steer only when your review would otherwise say revise. Never wrap
    `dispatch` in a short `timeout`: when you need the call back at once, pass
    `--send-only`, which returns as soon as the brief is delivered, then wait.
@@ -66,7 +67,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      the verifier's progress (exit 4) while the verifier works on: do other
      work, such as `kitchen.sh wait` on the sidekick, then
      `kitchen.sh verify <store> --wait` (exit 4 while it runs, 5 when none is
-     open). One verification is open at a time. A partial or blocked unit can
+     open). Every return of `verify` (progress, grace, a verdict) is logged
+     as one `verify:<what>` wake. One verification is open at a time. A partial or blocked unit can
      be verified or reviewed at the head its report names; the command notes
      it, and land-check still needs a clean verdict and an accepted review.
      A clean landing verdict counts as that verdict for every unit whose head
