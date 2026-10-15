@@ -1,0 +1,116 @@
+# .agents/kitchen.toml: which of this repo's own commands prove which part of it.
+# Read by config/pstack/skills/pstack-kitchen/scripts/kitchen.py; schema in
+# config/pstack/skills/pstack-kitchen/references/kitchen-toml.md.
+version = 1
+
+# The vendored pstack suite and its Python tests (fake herdr, golden transcripts).
+[profile.pstack]
+paths = [
+  "config/pstack/skills/*/scripts/**",
+  "config/pstack/sources.json",
+  "scripts/check-pstack.py",
+  "scripts/pstack-sync.py",
+  "tests/**",
+]
+fast = [
+  "python3 scripts/check-pstack.py",
+  "for f in config/pstack/skills/*/scripts/*.sh; do bash -n \"$f\" || exit 1; done",
+  "python3 tests/run.py",
+]
+behavioral = ["python3 tests/run.py"]
+tests = ["tests/**"]
+require_tests = true
+verify = "batch"
+sample = 0.2
+
+# The suite's skill text and references: links and inventory, no tests needed.
+[profile.pstack-docs]
+paths = ["config/pstack/**"]
+fast = ["python3 scripts/check-pstack.py"]
+verify = "gates"
+sample = 0.0
+
+# Home Manager: both profiles must evaluate (AGENTS.md#testing-guidelines).
+[profile.home]
+paths = [
+  "flake.nix",
+  "flake.lock",
+  "shell.nix",
+  "config.nix",
+  "home-manager/**",
+  "modules/**",
+  "overlay/**",
+  "pkgs/**",
+  "dotfiles/**",
+  "config/agents/**",
+  "config/bob/**",
+  "config/chromium/**",
+  "config/codex/**",
+  "config/czrc",
+  "config/gemini/**",
+  "config/ghostty/**",
+  "config/git/**",
+  "config/herdr/**",
+  "config/jj/**",
+  "config/lazygit/**",
+  "config/lazyvim",
+  "config/mise/**",
+  "config/opencode/**",
+  "config/tmux/**",
+  "config/nix-temp-gc.sh",
+  "config/starship.toml",
+  "scripts/dotfiles-sync.sh",
+  "scripts/omarchy-bootstrap.sh",
+  "fix_macos_updated.sh",
+  ".envrc",
+  ".gitmodules",
+]
+fast = [
+  "nix eval --raw .#homeConfigurations.omarchy.activationPackage.drvPath",
+  "nix eval --raw .#homeConfigurations.darwin.activationPackage.drvPath",
+]
+landing = [
+  "nix flake check",
+  "home-manager build --flake .#omarchy",
+]
+verify = "gates"
+heavy = true
+
+[escalate]
+paths = ["flake.nix", ".agents/kitchen.toml"]
+manifests = ["flake.lock", "config/pstack/sources.json"]
+max_diff_lines = 600
+
+[[policy.forbid]]
+id = "test-sleep"
+pattern = '\btime\.sleep\(|\bsleep [0-9]'
+paths = ["tests/test_*.py"]
+message = "trigger the state change at a fixed point instead (fake herdr hooks: $FAKE/once/<subcommand>, $FAKE/report-after), and tune poll intervals by env (PAIR_BUSY_POLL, KITCHEN_QUIET_POLL_S); assert on output, never on elapsed time"
+source = "owner feedback 2026-10-15: deterministic tests, no timing"
+
+[[policy.forbid]]
+id = "literal-secret"
+pattern = '''(?i)(api[_-]?key|secret|token|password)\s*[:=]\s*["'][A-Za-z0-9_\-]{20,}["']'''
+paths = ["**"]
+message = "keep secrets out of the repo; read them from host environment or a secret manager"
+source = "AGENTS.md#security--configuration-tips"
+
+[review]
+standards = ["AGENTS.md#coding-style--naming-conventions", "AGENTS.md#testing-guidelines"]
+
+[landing]
+mode = "commit"
+
+[coverage]
+ignore = [
+  ".agents/**",
+  "docs/**",
+  "README.md",
+  "AGENTS.md",
+  "GEMINI.md",
+  ".gitignore",
+  "cz.config.js",
+]
+
+[resources]
+max_parallel_heavy = 1
