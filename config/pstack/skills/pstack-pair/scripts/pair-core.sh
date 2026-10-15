@@ -335,7 +335,8 @@ progress_path() {
 # Prints the longest-running one, preferring a command over the shell that
 # runs it, and its age; or nothing. Linux only.
 busy_command() {
-	local pane="$1" since="$2" now pid et comm best="" best_et=0 shell="" shell_et=0 env sock="${HERDR_SOCKET_PATH:-}"
+	# The trackers start below any etimes, so a process under a second old (etimes 0) is still picked.
+	local pane="$1" since="$2" now pid et comm best="" best_et=-1 shell="" shell_et=-1 env sock="${HERDR_SOCKET_PATH:-}"
 	[ -n "$pane" ] && [ -d /proc ] || return 0
 	now="$(date +%s)"
 	while read -r pid et comm; do

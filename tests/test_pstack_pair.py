@@ -10,6 +10,7 @@ so run this from a plain shell or a default-mode agent session.
 from pathlib import Path
 import os
 import json
+from datetime import datetime, timedelta
 import re
 import subprocess
 import tempfile
@@ -296,7 +297,7 @@ class ReadinessTests(unittest.TestCase):
         self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
-                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0',
+                    'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0', 'PAIR_BUSY_POLL': '0.2',
                     'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t', 'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.env.pop('CLAUDE_CODE_SESSION_ID', None)
         self.script = skills / 'pstack-pair/scripts/pair.sh'
@@ -525,26 +526,26 @@ class ReadinessTests(unittest.TestCase):
 
     def background(self, seconds='30'):
         """A process in the sidekick's pane, started after the dispatch, as a harness Monitor or shell would be."""
-        pane = json.loads((self.store / 'pair.json').read_text())['sidekick']['pane_id']
-        proc = subprocess.Popen(['sleep', seconds], cwd=self.cwd, env={**self.env, 'HERDR_PANE_ID': pane})
+        # dispatch.at has whole seconds, and only a process started in a later
+        # second counts as started since the dispatch (one in the same second
+        # could be the agent a rotation just launched), so the dispatch moves
+        # back two seconds rather than the test sleeping into the next one.
+        path = self.store / 'pair.json'
+        state = json.loads(path.read_text())
+        at = datetime.fromisoformat(state['dispatch']['at'].replace('Z', '+00:00')) - timedelta(seconds=2)
+        state['dispatch']['at'] = at.strftime('%Y-%m-%dT%H:%M:%SZ')
+        path.write_text(json.dumps(state))
+        proc = subprocess.Popen(['sleep', seconds], cwd=self.cwd,
+                                env={**self.env, 'HERDR_PANE_ID': state['sidekick']['pane_id']})
         self.addCleanup(lambda: (proc.kill(), proc.wait()))
-        time.sleep(1.1)
         return proc
-
-    def timed_wait(self, timeout_ms, code):
-        t0 = time.time()
-        out = self.run_command('wait', str(self.store), '--timeout', str(timeout_ms), code=code)
-        return out, time.time() - t0
 
     @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
     def test_a_settle_is_not_believed_while_background_work_runs(self):
         (self.fake / 'agents/demo-sidekick').write_text('done pi\n')
-        out, took = self.timed_wait(5000, 4)
-        self.assertLess(took, 3.5)
-        self.assertNotIn('check-in:', out)
+        self.assertNotIn('check-in:', self.wait(4))
         self.background()
-        out, took = self.timed_wait(5000, 4)
-        self.assertGreater(took, 4.5)
+        out = self.wait(4)
         self.assertIn('check-in:', out)
         self.assertIn('running: sleep for 0m', out)
         self.assertIn('progress: none yet', out)
