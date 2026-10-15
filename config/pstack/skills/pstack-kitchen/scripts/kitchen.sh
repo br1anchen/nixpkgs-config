@@ -571,7 +571,7 @@ cmd_discuss() {
 	fi
 	rotate_if_due "$1" plan
 	if [ "$(risk_of "$2")" = escalated ]; then
-		discuss_with_consultant "$@"
+		PAIR_ONE_WAKE=1 discuss_with_consultant "$@"
 	else
 		core_discuss "$@"
 	fi

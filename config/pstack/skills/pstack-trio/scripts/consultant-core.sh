@@ -76,7 +76,7 @@ discuss_with_consultant() {
 		printf 'sent PLAN %s to %s %s\n' "$(basename "$plan")" "$role" "$name"
 		wait_on+=("$role")
 	done
-	local rc=0 out code
+	local rc=0 out code woke=()
 	for role in sidekick consultant; do
 		if [ "$role" = "$deferred" ]; then
 			printf 'sidekick_response: deferred (it is working on a unit); run discuss again once it reports, to send it this plan\n'
@@ -111,13 +111,20 @@ discuss_with_consultant() {
 		if [ -n "$file" ]; then
 			printf '%s_response: %s\n' "$role" "$file"
 			printf '%s_status: %s\n' "$role" "$(header_field "$file" status)"
-			[ "$status" = answered ] || event "$store" master wake "$plan" "$role:$(header_field "$file" status)"
+			if [ "$status" != answered ]; then
+				if [ "${PAIR_ONE_WAKE:-}" = 1 ]; then
+					woke+=("$role:$(header_field "$file" status)")
+				else
+					event "$store" master wake "$plan" "$role:$(header_field "$file" status)"
+				fi
+			fi
 		else
 			printf '%s_response: missing\n' "$role"
 			rc=4
 		fi
 		[ "$status" = blocked ] && rc=3
 	done
+	[ "${#woke[@]}" -eq 0 ] || event "$store" master wake "$plan" "$(IFS=,; printf '%s' "${woke[*]}")"
 	exit "$rc"
 }
 

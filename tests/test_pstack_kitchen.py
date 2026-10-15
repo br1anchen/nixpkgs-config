@@ -2846,6 +2846,12 @@ esac
         plan.write_text('# Plan 001: api\n\nrisk: high\n')
         self.assertIn('risk: must start with routine or escalated', self.run_sh('discuss', str(self.store), str(plan), code=2))
 
+    def test_a_discuss_answered_by_both_roles_logs_one_wake_naming_both(self):
+        plan = self.consultant_plan('escalated')
+        self.run_sh('discuss', str(self.store), str(plan), '--timeout', '1')
+        rows = [r.split('\t') for r in (self.store / 'events.tsv').read_text().splitlines() if '\tmaster\twake\t' in r]
+        self.assertEqual([r[5] for r in rows], ['sidekick:agree,consultant:agree'])
+
     def test_a_plan_dropped_by_an_idle_recipient_is_sent_once_more(self):
         plan = self.consultant_plan('escalated')
         (self.fake / 'prompt-drop').touch()
