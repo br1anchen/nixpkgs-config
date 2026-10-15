@@ -1609,7 +1609,28 @@ esac
         out = self.run_sh('wait', str(self.store), '--timeout', '1')
         self.assertIn('report_status: partial', out)
         self.assertNotIn('check-in:', out)
-        self.assertEqual(checkins(), before + 1)
+        self.assertEqual(checkins(), before)
+
+    def wakes(self):
+        rows = (self.store / 'events.tsv').read_text().splitlines()[1:]
+        return [r.split('\t')[5] for r in rows if r.split('\t')[2:4] == ['master', 'wake']]
+
+    def test_a_quiet_wait_logs_one_wake_for_the_return_not_one_per_swallowed_check_in(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        (self.fake / 'report-after').write_text(f'3 {self.store / "reports" / b.name} partial\n')
+        before = self.wakes()
+        self.assertIn('report_status: partial', self.run_sh('wait', str(self.store), '--timeout', '1'))
+        self.assertEqual(self.wakes()[len(before):], ['report:partial'])
+
+    def test_a_quiet_wait_ending_at_max_logs_one_checkin_wake(self):
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
+        self.env.update({'KITCHEN_QUIET_MAX_S': '2', 'KITCHEN_QUIET_POLL_S': '0'})
+        before = self.wakes()
+        self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertEqual(self.wakes()[len(before):], ['checkin'])
 
     def test_gates_see_the_step_base(self):
         self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()

@@ -489,13 +489,17 @@ quiet_wait() {
 	start="$(date +%s)"
 	while :; do
 		rc=0
-		out="$(core_wait "$store" "${args[@]}")" || rc=$?
+		out="$(PAIR_QUIET_WAIT=1 core_wait "$store" "${args[@]}")" || rc=$?
 		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out" && [ $(( $(date +%s) - start )) -lt "$max" ]; then
 			sleep "${KITCHEN_QUIET_POLL_S:-1}"
 			continue
 		fi
 		[ "$rc" -ne 4 ] || ! grep -q '^check-in:' <<<"$out" || quiet_flagged "$out" ||
 			printf 'quiet: %sm with nothing flagged; the sidekick works on\n' "$(( ($(date +%s) - start) / 60 ))"
+		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then
+			event "$store" master wake "$(field "$store" '.dispatch.brief // empty')" \
+				"$(grep -q 'written but not ready' <<<"$out" && echo report:unready || echo checkin)"
+		fi
 		printf '%s\n' "$out"
 		exit "$rc"
 	done

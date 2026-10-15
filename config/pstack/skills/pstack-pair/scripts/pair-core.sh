@@ -951,7 +951,7 @@ finish_wait() {
 	blocked) event "$store" master wake "$running" "${why:-blocked}"; provider_hint "$store"; exit 3 ;;
 	esac
 	if [ "$(agent_status "$(field "$store" .sidekick.name)")" = working ] || [ -n "$activity" ]; then
-		event "$store" master wake "$running" "${why:-checkin}"
+		[ "${PAIR_QUIET_WAIT:-}" = 1 ] || event "$store" master wake "$running" "${why:-checkin}"
 		checkin "$store" "$checkin_interval_m"
 	else
 		event "$store" master wake "$running" "${why:-missing}"
