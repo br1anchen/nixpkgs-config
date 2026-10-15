@@ -372,6 +372,27 @@ class GateTests(KitchenTests):
     def test_a_gate_that_is_not_heavy_takes_only_a_machine_gate_slot(self):
         self.assertEqual(self.slot_order(KITCHEN), [('gate', [])])
 
+    def timing_rows(self):
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
+                                        env=self.env, capture_output=True, text=True, check=True).stdout.strip())
+        return [line.split('\t') for line in (state_dir / 'timings.tsv').read_text().splitlines()]
+
+    def test_a_gate_row_has_nine_columns_with_the_heavy_wait_and_the_wall_time(self):
+        self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]', 'fast = ["true", "true"]'))
+        self.data('gate', 'app', 'fast')
+        (row,) = self.timing_rows()
+        self.assertEqual(len(row), 9)
+        self.assertEqual(float(row[7]), 0)
+        self.assertGreaterEqual(float(row[8]), float(row[5]))
+
+    def test_the_readers_take_seven_and_nine_column_rows(self):
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
+                                        env=self.env, capture_output=True, text=True, check=True).stdout.strip())
+        state_dir.mkdir(parents=True, exist_ok=True)
+        (state_dir / 'timings.tsv').write_text('1\tapp\tbehavioral\tverifier\tpass\t100\t0\n'
+                                               '2\tapp\tbehavioral\tverifier\tpass\t300\t5\t1200\t1500\n')
+        self.assertEqual(self.data('timing', 'app', '--stage', 'behavioral')['seconds'], 300)
+
     def test_commands_see_the_role_they_run_for(self):
         self.write('.agents/kitchen.toml', KITCHEN.replace('fast = ["test -f src/app.py"]',
                                                            'fast = ["test \\"$PSTACK_KITCHEN_ROLE\\" = sidekick"]'))
@@ -487,6 +508,15 @@ class WrapTests(KitchenTests):
         self.assertTrue(r['passed'], r)
         self.assertEqual([c['exit'] for c in r['commands']], [0, 0])
         self.assertEqual(self.entered.read_text(), 'x\n')
+
+    def test_a_wrapped_gate_records_one_row_with_the_heavy_wait_and_the_wall_time(self):
+        self.kitchen()
+        self.data('gate', 'app', 'fast')
+        state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
+                                        env=self.env, capture_output=True, text=True, check=True).stdout.strip())
+        (row,) = [line.split('\t') for line in (state_dir / 'timings.tsv').read_text().splitlines()]
+        self.assertEqual((len(row), float(row[7])), (9, 0))
+        self.assertGreaterEqual(float(row[8]), float(row[5]))
 
     def test_a_failing_wrap_is_a_failed_gate_with_its_log(self):
         self.kitchen()

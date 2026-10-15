@@ -736,10 +736,13 @@ TIMINGS = 'timings.tsv'
 
 
 def record_timing(root: Path, profile: str, stage: str, role: str, g: dict) -> None:
-    """One row per whole gate run, so verify can size its timeout."""
+    """One row per whole gate run, so verify can size its timeout: epoch, profile, stage, role, pass or
+    fail, command seconds, gate-slot wait, heavy-slot wait, wall seconds. Readers index by position and
+    accept the seven-column rows older builds wrote."""
     secs = round(sum(c['seconds'] for c in g['commands']), 1)
     row = [str(int(time.time())), profile, stage, role, 'pass' if g['passed'] else 'fail', str(secs),
-           str(round(g.get('waited', 0.0), 1))]
+           str(round(g.get('waited', 0.0), 1)), str(round(g.get('heavy_waited', 0.0), 1)),
+           str(round(g.get('wall', secs), 1))]
     try:
         with open(state_dir(root) / TIMINGS, 'a') as f:
             f.write('\t'.join(row) + '\n')
@@ -847,11 +850,13 @@ def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str
             held.enter_context(pool)
             if waited >= 2:
                 print(f'kitchen: waited {waited:.0f}s for one of {slots} machine gate slots', file=sys.stderr)
+        start = time.monotonic()
         if wrap and commands and not inside:
             out = run_wrapped(root, wrap, profile, stage, log_dir, keep_going, only, role)
-            out['waited'] = waited
-            return out
-        return _run_commands(profile, stage, commands, log_dir, keep_going, result, role, root, waited)
+        else:
+            out = _run_commands(profile, stage, commands, log_dir, keep_going, result, role, root, waited)
+        out.update(waited=waited, heavy_waited=heavy_waited, wall=round(time.monotonic() - start, 1))
+        return out
 
 
 def _run_commands(profile: str, stage: str, commands: list, log_dir: Path, keep_going: bool, result: Path | None,
