@@ -26,9 +26,18 @@ here = root / 'tests/pstack-pair'
 skills = root / 'config/pstack/skills'
 
 
+LEAKED_PREFIXES = ('PSTACK_KITCHEN_', 'KITCHEN_', 'PAIR_')
+
+
+def inherited_env():
+    """The test runner's environment without what a kitchen or pair run exports to its agents
+    (PSTACK_KITCHEN_ROLE and the like), so the result does not depend on which role runs the suite."""
+    return {k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT' and not k.startswith(LEAKED_PREFIXES)}
+
+
 class PairScriptTests(unittest.TestCase):
     def check(self, variant):
-        env = {k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}
+        env = inherited_env()
         out = subprocess.run([here / 'scenario.sh', skills, variant], env=env, capture_output=True, text=True, check=True).stdout
         golden = here / 'golden' / f'{variant}.txt'
         if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
@@ -54,7 +63,7 @@ class DevinSessionTests(unittest.TestCase):
         self.fake.mkdir()
         self.repo = self.path / 'repo'
         self.repo.mkdir()
-        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
+        self.env = {**inherited_env(), 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0'}
@@ -227,7 +236,7 @@ class RangeFloorTests(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.repo = Path(self.tmp.name) / 'repo'
         self.repo.mkdir()
-        self.env = {**os.environ, 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
+        self.env = {**inherited_env(), 'GIT_AUTHOR_NAME': 't', 'GIT_AUTHOR_EMAIL': 't@t',
                     'GIT_COMMITTER_NAME': 't', 'GIT_COMMITTER_EMAIL': 't@t'}
         self.git('init', '-q', '-b', 'work')
         self.c0 = self.commit('a.txt')
@@ -291,7 +300,7 @@ class EventLogTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as store:
             (Path(store) / 'events.tsv').write_text('ts\tepoch\tactor\tevent\tunit\tdetail\n')
             script = f'{clock}\n{fn}\n' + '\n'.join(f'EPOCH={epoch}; event "$1" {args}' for epoch, args in calls)
-            subprocess.run(['bash', '-c', script, 'x', store], env={**os.environ, 'PAIR_EVENT_DEDUPE': dedupe}, check=True)
+            subprocess.run(['bash', '-c', script, 'x', store], env={**inherited_env(), 'PAIR_EVENT_DEDUPE': dedupe}, check=True)
             return (Path(store) / 'events.tsv').read_text().splitlines()[1:]
 
     def test_two_identical_events_in_one_second_leave_one_row(self):
@@ -321,7 +330,7 @@ class ReadinessTests(unittest.TestCase):
         self.fake.mkdir()
         self.cwd = self.path / 'repo'
         self.cwd.mkdir()
-        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
+        self.env = {**inherited_env(), 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0', 'PAIR_BUSY_POLL': '0.2',
@@ -686,7 +695,7 @@ class PiSidekickTests(unittest.TestCase):
         repo = self.path / 'repo'
         repo.mkdir()
         self.cwd = repo
-        self.env = {**{k: v for k, v in os.environ.items() if k != 'PSTACK_PLACEMENT'}, 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
+        self.env = {**inherited_env(), 'FAKE': str(self.fake), 'HERDR_SOCKET_PATH': str(self.fake / 'herdr.sock'), 'PAIR_FILE_POLL_MS': '200', 'PAIR_SETTLE_POLL_S': '0.2', 'PAIR_STOP_POLL_S': '0.2', 
                     'PATH': f'{here / "bin"}:{os.environ["PATH"]}',
                     'HOME': str(self.path / 'home'), 'XDG_STATE_HOME': str(self.path / 'state'),
                     'HERDR_ENV': '1', 'HERDR_PANE_ID': 'p0', 'PAIR_SUBMIT_CHECK_S': '0', 'PAIR_SETTLE_HOLD': '0',
