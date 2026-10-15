@@ -855,7 +855,9 @@ def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str
             out = run_wrapped(root, wrap, profile, stage, log_dir, keep_going, only, role)
         else:
             out = _run_commands(profile, stage, commands, log_dir, keep_going, result, role, root, waited)
-        out.update(waited=waited, heavy_waited=heavy_waited, wall=round(time.monotonic() - start, 1))
+        out['waited'] = waited
+        if commands and not inside:
+            out.update(heavy_waited=heavy_waited, wall=round(time.monotonic() - start, 1))
         return out
 
 
