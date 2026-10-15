@@ -11,6 +11,7 @@ here="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 skill_root="$(dirname "$here")"
 skills_dir="$(dirname "$skill_root")"
 PAIR_SKILL=pstack-kitchen
+export PAIR_EVENT_DEDUPE=1
 state_root="${XDG_STATE_HOME:-$HOME/.local/state}/pstack/kitchen/runs"
 store_label=Kitchen
 roles=(sidekick verifier consultant)
