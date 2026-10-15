@@ -64,7 +64,7 @@ silently doing nothing.
 | `.require_tests` | `false` | a change to the profile's files needs a change to a `tests` file (`kitchen.py policy` reports `test-touch`) |
 | `.verify` | `"batch"` | routine verification: `gates` (deterministic gates only, no verifier), `batch` (one verifier per landing stack), `unit` (one per unit) |
 | `.sample` | `0.1` | share of clean routine units the master audits in full |
-| `.heavy` | `false` | its gates take one of `resources.max_parallel_heavy` machine-wide slots, so a verifier's build never races the sidekick's |
+| `.heavy` | `false` | `true`, or a list of stages from `fast`, `behavioral`, `landing`: those stages' gates take one of `resources.max_parallel_heavy` machine-wide slots, so a verifier's build never races the sidekick's. `true` means all three. A 30-second fast gate should not queue behind a verifier's behavioral build, so a repo that builds only there opts in with `heavy = ["behavioral", "landing"]`. A heavy gate takes its heavy slot before its machine gate slot |
 | `.wrap` | `[run].wrap` | this profile's wrap; `""` runs it unwrapped |
 | `[escalate]` | | what turns a routine change into an escalated one: per-unit verification by the master's kind, full sampling, the escalated review settings, and the consultant |
 | `.paths` | `[]` | globs whose change is architectural: contracts, schemas, migrations, auth |

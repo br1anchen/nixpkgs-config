@@ -73,7 +73,7 @@ class Profile:
     require_tests: bool
     verify: str
     sample: float
-    heavy: bool
+    heavy: frozenset[str]
     wrap: str | None
     path_res: list[re.Pattern] = field(default_factory=list)
     test_res: list[re.Pattern] = field(default_factory=list)
@@ -132,6 +132,15 @@ def _bool(value, where: str) -> bool:
     return value
 
 
+def _heavy_stages(value, where: str) -> frozenset[str]:
+    """true is every stage, false none, a list only the stages it names."""
+    if isinstance(value, bool):
+        return frozenset(STAGES) if value else frozenset()
+    if not isinstance(value, list) or not all(isinstance(v, str) and v in STAGES for v in value):
+        raise ConfigError(f'{where}: expected true, false, or a list of stages from {", ".join(STAGES)}')
+    return frozenset(value)
+
+
 def parse(data: dict) -> Kitchen:
     _check_keys(data, 'kitchen.toml', {'version', 'profile', 'escalate', 'policy', 'review',
                                        'verify', 'landing', 'coverage', 'resources', 'run', 'scratch'})
@@ -166,7 +175,7 @@ def parse(data: dict) -> Kitchen:
             features=_strings(p.get('features', []), f'{where}.features'),
             tests=tests, require_tests=require_tests,
             verify=_choice(p.get('verify', 'batch'), f'{where}.verify', VERIFY_MODES),
-            sample=float(sample), heavy=_bool(p.get('heavy', False), f'{where}.heavy'), wrap=wrap,
+            sample=float(sample), heavy=_heavy_stages(p.get('heavy', False), f'{where}.heavy'), wrap=wrap,
             path_res=[glob_regex(g) for g in paths], test_res=[glob_regex(g) for g in tests])
 
     escalate = data.get('escalate', {})
@@ -839,7 +848,7 @@ def _run_gate(root: Path, kitchen: Kitchen, p: Profile, profile: str, stage: str
     with held:
         waited, heavy_waited = 0.0, 0.0
         if commands and not inside:
-            if p.heavy:
+            if stage in p.heavy:
                 slot, heavy_waited = heavy_slot(root, kitchen)
                 held.enter_context(slot)
             slots = machine_gate_slots()

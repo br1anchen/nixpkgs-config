@@ -162,6 +162,19 @@ class SchemaTests(KitchenTests):
         self.write('.agents/kitchen.toml', KITCHEN + '\n[[policy.forbid]]\nid = "no-print"\npattern = "x"\nmessage = "m"\n')
         self.assertIn('policy.forbid[1].id', self.run_kitchen('validate', code=1))
 
+    def test_heavy_takes_true_false_or_a_list_of_stages(self):
+        for value, stages in [('true', {'fast', 'behavioral', 'landing'}), ('false', set()), ('["behavioral"]', {'behavioral'}),
+                              ('["fast", "landing"]', {'fast', 'landing'})]:
+            with self.subTest(value):
+                self.write('.agents/kitchen.toml', KITCHEN.replace('sample = 0.2', f'sample = 0.2\nheavy = {value}'))
+                k, _ = kitchen.load(self.repo, None, None)
+                self.assertEqual(k.profiles['app'].heavy, stages)
+
+    def test_an_unknown_heavy_stage_is_refused_naming_the_key(self):
+        self.write('.agents/kitchen.toml', KITCHEN.replace('sample = 0.2', 'sample = 0.2\nheavy = ["build"]'))
+        self.assertIn('profile.app.heavy: expected true, false, or a list of stages from fast, behavioral, landing',
+                      self.run_kitchen('validate', code=1))
+
     def test_missing_kitchen_points_at_setup(self):
         (self.repo / '.agents/kitchen.toml').unlink()
         self.assertIn('pstack-kitchen-setup', self.run_kitchen('validate', code=1))
@@ -368,6 +381,10 @@ class GateTests(KitchenTests):
     def test_a_heavy_gate_takes_the_heavy_slot_before_a_machine_gate_slot(self):
         taken = self.slot_order(KITCHEN.replace('sample = 0.2', 'sample = 0.2\nheavy = true'))
         self.assertEqual(taken, [('heavy', []), ('gate', [])])
+
+    def test_a_fast_gate_of_a_behavioral_only_heavy_profile_takes_no_heavy_slot(self):
+        toml = KITCHEN.replace('sample = 0.2', 'sample = 0.2\nheavy = ["behavioral"]')
+        self.assertEqual(self.slot_order(toml), [('gate', [])])
 
     def test_a_gate_that_is_not_heavy_takes_only_a_machine_gate_slot(self):
         self.assertEqual(self.slot_order(KITCHEN), [('gate', [])])
