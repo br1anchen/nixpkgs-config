@@ -1654,6 +1654,81 @@ esac
         self.run_sh('verify', str(self.store), '--landing', '--base', old_base)
         self.assertIn(f'range: {old_base}..', (self.store / 'verdicts/landing-v2-packet.md').read_text())
 
+    def verify_block(self, brief, commands):
+        text = brief.read_text()
+        brief.write_text(re.sub(r'(## Verify\n\n```bash\n).*?(\n```)', lambda m: m[1] + commands + m[2], text,
+                                count=1, flags=re.DOTALL))
+
+    def reported(self):
+        return [l for l in (self.store / 'events.tsv').read_text().splitlines() if '\tsidekick\treport\t' in l]
+
+    def test_finish_refuses_done_until_the_briefs_verify_commands_pass_at_the_head(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, "# the targeted check\ngrep -q 'X = 2' src/util.py\ntest -f src/app.py \\\n  && true")
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 3\n')
+        self.done(b, self.commit('wrong value'))
+        report = str(self.store / 'reports' / b.name)
+        out = self.run_sh('finish', str(self.store), report, code=2)
+        self.assertIn('verify: FAIL (2 commands from the brief)', out)
+        self.assertIn("exit 1", out)
+        self.assertIn('the master did not get this report', out)
+        self.assertEqual(self.reported(), [])
+        # A wait does not show the master the refused report either.
+        (self.fake / 'agents/demo-sidekick').write_text('idle pi\n')
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertIn("written but not ready: the brief's Verify commands have not passed", out)
+        # Running finish again reruns a failed check rather than reusing it.
+        self.assertIn('verify: FAIL', self.run_sh('finish', str(self.store), report, code=2))
+        self.write('src/util.py', 'X = 2\n')
+        self.done(b, self.commit('right value'))
+        out = self.run_sh('finish', str(self.store), report)
+        self.assertIn('verify: pass (2 commands from the brief)', out)
+        self.assertIn("exit 0", out)
+        self.assertEqual(len(self.reported()), 1)
+
+    def test_finish_runs_the_verify_commands_only_at_the_units_tip(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, 'true')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        head = self.commit('step')
+        self.done(b, head)
+        report = str(self.store / 'reports' / b.name)
+        self.write('tests/test_new.py', 'def test_new():\n    pass\n')
+        out = self.run_sh('finish', str(self.store), report, code=1)
+        self.assertIn("the checkout holds work the unit's head does not", out)
+        self.assertIn('tests/test_new.py', out)
+        (self.repo / 'tests/test_new.py').unlink()
+        self.git('checkout', '-q', 'HEAD~1')
+        self.assertIn(f"not the report's head: {head[:9]}", self.run_sh('finish', str(self.store), report, code=1))
+        self.git('checkout', '-q', head)
+        self.assertEqual(self.reported(), [])
+        self.assertIn('verify: pass (1 commands from the brief)', self.run_sh('finish', str(self.store), report))
+
+    def test_finish_with_no_verify_commands_and_a_slow_one(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, 'none')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        self.done(b, self.commit('step'))
+        report = str(self.store / 'reports' / b.name)
+        self.assertIn('verify: pass (the brief names none)', self.run_sh('finish', str(self.store), report))
+        b2 = self.brief('002', 'slow', ['src/**', 'tests/**'])
+        self.verify_block(b2, 'sleep 3; printf "%s|%s" "$PSTACK_KITCHEN_ROLE" "$PSTACK_KITCHEN_RUN" >"$OUT"')
+        self.env['OUT'] = str(Path(self.tmp.name) / 'lane.txt')
+        self.dispatch(b2)
+        self.write('src/util.py', 'X = 5\n')
+        self.done(b2, self.commit('slow step'))
+        report = str(self.store / 'reports' / b2.name)
+        self.env['KITCHEN_STEP_SLICE_S'] = '1'
+        out = self.run_sh('finish', str(self.store), report, code=4)
+        self.assertIn("Verify commands are still running", out)
+        self.assertIn(f'kitchen.sh finish {self.store} {report}', out)
+        self.env['KITCHEN_STEP_SLICE_S'] = '30'
+        self.assertIn('verify: pass (1 commands from the brief)', self.run_sh('finish', str(self.store), report))
+        self.assertEqual(Path(self.env['OUT']).read_text(), 'sidekick|demo')
+
     def test_gates_mode_verifies_without_a_verifier(self):
         b = self.brief('001', 'docs', ['docs/**'])
         self.dispatch(b)

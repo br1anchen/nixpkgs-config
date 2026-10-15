@@ -59,8 +59,8 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    digest shows `running: <command> for Nm` instead, or `editing: last change
    Nm ago` while files or HEAD changed within the interval (activity, not
    advancement; the timebox still applies). A done report that `finish` would
-   refuse (open blocking notes, or a head older than the last recorded step)
-   does not wake you; a wait that ends on one says `written but not ready`.
+   refuse (open blocking notes, a head older than the last recorded step, or
+   Verify commands that have not passed at its head) does not wake you; a wait that ends on one says `written but not ready`.
 6. **On a done report:** verify, then review.
    - `kitchen.sh verify <store> <NNN>`. It returns every nine minutes with
      the verifier's progress (exit 4) while the verifier works on: do other

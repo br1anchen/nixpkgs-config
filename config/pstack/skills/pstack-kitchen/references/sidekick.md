@@ -30,6 +30,15 @@ differ:
 - **Before done,** run the review skills the standing orders name (from the
   kitchen's `review.self`) on your diff, and fix what they find in a commit
   of its own.
+- **`finish` reruns the brief's Verify commands.** For a done report it runs
+  every command in the brief's Verify block exactly as written, each on its
+  own from the repo root, at the report's `head:`. The checkout must be at
+  that commit with nothing uncommitted or untracked. The report goes to the
+  master only when every command exits 0. On a failure (exit 2) it prints
+  each command's log tail: fix it in a new commit, record it with `step`,
+  name it in `head:`, and run `finish` again. If they cannot pass, report
+  `blocked` with the output. Exit 4 means they are still running, as with
+  `step`: run the same `finish` again at once.
 - **After a verifier's rejection,** the fix brief's Context names the
   verdict. Fix each finding with the check that shows it gone; the next
   verification repeats the same acceptance.

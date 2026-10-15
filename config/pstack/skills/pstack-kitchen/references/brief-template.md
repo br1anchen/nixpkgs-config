@@ -43,7 +43,9 @@ did not make.}}
 
 ```bash
 {{extra commands beyond the profiles' fast gates, which kitchen.sh step runs at
-every step anyway: the targeted tests for what this unit changes, or "none"}}
+every step anyway: the targeted tests for what this unit changes, or "none".
+kitchen.sh finish reruns each one exactly as written, on its own from the repo
+root at the report's head:, and refuses done unless every one exits 0}}
 ```
 
 ## Forbidden
@@ -68,4 +70,7 @@ Append one progress line per change of approach with
 kitchen's `review.self` names on your diff. Write the report file named above
 using the pstack-pair report template, then run
 `~/.agents/skills/pstack-kitchen/scripts/kitchen.sh finish {{STORE}} <report path>`
-and do what it prints.
+and do what it prints. For a done report, finish first reruns the Verify
+commands above at the report's head:, with the checkout at that commit and
+nothing uncommitted, and sends the report only when every one exits 0; exit 4
+means they are still running, so run the same finish again at once.

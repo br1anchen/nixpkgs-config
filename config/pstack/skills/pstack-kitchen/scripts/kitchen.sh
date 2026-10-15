@@ -49,6 +49,10 @@ consult, advice. These differ or are new:
                                             sidekick: run the touched profiles' fast gates and policy on the
                                             step's commits, then record it; exit 2 when they fail. The checks run
                                             detached: exit 4 "still running" after ~2 minutes, run it again to wait
+  finish <store> <report>                   the pair's finish; a done report first reruns the brief's Verify
+                                            commands as written at its head: (the checkout, clean), and goes to
+                                            the master only when every one exits 0 (exit 2 otherwise, 4 while
+                                            they run: run it again to wait)
   verify <store> <NNN>... [--covers NNN]... [--base REV] [--every MIN] [--timeout MIN] [--kind KIND]
                                             verify one unit, or several as a batch, or a fix with the unit it
                                             fixes (--covers): gates only, or a fresh verifier in a scratch
@@ -104,6 +108,8 @@ copy_fn cmd_wait core_wait
 copy_fn cmd_queue core_queue
 copy_fn cmd_discuss core_discuss
 copy_fn cmd_step core_step
+copy_fn cmd_finish core_finish
+copy_fn report_ready core_report_ready
 copy_fn steps_due core_steps_due
 copy_fn require_agreed_plan core_require_agreed_plan
 copy_fn plan_gate_extra advice_gate
@@ -677,6 +683,105 @@ cmd_step() {
 		fi
 	fi
 	core_step "$@"
+}
+
+# Where finish keeps the run of $2's Verify block at commit $3: one per head
+# and block, so an amended block runs again.
+verify_job() {
+	printf '%s/steps/jobs/%s-verify-%s-%s\n' "$1" "$(basename "$2" .md)" "${3:0:12}" \
+		"$(awk '/^## Verify/{p=1; next} /^## /{p=0} p' "$2" | cksum | cut -d' ' -f1)"
+}
+
+# The pair's readiness, and for the dispatched unit's done report, a pass of
+# its Verify commands at its head: a wait never shows the master a done
+# report that finish refused.
+report_ready() {
+	core_report_ready "$@" || return 1
+	local store="$1" report="$2" brief head
+	[ "$(header_field "$report" status)" = "done" ] || return 0
+	brief="$(field "$store" '.dispatch.brief // empty')"
+	[ -n "$brief" ] && [ "$(readlink -f "$report")" = "$(expected_report "$store" "$brief")" ] || return 0
+	head="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$report" head)^{commit}" 2>/dev/null)" || {
+		report_why="its head: is not a commit"
+		return 1
+	}
+	[ "$(cat "$(verify_job "$store" "$brief" "$head")/rc" 2>/dev/null)" = 0 ] && return 0
+	report_why="the brief's Verify commands have not passed at ${head:0:9} (kitchen.sh finish runs them)"
+	return 1
+}
+
+# A done report reaches the master only once the brief's Verify commands,
+# rerun by the kitchen exactly as written at the unit's tip, all exit 0: a
+# sidekick's word that they pass is not evidence. The tip is the checkout,
+# which must sit at the report's head: and, for a brief that commits, hold
+# nothing uncommitted. The commands run detached like a step's gates (exit 4
+# "still running", and the same finish waits on); a pass is kept for that
+# head and Verify block, and a failure reruns on the next finish.
+cmd_finish() {
+	in_herdr
+	[ $# -eq 2 ] || core_finish "$@"
+	local store="$1" report brief root head cur dirty unit base job slice rc
+	report="$(readlink -f "$2")"
+	pair_file "$store" >/dev/null
+	brief="$(field "$store" '.dispatch.brief // empty')"
+	# Everything but the dispatched unit's done report, and a report the
+	# pair's checks refuse anyway (no head:, open notes), goes straight on.
+	if [ ! -f "$report" ] || [ "$(header_field "$report" status)" != "done" ] || [ -z "$brief" ] ||
+		[ "$report" != "$(expected_report "$store" "$brief")" ] || ! core_report_ready "$store" "$report"; then
+		core_finish "$@"
+		return
+	fi
+	case "$(header_field "$report" head)" in "" | "<"*) core_finish "$@"; return ;; esac
+	root="$(field "$store" .git_root)"
+	head="$(git -C "$root" rev-parse --verify --quiet "$(header_field "$report" head)^{commit}")" ||
+		die "$(basename "$report"): head: $(header_field "$report" head) is not a commit; name the unit's last commit and finish again"
+	cur="$(git -C "$root" rev-parse HEAD)"
+	[ "$cur" = "$head" ] || die "the checkout is at ${cur:0:9}, not the report's head: ${head:0:9}; the kitchen reruns the brief's Verify commands at the unit's tip, so check out that head (or fix head:) and finish again"
+	case "$(header_field "$brief" commit)" in
+	no*) ;;
+	*)
+		dirty="$(git -C "$root" status --porcelain --untracked-files=normal)"
+		[ -z "$dirty" ] || die "the checkout holds work the unit's head does not:
+$dirty
+The kitchen reruns the brief's Verify commands at the unit's tip. Commit this as a step (kitchen.sh step) and name it in head:, or remove it, then finish again"
+		;;
+	esac
+	unit="$(basename "$brief" .md)"
+	job="$(verify_job "$store" "$brief" "$head")"
+	if [ -f "$job/rc" ] && [ "$(cat "$job/rc")" != 0 ] && [ -f "$job/consumed" ]; then rm -rf "$job"; fi
+	if [ ! -d "$job" ]; then
+		mkdir -p "$job"
+		brief_kitchen "$brief"
+		base="$(jq -r --arg u "$unit" '.heads[$u] // empty' "$store/pair.json")"
+		# shellcheck disable=SC2016
+		PSTACK_KITCHEN_RUN="$(field "$store" .slug)" detached bash -c '
+			cd "$1" || exit 1
+			rc=0
+			python3 "$2" --repo "$1" ${5:+--config "$5"} brief-verify "$3" --role sidekick --log-dir "$4/logs" ${6:+--base "$6"} || rc=$?
+			printf "%s\n" "$rc" >"$4/rc"
+		' kitchen-finish "$root" "$here/kitchen.py" "$brief" "$job" "${kitchen_cfg[1]:-}" "$base" >"$job/out" 2>&1 </dev/null &
+		disown 2>/dev/null || true
+	fi
+	slice="${KITCHEN_STEP_SLICE_S:-100}"
+	local deadline=$(( $(date +%s) + slice ))
+	until [ -f "$job/rc" ]; do
+		if [ "$(date +%s)" -ge "$deadline" ]; then
+			printf 'verify: the brief'"'"'s Verify commands are still running at %s (log: %s)\n' "${head:0:9}" "$job/out"
+			printf 'next: the report is not sent yet; do not end your turn. Run the same command again now, in the foreground, until it sends: kitchen.sh finish %s %s\n' "$store" "$2"
+			exit 4
+		fi
+		sleep "${KITCHEN_STEP_POLL_S:-2}"
+	done
+	: >"$job/consumed"
+	rc="$(cat "$job/rc")"
+	cat "$job/out"
+	if [ "$rc" -ne 0 ]; then
+		event "$store" sidekick finish-verify-fail "$brief" "${head:0:9}"
+		printf 'next: the master did not get this report. Fix what failed in a new commit, record it with kitchen.sh step, name it in head:, and finish again; if the commands cannot pass, write the report as blocked with this output under Questions, then kitchen.sh finish\n'
+		exit 2
+	fi
+	event "$store" sidekick finish-verify-pass "$brief" "${head:0:9}"
+	core_finish "$@"
 }
 
 verdict_problem() {

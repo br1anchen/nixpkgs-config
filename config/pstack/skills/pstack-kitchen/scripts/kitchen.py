@@ -882,6 +882,114 @@ def run_command(root: Path, cmd: str, log: Path, role: str) -> int:
                               env={**os.environ, ROLE: role}, check=False).returncode
 
 
+def _complete(text: str) -> bool:
+    """bash reads `text` as whole commands: no open quote, loop, or heredoc
+    (bash -n passes an unterminated heredoc with only a warning)."""
+    if text.rstrip().endswith('\\'):
+        return False
+    r = subprocess.run(['bash', '-n', '-c', text], capture_output=True, text=True, check=False)
+    return r.returncode == 0 and not r.stderr.strip()
+
+
+def brief_verify_commands(brief: Path) -> list[str]:
+    """The brief's ## Verify block as the commands finish reruns. A command ends
+    where bash reads a complete one, so a continued line, a heredoc, or a loop
+    is one command; blank and comment lines are skipped. A block of `none`, or
+    no Verify section, has none; text outside a fenced block is refused."""
+    lines = brief.read_text().splitlines()
+    try:
+        start = next(i for i, x in enumerate(lines) if x.strip() == '## Verify') + 1
+    except StopIteration:
+        return []
+    end = next((i for i in range(start, len(lines)) if lines[i].startswith('## ')), len(lines))
+    section = lines[start:end]
+    opens = [i for i, x in enumerate(section) if x.startswith('```')]
+    if not opens:
+        if '\n'.join(section).strip().strip('"`').lower() in ('', 'none'):
+            return []
+        raise ConfigError(f'{brief}: the Verify section has text outside a ``` block')
+    close = next((i for i in range(opens[0] + 1, len(section)) if section[i].startswith('```')), len(section))
+    block = section[opens[0] + 1:close]
+    if '\n'.join(x for x in block if not x.lstrip().startswith('#')).strip().strip('"`').lower() == 'none':
+        return []
+    commands, chunk = [], []
+    for line in block:
+        chunk.append(line)
+        if all(not x.strip() or x.lstrip().startswith('#') for x in chunk):
+            chunk = []
+            continue
+        if _complete('\n'.join(chunk)):
+            commands.append('\n'.join(chunk).strip())
+            chunk = []
+    if chunk:
+        commands.append('\n'.join(chunk).strip())
+    return commands
+
+
+def run_brief_verify(root: Path, kitchen: Kitchen, brief: Path, log_dir: Path | None, result: Path | None = None,
+                     role: str | None = None, base: str | None = None) -> dict:
+    """Every command of the brief's Verify block, exactly as written, each in its
+    own bash from the repo root, inside [run].wrap entered once, holding one
+    machine gate slot. Every command runs even after one fails."""
+    role = role or os.environ.get(ROLE) or 'sidekick'
+    if base:
+        sha = git(root, 'rev-parse', '--verify', '--quiet', f'{base}^{{commit}}', check=False).strip()
+        if not sha:
+            raise ConfigError(f'--base {base} is not a commit')
+        os.environ[BASE] = sha
+    commands = brief_verify_commands(brief)
+    log_dir = log_dir or state_dir(root) / 'logs' / time.strftime('%Y%m%dT%H%M%S')
+    log_dir.mkdir(parents=True, exist_ok=True)
+    inside = os.environ.get(WRAPPED) == '1'
+    out = {'brief': str(brief), 'role': role, 'passed': True, 'commands': [], 'waited': 0.0}
+    if not commands:
+        return out
+    pool, tmp = None, None
+    if not inside:
+        slots = machine_gate_slots()
+        pool, out['waited'] = acquire_slot(state_dir(root).parent, 'gate', slots, lambda pos, n: print(
+            f'kitchen: queued {pos} of {n} for {slots} machine gate slot{"s" if slots > 1 else ""}',
+            file=sys.stderr, flush=True))
+        tmp = tempfile.mkdtemp(prefix=f'kg-{os.getpid()}-', dir=gate_tmp_base())
+        os.environ['TMPDIR'] = tmp
+    try:
+        if kitchen.wrap and not inside:
+            wrapped = log_dir / 'verify-result.json'
+            wrapped.unlink(missing_ok=True)
+            inner = [sys.executable, str(Path(__file__).resolve()), *INVOCATION, 'brief-verify', str(brief),
+                     '--log-dir', str(log_dir), '--result', str(wrapped), '--role', role]
+            log = log_dir / 'verify-wrap.log'
+            start = time.monotonic()
+            with open(log, 'w') as f:
+                code = subprocess.run(['bash', '-c', f'{kitchen.wrap} {shlex.join(inner)}'], cwd=root, stdout=f,
+                                      stderr=subprocess.STDOUT, env={**os.environ, WRAPPED: '1', ROLE: role},
+                                      check=False).returncode
+            if wrapped.exists():
+                out['commands'] = json.loads(wrapped.read_text())['commands']
+            else:
+                out['commands'] = [{'command': f'{kitchen.wrap} (wrap)', 'exit': code or 1, 'log': str(log),
+                                    'seconds': round(time.monotonic() - start, 1),
+                                    'tail': log.read_text(errors='replace').splitlines()[-20:]}]
+        else:
+            for i, cmd in enumerate(commands):
+                log = log_dir / f'verify-{i}.log'
+                start = time.monotonic()
+                code = run_command(root, cmd, log, role)
+                r = {'command': cmd, 'exit': code, 'seconds': round(time.monotonic() - start, 1), 'log': str(log)}
+                if code != 0:
+                    r['tail'] = log.read_text(errors='replace').splitlines()[-20:]
+                out['commands'].append(r)
+    finally:
+        if tmp:
+            shutil.rmtree(tmp, ignore_errors=True)
+        if pool:
+            pool.close()
+    out['passed'] = all(r['exit'] == 0 for r in out['commands'])
+    if result:
+        result.write_text(json.dumps(out))
+    return out
+
+
 def overloaded() -> float | None:
     """The one-minute load when it is over PSTACK_KITCHEN_RETRY_LOAD per core
     (default 1.0; `off` never retries), else None."""
@@ -2197,6 +2305,15 @@ def main(argv: list[str] | None = None) -> int:
     g.add_argument('--base', metavar='REV', help=f'exported as {BASE}: the commit the change is checked against')
     g.add_argument('--role', choices=('sidekick', 'verifier'),
                    help='exported as PSTACK_KITCHEN_ROLE (default: that variable, else sidekick)')
+    bv = sub.add_parser('brief-verify', help="run a brief's Verify commands as written, each from the repo root; "
+                        'exit 2 when any fails')
+    bv.add_argument('brief', type=Path)
+    bv.add_argument('--list', action='store_true', help='print the commands the block parses into, and run none')
+    bv.add_argument('--log-dir', type=Path)
+    bv.add_argument('--result', type=Path, help=argparse.SUPPRESS)
+    bv.add_argument('--base', metavar='REV', help=f'exported as {BASE}: where the unit started')
+    bv.add_argument('--role', choices=('sidekick', 'verifier'),
+                    help='exported as PSTACK_KITCHEN_ROLE (default: that variable, else sidekick)')
     h = sub.add_parser('history', help='classify and policy-check each of the last commits')
     h.add_argument('--last', type=int, default=20)
     d = sub.add_parser('doctor', help='check the kitchen against the repo')
@@ -2404,6 +2521,19 @@ def main(argv: list[str] | None = None) -> int:
                                  + ('passed' if x['flaky'] else 'failed again'))
                 lines += [f'    | {t}' for t in x.get('tail', [])]
             lines += [f'flaky under load: {args.profile} {args.stage}' for x in r['commands'] if x.get('flaky')][:1]
+            emit(r, args.json, '\n'.join(lines))
+            return 0 if r['passed'] else 2
+        if args.cmd == 'brief-verify':
+            if args.list:
+                cmds = brief_verify_commands(args.brief)
+                emit({'commands': cmds}, args.json, '\n'.join(f'{i}: {c}' for i, c in enumerate(cmds)) or 'none')
+                return 0
+            r = run_brief_verify(root, kitchen, args.brief, args.log_dir, args.result, args.role, args.base)
+            lines = [f'verify: {"pass" if r["passed"] else "FAIL"} '
+                     + (f'({len(r["commands"])} commands from the brief)' if r['commands'] else '(the brief names none)')]
+            for x in r['commands']:
+                lines.append(f'  exit {x["exit"]} {x["seconds"]}s {x["command"]}  log: {x["log"]}')
+                lines += [f'    | {t}' for t in x.get('tail', [])]
             emit(r, args.json, '\n'.join(lines))
             return 0 if r['passed'] else 2
         if args.cmd == 'policy':
