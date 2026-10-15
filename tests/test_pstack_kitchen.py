@@ -3,6 +3,7 @@ gate, policy, and doctor, end to end through the command line."""
 import json
 import os
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -1627,9 +1628,23 @@ esac
     def test_a_quiet_wait_ending_at_max_logs_one_checkin_wake(self):
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
         (self.fake / 'agents/demo-sidekick').write_text('working pi\n')
-        self.env.update({'KITCHEN_QUIET_MAX_S': '2', 'KITCHEN_QUIET_POLL_S': '0'})
+        clock = self.fake / 'now'
+        clock.write_text('1000\n')
+        self.env.update({'KITCHEN_QUIET_MAX_S': '60', 'KITCHEN_QUIET_POLL_S': '0', 'KITCHEN_QUIET_CLOCK': str(clock)})
+        # Each round runs one `agent wait`: the first two swallow a check-in, the third finds the clock a minute on.
+        once = self.fake / 'once'
+        once.mkdir(exist_ok=True)
+        third = f'#!/usr/bin/env bash\nprintf "1060\\n" >{clock}\n'
+        second = f'#!/usr/bin/env bash\nprintf %s {shlex.quote(third)} >{once}/wait\nchmod +x {once}/wait\n'
+        first = f'#!/usr/bin/env bash\nprintf %s {shlex.quote(second)} >{once}/wait\nchmod +x {once}/wait\n'
+        (once / 'wait').write_text(first)
+        (once / 'wait').chmod(0o755)
         before = self.wakes()
-        self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        rounds = lambda: sum(l.startswith('agent wait demo-sidekick') for l in (self.fake / 'calls.log').read_text().splitlines())
+        waits = rounds()
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        self.assertGreaterEqual(rounds() - waits, 3)
+        self.assertIn('quiet: 1m with nothing flagged', out)
         self.assertEqual(self.wakes()[len(before):], ['checkin'])
 
     def test_gates_see_the_step_base(self):
