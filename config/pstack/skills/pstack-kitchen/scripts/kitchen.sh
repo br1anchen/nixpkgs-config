@@ -424,7 +424,7 @@ classify_brief() {
 	set_header "$brief" verify "$(jq -r '"\(.verify.mode) by \(.verify.kind) verifier"' <<<"$json")"
 	printf 'risk: %s\n' "$risk"
 	kpy "$store" "${kitchen_cfg[@]}" lessons stamp "$brief" || die "kitchen.py lessons stamp failed; run kitchen.py lessons in the repo"
-	jq -r '"profiles: \(.profiles | join(", "))", "verify: \(.verify.mode) by \(.verify.kind) verifier", (.escalate[] | "escalate: \(.)"),
+	jq -r '"profiles: \(.profiles | join(", "))", "verify: \(.verify.mode) by \(.verify.kind) verifier", (.escalate[] | "escalate: \(.)"), (.warnings[]? | "warn: \(.)"),
 		(if .bookkeeping then "bookkeeping: the Scope is outside the repo; gates only, nothing to escalate" else empty end)' <<<"$json"
 	if [ "$risk" = escalated ] && [ "$(agent_status "$(field "$store" .consultant.name)")" = absent ]; then
 		printf 'next: kitchen.sh consultant %s --reason "%s", then a plan round with it\n' "$store" "$(jq -r '.escalate[0]' <<<"$json")"

@@ -1623,6 +1623,23 @@ esac
         self.assertIn('escalate: escalate path: contracts/api.json', out)
         self.assertIn('next: kitchen.sh consultant', out)
 
+    def generate_pair(self):
+        toml = self.repo / '.agents/kitchen.toml'
+        toml.write_text(toml.read_text() + '\n[[generated]]\nsources = ["src/**"]\noutputs = ["docs/**"]\ncommand = "make gen"\n')
+        self.commit('generated pair')
+
+    def test_classify_and_dispatch_print_the_generated_outputs_warning(self):
+        plain = self.run_sh('classify', str(self.store), str(self.brief('001', 'util', ['src/util.py'])))
+        self.assertNotIn('warn:', plain)
+        self.generate_pair()
+        out = self.run_sh('classify', str(self.store), str(self.brief('002', 'lib', ['src/util.py'])))
+        self.assertIn('warn: Scope covers src/util.py but none of its generated outputs (docs/**)', out)
+        self.assertIn('(regenerate: make gen)', out)
+        covered = self.run_sh('classify', str(self.store), str(self.brief('003', 'both', ['src/util.py', 'docs/**'])))
+        self.assertNotIn('warn:', covered)
+        out = self.dispatch(self.brief('004', 'disp', ['src/util.py']))
+        self.assertIn('warn: Scope covers src/util.py', out)
+
     def test_an_escalated_plan_or_header_keeps_a_routine_scope_escalated(self):
         plan = self.store / 'plans/001-util.md'
         plan.parent.mkdir(exist_ok=True)
