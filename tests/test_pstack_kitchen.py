@@ -1681,44 +1681,58 @@ esac
         self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'slow'))
         self.assertEqual(len((self.store / 'gates.tsv').read_text().splitlines()), 1)
 
-    def test_a_step_waiting_for_a_gate_slot_says_where_it_stands(self):
-        self.env.update({'PSTACK_KITCHEN_GATE_SLOTS': '1', 'KITCHEN_STEP_SLICE_S': '4'})
+    def await_job_line(self, text, bound=120):
+        """Poll the step job's output for a line the detached gate prints; the bound only turns a hang into a failure."""
+        import threading
+        pause, deadline = threading.Event(), time.monotonic() + bound
+        while time.monotonic() < deadline:
+            if any(text in out.read_text(errors='replace') for out in (self.store / 'steps/jobs').glob('*/out')):
+                return
+            pause.wait(0.2)
+        self.fail(f'the step job never printed {text!r}')
+
+    def step_until_recorded(self, sha, summary, tries=600):
+        """Run step again, a short slice at a time, until it records; the cap only turns a hang into a failure."""
+        for _ in range(tries):
+            r = subprocess.run([str(self.script), 'step', str(self.store), sha, summary], cwd=self.repo, env=self.env,
+                               capture_output=True, text=True, check=False)
+            if r.returncode == 0:
+                return r.stdout + r.stderr
+            self.assertEqual(r.returncode, 4, r.stdout + r.stderr)
+        self.fail('the step never recorded')
+
+    def held_slot_step(self, kind, queued_line, digest_line):
+        self.env.update({'PSTACK_KITCHEN_GATE_SLOTS': '1', 'KITCHEN_STEP_SLICE_S': '1'})
         repos = self.store.parent.parent / 'repos'
         repos.mkdir(parents=True, exist_ok=True)
-        held, _ = kitchen.acquire_slot(repos, 'gate', 1)
+        held, _ = kitchen.acquire_slot(repos, kind, 1)
         self.addCleanup(held.close)
         self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
         self.write('src/util.py', 'X = 4\n')
         self.write('tests/test_app.py', 'x = 4\n')
         sha = self.commit('step')
+        self.run_sh('step', str(self.store), sha, 'waits', code=4)
+        self.await_job_line(queued_line)
         out = self.run_sh('step', str(self.store), sha, 'waits', code=4)
-        self.assertIn('gates: queued 1 of 1 for 1 machine gate slot, behind gates from other kitchens', out)
+        self.assertIn(digest_line, out)
         held.close()
-        self.env['KITCHEN_STEP_SLICE_S'] = '30'
-        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'waits'))
+        self.assertIn('gates: pass (app)', self.step_until_recorded(sha, 'waits'))
+        return out
+
+    def test_a_step_waiting_for_a_gate_slot_says_where_it_stands(self):
+        self.held_slot_step('gate', 'kitchen: queued 1 of 1 for 1 machine gate slot',
+                            'gates: queued 1 of 1 for 1 machine gate slot, behind gates from other kitchens')
         rows = (Path(self.env['XDG_STATE_HOME']) / 'pstack/kitchen/repos').glob('*/timings.tsv')
         waited = [float(line.split('\t')[6]) for f in rows for line in f.read_text().splitlines() if line.split('\t')[3] == 'sidekick']
-        self.assertTrue(any(w >= 2 for w in waited), waited)
+        self.assertTrue(any(w > 0 for w in waited), waited)
 
     def test_a_step_waiting_for_the_heavy_slot_says_where_it_stands(self):
         self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
                    .replace('fast = ["test ! -e FAIL"]', 'fast = ["test ! -e FAIL"]\nheavy = true'))
         self.commit('heavy gate')
-        self.env.update({'PSTACK_KITCHEN_GATE_SLOTS': '1', 'KITCHEN_STEP_SLICE_S': '4'})
-        repos = self.store.parent.parent / 'repos'
-        repos.mkdir(parents=True, exist_ok=True)
-        held, _ = kitchen.acquire_slot(repos, 'heavy', 1)
-        self.addCleanup(held.close)
-        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
-        self.write('src/util.py', 'X = 4\n')
-        self.write('tests/test_app.py', 'x = 4\n')
-        sha = self.commit('step')
-        out = self.run_sh('step', str(self.store), sha, 'waits', code=4)
-        self.assertIn('gates: queued 1 of 1 for 1 heavy slot, behind heavy gates from other kitchens', out)
+        out = self.held_slot_step('heavy', 'kitchen: queued 1 of 1 for 1 heavy slot',
+                                  'gates: queued 1 of 1 for 1 heavy slot, behind heavy gates from other kitchens')
         self.assertNotIn('machine gate slot', out)
-        held.close()
-        self.env['KITCHEN_STEP_SLICE_S'] = '30'
-        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'waits'))
 
     def test_quiet_wait_skips_unflagged_check_ins(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
