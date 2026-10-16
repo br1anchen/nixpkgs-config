@@ -209,9 +209,7 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    the retro's summary line and the land-check result, and ask the human once
    whether to close the run's panes, in the turn land-check passes, with the retro and the feedback: a finished run's sidekick, consultant
    and verifier hold about a gigabyte of memory for as long as they stay
-   open, and a store left open after its landing inflates its wall time in
-   `fleet` (stockfish-throughput 251 min, lr1069-m2 271 min, p2-group 550 min
-   between the last feedback and close). On yes, `kitchen.sh close <store>` ends them and closes their
+   open. On yes, `kitchen.sh close <store>` ends them and closes their
    panes; your own pane stays.
 
    Gaps in the kitchen itself (a command, message, default or document of
