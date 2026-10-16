@@ -132,7 +132,9 @@ Verifier: [references/verifier.md](references/verifier.md).
    a sampled unit (`audit: yes`) gets a full read.
 6. **Land.** `kitchen.sh land-check` passes only when every unit with an
    accepted review note is verified; `kitchen.sh verify --landing`
-   proves the stack tip with a fresh verifier; the landing brief goes as far
+   proves the stack tip with a fresh verifier, and its clean verdict covers
+   the last units that were not verified on their own (review them against it,
+   then run land-check); the landing brief goes as far
    as `[landing].mode` allows and never merges.
 7. **Learn.** `kitchen.sh retro` shows where the master was needed and what
    repeated; each repeated class becomes a rule, a lint, a profile command, or

@@ -71,7 +71,7 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
      work, such as `kitchen.sh wait` on the sidekick, then
      `kitchen.sh verify <store> --wait` (exit 4 while it runs, 5 when none is
      open). Every return of `verify` (progress, grace, a verdict) is logged
-     as one `verify:<what>` wake. One verification is open at a time. A partial or blocked unit can
+     as one `verify:<what>` wake. One verification is open at a time. When a unit reports done while another unit's verification is open, do not hold the sidekick: dispatch the next brief, and verify the finished unit together with the next one (`kitchen.sh verify <store> 008 009`) once the open verification returns. The last units before landing need no verification of their own: when nothing else is queued, go straight to `kitchen.sh verify <store> --landing`, whose clean verdict covers every unit whose head its range contains, then review those units against it. In strict-daily-window, 007 (51 min), 009 (38 min) and the landing (27 min) were verified one after another while the sidekick sat idle for 67 min. A partial or blocked unit can
      be verified or reviewed at the head its report names; the command notes
      it, and land-check still needs a clean verdict and an accepted review.
      A clean landing verdict counts as that verdict for every unit whose head
@@ -162,7 +162,9 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    master would; anything the kitchen missed is
    `kitchen.sh catch <store> <layer> "<what>" <NNN>`, naming the layer that
    should have caught it and the unit it was in.
-8. **Land.** `kitchen.sh land-check <store>`, then review the stack as a
+8. **Land.** When the last units were folded into the landing verification,
+   its clean verdict comes first, then the review notes for those units, then
+   `kitchen.sh land-check <store>`. Review the stack as a
    whole for anything between units, then the landing brief. Review it from
    where it leaves trunk (origin's default branch, else main or master), the
    base `verify --landing` prints, so a rebase never pulls trunk's commits
