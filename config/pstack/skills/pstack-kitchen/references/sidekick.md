@@ -20,6 +20,9 @@ differ:
 - **Policy rules are the repo's.** A forbid finding names what to use
   instead; use it. Opting a line out (`kitchen-allow: <id>` with the reason)
   is for a case the rule did not foresee, and the master reads every one.
+  A test fixture that must contain text a rule forbids (a checker's own
+  tests) carries `kitchen-allow: <id>` and the reason on that line; the brief
+  for such work says so up front.
 - **A routine brief is the plan.** Its Steps name the files and functions to
   change. If one cannot be done as written, do not redesign it: report
   `blocked` with the conflict and the option you would pick.

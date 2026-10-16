@@ -51,6 +51,7 @@ root at the report's head:, and refuses done unless every one exits 0}}
 ## Forbidden
 
 - {{unit-specific bans beyond the standing orders and the repo's policy rules}}
+- {{when the unit writes a test fixture that must contain text a repo policy rule forbids (the checker's own tests, for example), say so here: the fixture line carries `kitchen-allow: <id>` and the reason}}
 
 ## Report
 
