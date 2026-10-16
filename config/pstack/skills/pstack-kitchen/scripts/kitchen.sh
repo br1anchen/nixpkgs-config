@@ -483,6 +483,13 @@ quiet_flagged() {
 	[ -n "${spent:-}" ] && [ -n "${box:-}" ] && [ "$spent" -gt "$box" ]
 }
 
+# The one wake row for a wait or dispatch that returns on a check-in: the pair
+# core logs none of its own under PAIR_QUIET_WAIT. $1 store, $2 the output.
+log_checkin_wake() {
+	event "$1" master wake "$(field "$1" '.dispatch.brief // empty')" \
+		"$(grep -q 'written but not ready' <<<"$2" && echo report:unready || echo checkin)"
+}
+
 quiet_wait() {
 	local store="$1" max="${KITCHEN_QUIET_MAX_S:-3600}" start out rc
 	shift
@@ -503,10 +510,7 @@ quiet_wait() {
 		fi
 		[ "$rc" -ne 4 ] || ! grep -q '^check-in:' <<<"$out" || quiet_flagged "$out" ||
 			printf 'quiet: %sm with nothing flagged; the sidekick works on\n' "$(( ($(quiet_now) - start) / 60 ))"
-		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then
-			event "$store" master wake "$(field "$store" '.dispatch.brief // empty')" \
-				"$(grep -q 'written but not ready' <<<"$out" && echo report:unready || echo checkin)"
-		fi
+		if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then log_checkin_wake "$store" "$out"; fi
 		printf '%s\n' "$out"
 		exit "$rc"
 	done
@@ -550,10 +554,13 @@ cmd_dispatch() {
 	while [ "$i" -lt "${#waitargs[@]}" ]; do
 		if [ "${waitargs[$i]}" = --max ]; then i=$((i + 2)); else sendargs+=("${waitargs[$i]}"); i=$((i + 1)); fi
 	done
-	out="$(core_dispatch "$@" "${sendargs[@]}")" || rc=$?
-	if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out" && ! quiet_flagged "$out"; then
-		printf '%s\n' "$(grep -v -e '^check-in:' -e '^progress:' -e '^touched:' -e '^  ' -e '^steers:' -e '^steps:' -e '^report: missing' <<<"$out")"
-		quiet_wait "$1" "${waitargs[@]}"
+	out="$(PAIR_QUIET_WAIT=1 core_dispatch "$@" "${sendargs[@]}")" || rc=$?
+	if [ "$rc" -eq 4 ] && grep -q '^check-in:' <<<"$out"; then
+		if ! quiet_flagged "$out"; then
+			printf '%s\n' "$(grep -v -e '^check-in:' -e '^progress:' -e '^touched:' -e '^  ' -e '^steers:' -e '^steps:' -e '^report: missing' <<<"$out")"
+			quiet_wait "$1" "${waitargs[@]}"
+		fi
+		log_checkin_wake "$1" "$out"
 	fi
 	printf '%s\n' "$out"
 	exit "$rc"

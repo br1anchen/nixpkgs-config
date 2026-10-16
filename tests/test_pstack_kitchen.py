@@ -1779,6 +1779,30 @@ esac
         self.assertIn('quiet: 1m with nothing flagged', out)
         self.assertEqual(self.wakes()[len(before):], ['checkin'])
 
+    def working_at_dispatch(self):
+        """The sidekick is at work when dispatch first waits on it, so that wait ends in a check-in."""
+        (self.fake / 'once').mkdir(exist_ok=True)
+        hook = self.fake / 'once/wait'
+        hook.write_text(f'#!/usr/bin/env bash\nprintf "working pi\\n" >"{self.fake}/agents/demo-sidekick"\n')
+        hook.chmod(0o755)
+
+    def test_a_dispatch_swallowing_its_first_check_in_logs_only_the_wait_that_returns(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.working_at_dispatch()
+        (self.fake / 'report-after').write_text(f'3 {self.store / "reports" / b.name} partial\n')
+        before = self.wakes()
+        self.run_sh('dispatch', str(self.store), str(b), '--timeout', '1')
+        self.assertEqual(self.wakes()[len(before):], ['report:partial'])
+
+    def test_a_dispatch_returning_on_a_flagged_first_check_in_logs_one_checkin_wake(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.working_at_dispatch()
+        self.write('elsewhere.txt', 'x\n')
+        before = self.wakes()
+        out = self.run_sh('dispatch', str(self.store), str(b), '--timeout', '1', code=4)
+        self.assertIn('outside scope: 1', out)
+        self.assertEqual(self.wakes()[len(before):], ['checkin'])
+
     def test_gates_see_the_step_base(self):
         self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
                    .replace('fast = ["test ! -e FAIL"]', 'fast = ["git cat-file -e \\"$PSTACK_KITCHEN_STEP_BASE^{commit}\\""]'))
