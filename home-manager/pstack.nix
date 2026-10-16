@@ -6,15 +6,16 @@
 }:
 
 let
-  skills = ../config/pstack/skills;
-  # A dirty tree has no rev; the build is still recorded, as dirtyRev or unknown.
-  rev = inputs.self.rev or inputs.self.dirtyRev or "unknown";
+  # Pstack lives in github:br1anchen/open-pstack, pinned by flake.lock.
+  skills = "${inputs.pstack}/skills";
+  # The open-pstack rev that built the skills; a local path override has none.
+  rev = inputs.pstack.rev or inputs.pstack.dirtyRev or "unknown";
 in
 {
   # Each runtime gets individual links; unrelated skills and directory aliases
   # stay intact. Replaced pstack installs are archived before linking.
   home.activation.syncPstackSkills = lib.hm.dag.entryAfter [ "linkDotAgentSkills" ] ''
-    $DRY_RUN_CMD ${pkgs.python3}/bin/python3 ${../scripts/pstack-sync.py} \
+    $DRY_RUN_CMD ${pkgs.python3}/bin/python3 ${inputs.pstack}/scripts/pstack-sync.py \
       --source ${skills} --home "$HOME" --apply
   '';
 

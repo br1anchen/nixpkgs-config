@@ -50,8 +50,9 @@ Devin's self-update is disabled.
 
 ## Agent workflow
 
-[Pstack](config/pstack/README.md) is synced for Claude Code, Codex, Pi, and Grok Build.
-Use `ask-poteto` for workflow advice; see the [scenario tutorial](config/pstack/skills/ask-poteto/references/scenarios.md).
+[Pstack](https://github.com/br1anchen/open-pstack) is synced for Claude Code, Codex, Pi, and Grok Build
+from the `pstack` flake input (`home-manager/pstack.nix`); bump it with `nix flake update pstack`.
+Use `ask-poteto` for workflow advice; see the [scenario tutorial](https://github.com/br1anchen/open-pstack/blob/main/skills/ask-poteto/references/scenarios.md).
 
 Ghostty starts Herdr as the default control plane. Herdr opens login zsh
 shells, stores worktrees under `~/.herdr/worktrees`, and restores supported

@@ -2,7 +2,7 @@
 
 Implemented 2026-10-10. See [Prime Agent research](prime-agent-research.md)
 for the inspected Prime CLI and reporter contract, and the
-[Prime workflow reference](../config/pstack/skills/pstack-pair/references/prime-sidekick.md)
+[Prime workflow reference](https://github.com/br1anchen/open-pstack/blob/main/skills/pstack-pair/references/prime-sidekick.md)
 for launch examples and operational behavior.
 
 The Herdr pin is updated from v0.8.2 to the latest stable release,

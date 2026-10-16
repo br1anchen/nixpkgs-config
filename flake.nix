@@ -26,6 +26,12 @@
       # Current nixpkgs fetches from static.crates.io, which works.
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # Pstack skills and the pair/trio/kitchen workflows, installed by
+    # home-manager/pstack.nix. Bump with `nix flake update pstack`.
+    pstack = {
+      url = "github:br1anchen/open-pstack";
+      flake = false;
+    };
     plannotator-src = {
       url = "github:backnotprop/plannotator/v0.25.1";
       flake = false;

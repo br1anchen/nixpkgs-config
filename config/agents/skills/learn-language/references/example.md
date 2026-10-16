@@ -6,7 +6,7 @@ programmer is the hypothetical learner; that is not an assumption about the user
 
 ## Real context
 
-In this repo, `scripts/pstack-sync.py`, function `sync`, installs skill links and
+In open-pstack (the `pstack` flake input), `scripts/pstack-sync.py`, function `sync`, installs skill links and
 moves an existing entry into a backup before replacing it. Read its live source
 and revision before using this example. The relevant excerpt is:
 
