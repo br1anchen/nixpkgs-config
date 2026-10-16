@@ -1803,11 +1803,18 @@ esac
         self.assertIn('outside scope: 1', out)
         self.assertEqual(self.wakes()[len(before):], ['checkin'])
 
-    def test_catches_with_different_text_in_one_second_are_both_kept(self):
-        self.run_sh('catch', str(self.store), 'review', 'missed a caller in api.py')
-        self.run_sh('catch', str(self.store), 'review', 'forgot the docs row')
-        rows = [r.split('\t') for r in (self.store / 'events.tsv').read_text().splitlines() if '\tcatch\t' in r]
-        self.assertEqual([r[5] for r in rows], ['review', 'review'])
+    def test_two_catches_in_one_second_are_both_kept_and_two_identical_wakes_are_one(self):
+        core = (skill.parent / 'pstack-pair/scripts/pair-core.sh').read_text()
+        fn = re.search(r'^event\(\) \{.*?^\}$', core, re.MULTILINE | re.DOTALL).group(0)
+        calls = ['master catch - review', 'master catch - review', 'master wake 001-a checkin', 'master wake 001-a checkin']
+        script = ('date() { case "$1" in +%s) echo 100 ;; *) echo T ;; esac; }\n' + fn + '\n'
+                  + '\n'.join(f'event "$1" {c}' for c in calls))
+        store = self.store.parent / 'dedupe'
+        store.mkdir()
+        (store / 'events.tsv').write_text('ts\tepoch\tactor\tevent\tunit\tdetail\n')
+        subprocess.run(['bash', '-c', script, 'x', str(store)], env={**self.env, 'PAIR_EVENT_DEDUPE': '1'}, check=True)
+        rows = (store / 'events.tsv').read_text().splitlines()[1:]
+        self.assertEqual([r.split('\t')[3] for r in rows], ['catch', 'catch', 'wake'])
 
     def test_gates_see_the_step_base(self):
         self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
