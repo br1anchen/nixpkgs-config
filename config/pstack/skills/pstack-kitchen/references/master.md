@@ -51,7 +51,7 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    a timebox overrun, a pause), or after `--max` minutes (an hour) with the
    latest digest. A check-in the wait swallows is not logged as a wake; the
    one it returns is. Read a digest for direction only, as the pair master does;
-   steer only when your review would otherwise say revise. Never wrap
+   steer only when your review would otherwise say revise. When you work outside the kitchen in your own session (another branch, a prototype, a question for the human), leave a `kitchen.sh wait <store>` running in the background so a report or a step is not left waiting for you; in lichess-token-1083, steps sat 13 min unread while the master did unrelated work. Never wrap
    `dispatch` in a short `timeout`: when you need the call back at once, pass
    `--send-only`, which returns as soon as the brief is delivered, then wait.
    Delivery itself ignores TERM, so a killed dispatch never leaves a brief
@@ -207,9 +207,11 @@ pausing, approval dialogs, Devin sessions, waits, and recovery.
    to the human, or run the `correct` skill on it; a kitchen change is a
    brief like any other, through pstack-kitchen-setup's maintain path. Reply as the pair master does, with
    the retro's summary line and the land-check result, and ask the human once
-   whether to close the run's panes: a finished run's sidekick, consultant
+   whether to close the run's panes, in the turn land-check passes, with the retro and the feedback: a finished run's sidekick, consultant
    and verifier hold about a gigabyte of memory for as long as they stay
-   open. On yes, `kitchen.sh close <store>` ends them and closes their
+   open, and a store left open after its landing inflates its wall time in
+   `fleet` (stockfish-throughput 251 min, lr1069-m2 271 min, p2-group 550 min
+   between the last feedback and close). On yes, `kitchen.sh close <store>` ends them and closes their
    panes; your own pane stays.
 
    Gaps in the kitchen itself (a command, message, default or document of
