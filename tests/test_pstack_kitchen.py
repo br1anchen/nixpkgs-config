@@ -1505,9 +1505,9 @@ esac
         self.git('commit', '-q', '-m', message)
         return self.git('rev-parse', 'HEAD')
 
-    def run_sh(self, *args, code=0):
+    def run_sh(self, *args, code=0, timeout=None):
         result = subprocess.run([str(self.script), *args], cwd=self.repo, env=self.env,
-                                capture_output=True, text=True, check=False)
+                                capture_output=True, text=True, check=False, timeout=timeout)
         self.assertEqual(result.returncode, code, result.stdout + result.stderr)
         return result.stdout + result.stderr
 
@@ -1774,7 +1774,7 @@ esac
         before = self.wakes()
         rounds = lambda: sum(l.startswith('agent wait demo-sidekick') for l in (self.fake / 'calls.log').read_text().splitlines())
         waits = rounds()
-        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4)
+        out = self.run_sh('wait', str(self.store), '--timeout', '1', code=4, timeout=120)
         self.assertGreaterEqual(rounds() - waits, 3)
         self.assertIn('quiet: 1m with nothing flagged', out)
         self.assertEqual(self.wakes()[len(before):], ['checkin'])
