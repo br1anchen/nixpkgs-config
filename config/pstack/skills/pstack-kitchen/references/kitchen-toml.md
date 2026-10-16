@@ -78,6 +78,10 @@ silently doing nothing.
 | `.message` | required | what to do instead; the sidekick reads only this |
 | `.paths` | `["**"]` | globs the rule applies to |
 | `.source` | `""` | the rule's origin, such as `AGENTS.md#rust` |
+| `[[generated]]` | | files generated from sources; `classify` warns when a Scope covers a source but none of its outputs |
+| `.sources` | required | non-empty list of globs for the files the output is generated from |
+| `.outputs` | required | non-empty list of globs for the generated files |
+| `.command` | `""` | how to regenerate them; shown in the warning |
 | `[review]` | | |
 | `.self` | `[]` | skills the sidekick runs on its diff before reporting done |
 | `.standards` | `[]` | doc sections (`path#anchor`) the review holds the diff to |
@@ -108,6 +112,28 @@ allocates no ports.
 Paths are repo-relative. `**` crosses directories; `*` and `?` stay inside
 one. A pattern never matches a basename alone: `*.md` is top-level only,
 `**/*.md` is everywhere.
+
+## Generated files
+
+A change to a source usually regenerates files elsewhere in the repo, and a
+brief whose Scope forbids those files makes the sidekick block on them
+mid-unit. Declare the pairs:
+
+```toml
+[[generated]]
+sources = ["services/api/contract/**"]
+outputs = ["packages/sdk/src/generated/**"]
+command = "bun run generate:sdk"
+```
+
+When a brief's Scope (`classify --paths`, so `kitchen.sh classify` and
+`dispatch`) matches a source file, and no Scope glob matches any file that
+matches the entry's `outputs`, `classify` prints `warn: Scope covers <source>
+but none of its generated outputs (...); add them to may write, or say why
+not` and lists it under `warnings` in `--json`. An entry whose outputs match
+no tracked file yet is skipped. A warning never changes the risk class or the
+exit code, and a kitchen with no `[[generated]]` entry classifies as before,
+without a `warnings` key.
 
 ## Commands
 

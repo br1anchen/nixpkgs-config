@@ -34,6 +34,12 @@ manifests = ["**/package.json", "Cargo.toml", "crates/*/Cargo.toml"]
 max_profiles = 1
 max_diff_lines = 600
 
+# Files generated from sources: classify warns when a Scope covers a source but none of its outputs.
+[[generated]]
+sources = ["packages/contracts/src/**"]
+outputs = ["apps/web/src/generated/**"]
+command = "pnpm generate"
+
 [[policy.forbid]]
 id = "bare-cargo"
 pattern = '(^|[;&|]\s*)cargo (build|test)\b'
