@@ -1700,6 +1700,26 @@ esac
         waited = [float(line.split('\t')[6]) for f in rows for line in f.read_text().splitlines() if line.split('\t')[3] == 'sidekick']
         self.assertTrue(any(w >= 2 for w in waited), waited)
 
+    def test_a_step_waiting_for_the_heavy_slot_says_where_it_stands(self):
+        self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
+                   .replace('fast = ["test ! -e FAIL"]', 'fast = ["test ! -e FAIL"]\nheavy = true'))
+        self.commit('heavy gate')
+        self.env.update({'PSTACK_KITCHEN_GATE_SLOTS': '1', 'KITCHEN_STEP_SLICE_S': '4'})
+        repos = self.store.parent.parent / 'repos'
+        repos.mkdir(parents=True, exist_ok=True)
+        held, _ = kitchen.acquire_slot(repos, 'heavy', 1)
+        self.addCleanup(held.close)
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.write('src/util.py', 'X = 4\n')
+        self.write('tests/test_app.py', 'x = 4\n')
+        sha = self.commit('step')
+        out = self.run_sh('step', str(self.store), sha, 'waits', code=4)
+        self.assertIn('gates: queued 1 of 1 for 1 heavy slot, behind heavy gates from other kitchens', out)
+        self.assertNotIn('machine gate slot', out)
+        held.close()
+        self.env['KITCHEN_STEP_SLICE_S'] = '30'
+        self.assertIn('gates: pass (app)', self.run_sh('step', str(self.store), sha, 'waits'))
+
     def test_quiet_wait_skips_unflagged_check_ins(self):
         b = self.brief('001', 'util', ['src/**', 'tests/**'])
         self.dispatch(b)

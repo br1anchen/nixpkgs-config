@@ -59,7 +59,8 @@ differs.
 
    Gates waiting for a slot take it in arrival order, whichever kitchen
    they come from; a step still waiting prints its place (`gates: queued 2
-   of 3 for 1 machine gate slot`). A heavy gate (`heavy` in its profile) takes
+   of 3 for 1 machine gate slot`, or `gates: queued 1 of 1 for 1 heavy slot,
+   behind heavy gates from other kitchens`). A heavy gate (`heavy` in its profile) takes
    its heavy slot first and the machine gate slot second, so it never holds a
    gate slot while it waits for a build. `timings.tsv` records each gate's
    gate-slot wait in column 7, its heavy-slot wait in column 8 and its wall
