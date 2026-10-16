@@ -1360,12 +1360,12 @@ verify_wait() {
 	json_update "$store" 'del(.verifying)'
 	[ "$status" = clean ] || [ "$status" = reject ] || verifier_trail "$session" "$packet"
 	if [ ! -f "$verdict" ] && [ -n "$provider" ]; then
-		event "$store" master wake "$brief" "verify:provider"
 		printf 'verdict: none\nstatus: inconclusive (the verifier hit its provider, not the work)\nprovider_error: %s\n' "$provider"
 		if [ "$retried" = false ] && [ -n "$fallback" ] && [ "$(jq -r .kind <<<"$fallback")" != "$kind" ] && [ "${#argv[@]}" -gt 0 ]; then
 			printf 'retry: verifying again on the fallback, %s\n' "$(jq -r .kind <<<"$fallback")"
 			exec "$here/kitchen.sh" verify "$store" "${argv[@]}" --retry-entry "$fallback"
 		fi
+		event "$store" master wake "$brief" "verify:provider"
 		# A retried call carries its entry; the advice is for the master's own call.
 		local -a shown=()
 		local i

@@ -2390,6 +2390,9 @@ esac
         (self.fake / 'sessions').mkdir()
         (self.fake / 'sessions/demo-verifier').write_text(str(session))
 
+    def verify_wakes(self):
+        return [w for w in self.wakes() if w.startswith('verify:')]
+
     def test_a_rate_limited_verifier_says_so_and_retries_on_the_fallback(self):
         self.rate_limited_verifier()
         _, out = self.verify_app_unit('ratelimit', 0)
@@ -2403,7 +2406,7 @@ esac
         self.assertEqual(len(starts), 2)
         self.assertIn('--kind devin', starts[1])
         self.assertNotIn('devin/swe-2', starts[1])
-        self.assertIn('verify:provider', (self.store / 'events.tsv').read_text())
+        self.assertEqual(self.verify_wakes(), ['verify:clean'])
 
     def set_roster(self, extra):
         Path(self.env['PSTACK_KITCHEN_ROSTER']).write_text(
@@ -2885,6 +2888,7 @@ esac
         self.assertIn('provider_error: Reached free model rate limit', out)
         self.assertIn(f'next: wait for the limit, or kitchen.sh verify {self.store} 001 --kind <another kind>', out)
         self.assertNotIn('verify:missing', (self.store / 'events.tsv').read_text())
+        self.assertEqual(self.verify_wakes(), ['verify:provider'])
 
     def test_verify_deadline_scales_with_measured_gate_time(self):
         state_dir = Path(subprocess.run([sys.executable, str(script), '--repo', str(self.repo), 'statedir'],
