@@ -88,6 +88,15 @@ class Rule:
     source: str
 
 
+@dataclass(frozen=True)
+class Generated:
+    sources: tuple[str, ...]
+    outputs: tuple[str, ...]
+    command: str
+    source_res: tuple[re.Pattern, ...]
+    output_res: tuple[re.Pattern, ...]
+
+
 @dataclass
 class Kitchen:
     profiles: dict[str, Profile]
@@ -100,6 +109,7 @@ class Kitchen:
     max_parallel_heavy: int
     wrap: str
     scratch_setup: list[str] = field(default_factory=list)
+    generated: list[Generated] = field(default_factory=list)
 
 
 def _check_keys(table: dict, where: str, allowed: set[str]) -> None:
@@ -143,7 +153,7 @@ def _heavy_stages(value, where: str) -> frozenset[str]:
 
 def parse(data: dict) -> Kitchen:
     _check_keys(data, 'kitchen.toml', {'version', 'profile', 'escalate', 'policy', 'review',
-                                       'verify', 'landing', 'coverage', 'resources', 'run', 'scratch'})
+                                       'verify', 'landing', 'coverage', 'resources', 'run', 'scratch', 'generated'})
     if data.get('version') != 1:
         raise ConfigError('version: expected 1')
     raw_profiles = data.get('profile')
@@ -212,6 +222,26 @@ def parse(data: dict) -> Kitchen:
                           [glob_regex(g) for g in _strings(r.get('paths', ['**']), f'{where}.paths')],
                           str(r.get('source', ''))))
 
+    generated = []
+    raw_generated = data.get('generated', [])
+    if not isinstance(raw_generated, list):
+        raise ConfigError('generated: expected an array of tables, [[generated]]')
+    for i, g in enumerate(raw_generated):
+        where = f'generated[{i}]'
+        if not isinstance(g, dict):
+            raise ConfigError(f'{where}: expected a table')
+        _check_keys(g, where, {'sources', 'outputs', 'command'})
+        lists = {}
+        for key in ('sources', 'outputs'):
+            lists[key] = _strings(g.get(key), f'{where}.{key}') if key in g else None
+            if not lists[key]:
+                raise ConfigError(f'{where}.{key}: list at least one glob')
+        command = g.get('command', '')
+        if not isinstance(command, str):
+            raise ConfigError(f'{where}.command: expected a string')
+        generated.append(Generated(tuple(lists['sources']), tuple(lists['outputs']), command,
+                                   tuple(glob_regex(x) for x in lists['sources']), tuple(glob_regex(x) for x in lists['outputs'])))
+
     review = data.get('review', {})
     # The kitchen runs no reviewer: review is the master's step, done with
     # whatever the repo's owner chose. An owner who names an engine makes it
@@ -253,7 +283,7 @@ def parse(data: dict) -> Kitchen:
         landing=_choice(landing.get('mode', 'commit'), 'landing.mode', LANDING_MODES),
         coverage_ignore=[glob_regex(g) for g in _strings(coverage.get('ignore', []), 'coverage.ignore')],
         max_parallel_heavy=_int(resources.get('max_parallel_heavy', 1), 'resources.max_parallel_heavy', 1),
-        wrap=run.get('wrap', ''), scratch_setup=_strings(scratch.get('setup', []), 'scratch.setup'))
+        wrap=run.get('wrap', ''), scratch_setup=_strings(scratch.get('setup', []), 'scratch.setup'), generated=generated)
 
 
 # Fixed diff output whatever the user's git config says (mnemonicPrefix,

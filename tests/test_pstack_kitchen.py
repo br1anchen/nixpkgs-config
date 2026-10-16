@@ -184,6 +184,23 @@ class SchemaTests(KitchenTests):
         self.assertIn('profile.app.heavy: expected true, false, or a list of stages from fast, behavioral, landing',
                       self.run_kitchen('validate', code=1))
 
+    GENERATED = ('\n[[generated]]\nsources = ["src/**"]\noutputs = ["docs/**"]\ncommand = "make gen"\n')
+
+    def test_a_generated_entry_parses_and_validates(self):
+        self.write('.agents/kitchen.toml', KITCHEN + self.GENERATED)
+        k, _ = kitchen.load(self.repo, None, None)
+        (g,) = k.generated
+        self.assertEqual((g.sources, g.outputs, g.command), (('src/**',), ('docs/**',), 'make gen'))
+        self.run_kitchen('validate')
+
+    def test_a_bad_generated_entry_is_refused_naming_it(self):
+        for text, message in [('[[generated]]\nsources = ["src/**"]\n', 'generated[0].outputs: list at least one glob'),
+                              ('[[generated]]\nsources = []\noutputs = ["a"]\n', 'generated[0].sources: list at least one glob'),
+                              ('[[generated]]\nsources = ["a"]\noutputs = ["b"]\nwhen = "x"\n', 'generated[0]: unknown key when')]:
+            with self.subTest(message):
+                self.write('.agents/kitchen.toml', KITCHEN + '\n' + text)
+                self.assertIn(message, self.run_kitchen('validate', code=1))
+
     def test_missing_kitchen_points_at_setup(self):
         (self.repo / '.agents/kitchen.toml').unlink()
         self.assertIn('pstack-kitchen-setup', self.run_kitchen('validate', code=1))
