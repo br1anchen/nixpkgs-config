@@ -639,6 +639,39 @@ class ReadinessTests(unittest.TestCase):
         out = self.wait(4)
         self.assertIn('outside scope: 1\n  other.txt', out)
 
+    def steer(self, k, kind, effect, supersedes='none'):
+        f = self.store / f'steers/001-first-s{k}.md'
+        f.parent.mkdir(exist_ok=True)
+        f.write_text(f'# Steer 001-s{k}: first\n\nbrief: {self.brief}\nsupersedes: {supersedes}\nkind: {kind}\nscope effect: {effect}\n')
+        return f
+
+    def outside(self, *files):
+        self.scoped_brief('001-first', 'src/**')
+        for f in files:
+            (self.cwd / f).parent.mkdir(parents=True, exist_ok=True)
+            (self.cwd / f).write_text('x')
+        out = self.wait(4)
+        return [line.strip() for line in out.split('outside scope:', 1)[1].splitlines()[1:] if line.startswith('  ')] \
+            if 'outside scope:' in out else []
+
+    def test_a_file_a_steers_may_write_effect_allows_is_not_outside_scope(self):
+        self.steer(1, 'scope', 'may write: docs/new.md \u2014 regenerated only')
+        self.assertEqual(self.outside('docs/new.md', 'other.txt'), ['other.txt'])
+
+    def test_a_quoted_list_of_paths_in_a_steer_all_count(self):
+        self.steer(1, 'scope', 'may write "gen/**" and "`docs/two.md`"')
+        self.assertEqual(self.outside('gen/a/b.json', 'docs/two.md', 'other.txt'), ['other.txt'])
+
+    def test_a_withdrawn_steers_path_is_outside_scope_again(self):
+        first = self.steer(1, 'scope', 'may write: docs/new.md')
+        self.steer(2, 'withdraw', 'none', supersedes=f'steers/{first.name}')
+        self.assertEqual(self.outside('docs/new.md'), ['docs/new.md'])
+
+    def test_none_and_must_not_write_effects_allow_nothing(self):
+        self.steer(1, 'info', 'none')
+        self.steer(2, 'scope', 'must not write: docs/new.md')
+        self.assertEqual(self.outside('docs/new.md'), ['docs/new.md'])
+
     def test_a_double_star_glob_matches_a_top_level_file(self):
         (self.cwd / 'flake.nix').write_text('x')
         self.git('add', 'flake.nix')

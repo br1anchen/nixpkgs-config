@@ -598,7 +598,7 @@ checkin() {
 	[ -z "$floor_note" ] || printf 'note: %s\n' "$floor_note"
 	printf 'touched: %d files, %d commits since dispatch\n' "${#touched[@]}" "$commits"
 	[ "${#touched[@]}" -gt 0 ] && printf '  %s\n' "${touched[@]:0:30}"
-	mapfile -t may < <(scope_entries "$brief" may | sed 's#/$#/*#')
+	mapfile -t may < <({ scope_entries "$brief" may; steer_scope_entries "$store" "$seq"; } | sed 's#/$#/*#')
 	local f p ok
 	for f in "${touched[@]}"; do
 		ok=0
@@ -623,6 +623,37 @@ checkin() {
 		printf 'steps: %d committed, reviewed through %s, %d blocking notes open\n' "$(grep -c . "$sfile")" \
 			"$(noted_through "$store" "$brief")" "$(open_notes "$store" "$brief" | grep -c . || true)"
 	fi
+}
+
+# The paths a unit's live steers allow beyond its brief, one per line: the
+# `scope effect: may write ...` line of each steer that is not a withdraw and
+# that no later steer of the unit withdraws by `supersedes:`. Quoted strings
+# when the line has any (may write "a/**" and "b/**"), else the first word
+# after `may write:` (the rest is a note). `none` and `must not write` add
+# nothing.
+steer_scope_entries() {
+	local store="$1" seq="$2" f sup line rest withdrawn=" "
+	for f in "$store"/steers/"$seq"-*-s[0-9]*.md; do
+		[ -f "$f" ] && [ "$(header_field "$f" kind)" = withdraw ] || continue
+		sup="$(header_field "$f" supersedes)"
+		[ "${sup%% *}" = none ] || withdrawn+="$(basename "${sup%% *}") "
+	done
+	for f in "$store"/steers/"$seq"-*-s[0-9]*.md; do
+		[ -f "$f" ] && [ "$(header_field "$f" kind)" != withdraw ] || continue
+		[[ "$withdrawn" != *" $(basename "$f") "* ]] || continue
+		line="$(header_field "$f" 'scope effect')"
+		[[ "$line" == "may write"* ]] || continue
+		if [[ "$line" == *\"* ]]; then
+			grep -o '"[^"]*"' <<<"$line" | tr -d '"`'
+		else
+			rest="${line#may write}"
+			rest="${rest#:}"
+			rest="${rest# }"
+			rest="${rest%% *}"
+			rest="${rest//\`/}"
+			[ -z "$rest" ] || printf '%s\n' "$rest"
+		fi
+	done
 }
 
 # Variant hook: further gates on an agreed plan, called with the store, the
