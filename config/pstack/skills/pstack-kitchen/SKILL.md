@@ -168,11 +168,12 @@ A report (done, partial, blocked), a check-in digest at the interval, a
 steer objection, an escalated unit's steps, a rejected or inconclusive
 verdict, review findings, a sampled audit, an approval dialog, and a
 provider error. Two failed gates in a row reach the master as a blocked
-report. Everything else the kitchen handles. `events.tsv` holds one `master
-wake` row per command that returned to the master: a check-in that `wait`
-swallows is not a wake, every `verify` return is (`verify:progress`,
-`verify:grace`, `verify:<status>`), and a `discuss` answered by both roles is
-one.
+report. Everything else the kitchen handles. Each `wait`, `dispatch` and
+`verify` return to the master logs one `master wake` row in `events.tsv`: a
+check-in that `wait` or `dispatch` swallows is not a wake, and a `verify`
+return is (`verify:progress`, `verify:grace`, `verify:<status>`). A `discuss`
+answered by both roles logs one; `discuss` with no answer yet (a deferred
+sidekick) and `verify` with nothing open log none.
 
 ## Store additions
 
