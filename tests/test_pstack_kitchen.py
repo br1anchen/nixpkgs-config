@@ -391,6 +391,28 @@ class GateTests(KitchenTests):
         taken = self.slot_order(KITCHEN.replace('sample = 0.2', 'sample = 0.2\nheavy = true'))
         self.assertEqual(taken, [('heavy', []), ('gate', [])])
 
+    def test_a_gate_waiting_for_the_heavy_slot_says_where_it_stands(self):
+        import contextlib
+        import io
+        from unittest import mock
+        self.write('.agents/kitchen.toml', KITCHEN.replace('sample = 0.2', 'sample = 0.2\nheavy = true'))
+        k, _ = kitchen.load(self.repo, None, None)
+        env = {**self.env}
+        with mock.patch.dict(os.environ, env, clear=True):
+            lock_dir = kitchen.state_dir(self.repo).parent
+            holder, _ = kitchen.acquire_slot(lock_dir, 'heavy', 1)
+            real = kitchen.acquire_slot
+            def release_when_queued(directory, prefix, slots, on_wait=None):
+                def wait(pos, n):
+                    on_wait(pos, n)
+                    holder.close()
+                return real(directory, prefix, slots, wait)
+            err = io.StringIO()
+            with mock.patch.object(kitchen, 'acquire_slot', release_when_queued), contextlib.redirect_stderr(err):
+                slot, _ = kitchen.heavy_slot(self.repo, k)
+            slot.close()
+        self.assertIn('kitchen: queued 1 of 1 for 1 heavy slot\n', err.getvalue())
+
     def test_a_fast_gate_of_a_behavioral_only_heavy_profile_takes_no_heavy_slot(self):
         toml = KITCHEN.replace('sample = 0.2', 'sample = 0.2\nheavy = ["behavioral"]')
         self.assertEqual(self.slot_order(toml), [('gate', [])])

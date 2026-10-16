@@ -581,10 +581,13 @@ def acquire_slot(lock_dir: Path, prefix: str, slots: int, on_wait=None):
 # machine, so a verifier's build never races the sidekick's.
 def heavy_slot(root: Path, kitchen: Kitchen):
     """The held heavy slot and the seconds spent waiting for it."""
-    slot, waited = acquire_slot(state_dir(root).parent, 'heavy', kitchen.max_parallel_heavy)
+    slots = kitchen.max_parallel_heavy
+    plural = 's' if slots > 1 else ''
+    def queued(pos, n):
+        print(f'kitchen: queued {pos} of {n} for {slots} heavy slot{plural}', file=sys.stderr, flush=True)
+    slot, waited = acquire_slot(state_dir(root).parent, 'heavy', slots, queued)
     if waited >= 2:
-        n = kitchen.max_parallel_heavy
-        print(f'kitchen: waited {waited:.0f}s for one of {n} heavy slot{"s" if n > 1 else ""}', file=sys.stderr)
+        print(f'kitchen: waited {waited:.0f}s for one of {slots} heavy slot{plural}', file=sys.stderr)
     return slot, waited
 
 
