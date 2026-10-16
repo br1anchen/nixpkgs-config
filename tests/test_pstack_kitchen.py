@@ -207,6 +207,28 @@ class SchemaTests(KitchenTests):
 
 
 class ClassifyTests(KitchenTests):
+    def with_generated(self):
+        self.write('.agents/kitchen.toml', KITCHEN + '\n[[generated]]\nsources = ["src/**"]\noutputs = ["docs/**"]\ncommand = "make gen"\n')
+
+    def test_a_scope_covering_a_source_but_none_of_its_outputs_warns(self):
+        self.with_generated()
+        r = self.data('classify', '--paths', 'src/**')
+        self.assertEqual(r['warnings'], ['Scope covers src/app.py but none of its generated outputs (docs/**); '
+                                         'add them to may write, or say why not (regenerate: make gen)'])
+        self.assertIn('warn: Scope covers src/app.py', self.run_kitchen('classify', '--paths', 'src/**'))
+
+    def test_a_scope_with_the_outputs_or_without_the_source_does_not_warn(self):
+        self.with_generated()
+        self.assertEqual(self.data('classify', '--paths', 'src/**', 'docs/**')['warnings'], [])
+        self.assertEqual(self.data('classify', '--paths', 'tests/**')['warnings'], [])
+
+    def test_a_warning_changes_neither_the_risk_nor_the_exit_code_and_no_entry_means_no_key(self):
+        plain = self.data('classify', '--paths', 'src/**')
+        self.assertNotIn('warnings', plain)
+        self.with_generated()
+        warned = self.data('classify', '--paths', 'src/**')
+        self.assertEqual({k: v for k, v in warned.items() if k != 'warnings'}, plain)
+
     def test_routine_change_takes_its_profile_settings(self):
         r = self.classify({'src/util.py': 'X = 2\n', 'tests/test_app.py': 'def test_main():\n    assert 1\n'})
         self.assertEqual((r['risk'], r['profiles'], r['escalate']), ('routine', ['app'], []))

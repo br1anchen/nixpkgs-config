@@ -474,6 +474,7 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
         files = tracked(root, args.at)
         out, seen = [], set()
         args.outside = []
+        args.scope_globs = []
         for pattern in args.paths:
             # An absolute path is repo-relative when it is inside the repo;
             # outside it (the run's own store, a report) it is bookkeeping that
@@ -484,6 +485,7 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
                 except ValueError:
                     args.outside.append(pattern)
                     continue
+            args.scope_globs.append(pattern)
             rx = glob_regex(pattern)
             # A glob for files that do not exist yet stands for one file it
             # would match, so a new directory still maps to its profile.
@@ -515,6 +517,31 @@ def changes(root: Path, args) -> list[tuple[str, int, int]]:
             n = 0
         out.append((path, n, 0))
     return out
+
+
+def generated_warnings(kitchen: Kitchen, root: Path, at: str | None, scope_globs: list[str],
+                       changed: list[tuple[str, int, int]]) -> list[str]:
+    """For each [[generated]] entry whose outputs exist: a Scope that covers one of its sources and none
+    of its outputs is probably missing them, and the sidekick would block on the regenerated files."""
+    if not kitchen.generated or not scope_globs:
+        return []
+    files = tracked(root, at)
+    known = set(files)
+    scope_res = [glob_regex(g) for g in scope_globs]
+    in_scope = [path for path, _, _ in changed if path in known]
+    out = []
+    for g in kitchen.generated:
+        outputs = [f for f in files if matches(f, list(g.output_res))]
+        source = next((f for f in in_scope if matches(f, list(g.source_res))), None)
+        if not outputs or source is None or matches_any(outputs, scope_res):
+            continue
+        text = f'Scope covers {source} but none of its generated outputs ({", ".join(g.outputs)}); add them to may write, or say why not'
+        out.append(text + (f' (regenerate: {g.command})' if g.command else ''))
+    return out
+
+
+def matches_any(paths: list[str], patterns: list[re.Pattern]) -> bool:
+    return any(matches(p, patterns) for p in paths)
 
 
 def classify(kitchen: Kitchen, changed: list[tuple[str, int, int]], outside: list[str] | None = None,
@@ -2563,12 +2590,15 @@ def main(argv: list[str] | None = None) -> int:
                 args.paths = None
             changed = changes(root, args)
             r = classify(kitchen, changed, getattr(args, 'outside', []), args.escalate)
+            if kitchen.generated:
+                r['warnings'] = generated_warnings(kitchen, root, args.at, getattr(args, 'scope_globs', []), changed)
             text = [f'risk: {r["risk"]}', f'profiles: {", ".join(r["profiles"]) or "none"}',
                     f'diff_lines: {r["diff_lines"]}',
                     f'verify: {r["verify"]["mode"]} by {r["verify"]["kind"]} verifier', f'sample: {r["sample"]}']
             text += [f'escalate: {x}' for x in r['escalate']]
             text += [f'unmapped: {x}' for x in r['unmapped']]
             text += [f'outside the repo: {x}' for x in r['outside']]
+            text += [f'warn: {x}' for x in r.get('warnings', [])]
             emit(r, args.json, '\n'.join(text))
             return 0
         if args.cmd == 'gate':
