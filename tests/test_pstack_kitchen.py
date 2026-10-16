@@ -1803,6 +1803,12 @@ esac
         self.assertIn('outside scope: 1', out)
         self.assertEqual(self.wakes()[len(before):], ['checkin'])
 
+    def test_catches_with_different_text_in_one_second_are_both_kept(self):
+        self.run_sh('catch', str(self.store), 'review', 'missed a caller in api.py')
+        self.run_sh('catch', str(self.store), 'review', 'forgot the docs row')
+        rows = [r.split('\t') for r in (self.store / 'events.tsv').read_text().splitlines() if '\tcatch\t' in r]
+        self.assertEqual([r[5] for r in rows], ['review', 'review'])
+
     def test_gates_see_the_step_base(self):
         self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
                    .replace('fast = ["test ! -e FAIL"]', 'fast = ["git cat-file -e \\"$PSTACK_KITCHEN_STEP_BASE^{commit}\\""]'))

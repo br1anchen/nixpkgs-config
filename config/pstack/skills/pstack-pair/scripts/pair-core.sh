@@ -156,13 +156,13 @@ await_file() {
 # One row per channel event, so a run's timing is measured rather than guessed
 # from file times. $1 store, $2 actor, $3 event, $4 unit (a file's basename
 # without .md, or -), $5 detail. Never fails the command it records. With
-# PAIR_EVENT_DEDUPE=1 (the kitchen sets it), a row identical to the log's last
+# PAIR_EVENT_DEDUPE=1 (the kitchen sets it), a master wake row identical to the log's last
 # one in epoch, actor, event, unit and detail is not written twice.
 event() {
 	local log="$1/events.tsv" unit="${4:-}" epoch last
 	unit="$(basename "${unit:--}" .md)"
 	epoch="$(date +%s)"
-	if [ "${PAIR_EVENT_DEDUPE:-}" = 1 ]; then
+	if [ "${PAIR_EVENT_DEDUPE:-}" = 1 ] && [ "$2" = master ] && [ "$3" = wake ]; then
 		last="$(tail -n 1 "$log" 2>/dev/null | cut -f2- || true)"
 		[ "$last" != "$(printf '%s\t%s\t%s\t%s\t%s' "$epoch" "$2" "$3" "$unit" "${5:-}")" ] || return 0
 	fi
