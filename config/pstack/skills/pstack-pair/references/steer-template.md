@@ -3,7 +3,7 @@
 brief: {{STORE}}/briefs/{{SEQ}}-{{SLUG}}.md
 supersedes: {{SUPERSEDES}}
 kind: {{one of: redirect | narrow | skip-step | scope | info | withdraw}}
-scope effect: {{none, or the exact "may write" or "must not write" line to add}}
+scope effect: {{`none`, or `may write: <path or glob>` (several as `may write "<a>" and "<b>"`), or `must not write: <path or glob>`; a note may follow after ` — `. The check-in counts a `may write` effect as part of the Scope, so a path named there is no longer reported outside scope}}
 
 ## Direction
 
