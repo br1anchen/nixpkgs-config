@@ -41,6 +41,10 @@ opencode = "latest"
 # Release/source-map upload CLI. The aqua entry is a native binary, so unlike the
 # previous `npm i -g @sentry/cli` it does not ride on a node install either.
 sentry-cli = "latest"
+# Sentry's interactive CLI (cli.sentry.dev), binary `sentry`. Use the github
+# backend, not the `sentry` short name: that resolves to aqua:getsentry/sentry-cli.
+# Upgrade through mise, not `sentry cli upgrade`, so mise keeps tracking the version.
+"github:getsentry/cli" = "latest"
 
 # Devin publishes native bundles outside mise's registry. The devin-upgrade task
 # locks manifest checksums before installing; the marker disables self-updates.
