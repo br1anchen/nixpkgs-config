@@ -59,6 +59,15 @@
 [submodule]
 	recurse = true
 
+# Authenticate github.com over HTTPS via the gh token, so nothing in a flake
+# evaluation or submodule fetch reaches the ssh agent. 1Password is the
+# IdentityAgent for Host *; when it auto-locks, signing fails and every ssh
+# fetch dies with "communication with agent failed". `gh auth setup-git` can't
+# install this: it writes --global, which here is a read-only /nix/store
+# symlink. gh is on PATH via mise on both hosts.
+[credential "https://github.com"]
+	helper = !gh auth git-credential
+
 [interactive]
 	diffFilter = delta --color-only
 
