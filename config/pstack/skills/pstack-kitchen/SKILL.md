@@ -94,7 +94,7 @@ worth most.
 | | Master | Sidekick | Consultant | Verifier |
 | --- | --- | --- | --- | --- |
 | Agent | the strongest model | the largest, cheapest pool | a different strong model, the scarcest | the host roster's `[verifier]`: the sidekick's kind (routine) or Claude Opus (escalated) |
-| Lives | the whole run | the whole run, rotated or failed over | from the first escalation | one verification, then its pane closes |
+| Lives | the whole run | one pane for the run, a fresh session per brief, failed over | from the first escalation | one verification, then its pane closes |
 | Owns | plans, briefs, review triage, decisions, the human | the working tree, steps, fixes | design critique | the verdict |
 | Writes | the store | the brief's Scope | advice, scratch | its verdict, in a scratch worktree |
 

@@ -3062,6 +3062,28 @@ esac
         self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
         self.assertFalse(self.state()['sidekick'].get('rotation_required'))
 
+    def test_a_claude_sidekick_starts_the_next_brief_in_a_fresh_session(self):
+        state = self.state()
+        state['sidekick'].update(kind='claude', start_args=['--model', 'claude-sonnet-5-5'])
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.fake / 'agents/demo-sidekick').write_text('idle claude\n')
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.verify_block(b, 'true')
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 2\n')
+        self.done(b, self.commit('util'))
+        out = self.run_sh('finish', str(self.store), str(self.store / 'reports' / b.name))
+        self.assertIn('rotation: required before the next task', out)
+        self.assertTrue(self.state()['sidekick']['rotation_required'])
+        (self.fake / 'agents/demo-sidekick').write_text('idle claude\n')
+        out = self.dispatch(self.brief('002', 'more', ['src/**', 'tests/**']))
+        self.assertIn('rotated: the claude sidekick starts this brief in a fresh session', out)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertIn('agent prompt demo-sidekick /exit', calls)
+        self.assertRegex(calls, r'agent start demo-sidekick --kind claude --pane p1 .* --model claude-sonnet-5-5\n')
+        self.assertIn('take the sidekick role (generation 2, pane p1)', calls)
+        self.assertFalse(self.state()['sidekick'].get('rotation_required'))
+
     def test_an_escalated_plan_reaches_the_consultant_while_the_sidekick_works(self):
         state = self.state()
         state['consultant'] = {'name': 'demo-consultant', 'kind': 'codex'}

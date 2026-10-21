@@ -521,10 +521,16 @@ cmd_wait() {
 	quiet_wait "$@"
 }
 
-# A sidekick that starts fresh per brief (pi, prime-agent, devin) is rotated before the
-# next brief or plan once its last unit is done, so the rotation costs the
-# master no extra wake. Partial or blocked work never sets rotation_required
-# and keeps its session. $1 store, $2 what comes next (brief or plan).
+# Every kitchen sidekick starts each brief in a fresh session, whatever its
+# kind. Claude sidekicks that kept one session for the run (2026-10-06..21)
+# held 79k tokens at READY, then a median 376k per call, because every call
+# re-read every earlier brief; a fresh session per brief averages about 82k.
+fresh_per_brief() { return 0; }
+
+# The sidekick is rotated before the next brief or plan once its last unit is
+# done, so the rotation costs the master no extra wake. Partial or blocked
+# work never sets rotation_required and keeps its session. $1 store, $2 what
+# comes next (brief or plan).
 rotate_if_due() {
 	local out rc=0
 	fresh_per_brief "$(field "$1" .sidekick.kind)" && [ "$(field "$1" '.sidekick.rotation_required // false')" = true ] || return 0

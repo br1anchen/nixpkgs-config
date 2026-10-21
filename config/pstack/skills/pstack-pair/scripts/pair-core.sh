@@ -1380,7 +1380,7 @@ spawn_role() {
 	has_trust_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(trust_args "$kind")
 	has_mcp_arg "$@" || mapfile -t -O "${#agent_args[@]}" agent_args < <(mcp_args "$kind" "$(field "$store" .cwd)")
 	set -- "${agent_args[@]}" "$@"
-	if fresh_per_brief "$kind"; then
+	if fresh_kind "$kind"; then
 		local arg
 		for arg in "$@"; do
 			case "$arg" in -c | --continue | -r | --resume | --resume=* | --session | --session=* | --session-id | --fork)
@@ -1503,13 +1503,18 @@ spawn_role() {
 	fi
 }
 
-# Kinds whose sidekick starts a fresh conversation for each completed brief:
-# Devin, Pi, and Prime, whose compacted conversation would otherwise carry every
-# earlier brief into the next. The master rotates them; the queue waits.
-fresh_per_brief() {
+# Kinds whose task sessions always start fresh: Devin, Pi, and Prime, whose
+# compacted conversation would otherwise carry every earlier brief into the
+# next. Their resume flags are refused at spawn.
+fresh_kind() {
 	case "$1" in devin | pi | prime-agent) return 0 ;; esac
 	return 1
 }
+
+# Kinds whose sidekick starts a fresh conversation for each completed brief.
+# The master rotates them; the queue waits. pstack-kitchen widens this to
+# every kind.
+fresh_per_brief() { fresh_kind "$1"; }
 
 require_fresh_session() {
 	local kind
