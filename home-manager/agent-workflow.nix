@@ -114,6 +114,31 @@ lib.mkIf agentWorkflow {
       $DRY_RUN_CMD rm -f "$HOME/.config/herdr/.vim-herdr-navigation-source"
     '';
 
+    # A herdr upgrade only lands on PATH: the long-lived server keeps running
+    # the old store path and the old wire protocol. The client that started
+    # alongside it keeps working, so the split stays invisible until a fresh
+    # client appears - typically an ssh login - whose handshake fails before
+    # herdr-client.log is even opened. Warn instead of restarting: stopping the
+    # server kills every process in every pane.
+    warnStaleHerdrServer = lib.hm.dag.entryAfter [ "registerVimHerdrNavigation" ] ''
+      stale="$(
+        ${herdr}/bin/herdr status --json 2>/dev/null \
+          | ${pkgs.jq}/bin/jq -r '
+              if .server.running and (.server.restart_needed or .server.compatible == false)
+              then "\(.server.version // "unknown") \(.client.version)"
+              else empty
+              end
+            ' 2>/dev/null
+      )" || stale=""
+
+      if [[ -n "$stale" ]]; then
+        read -r running_version client_version <<< "$stale"
+        echo "warning: herdr server $running_version is still running, but this generation installs $client_version." >&2
+        echo "         Their protocols differ, so a fresh client (an ssh login, a new terminal) will fail its handshake." >&2
+        echo "         Restart once the panes are expendable: herdr server stop && herdr" >&2
+      fi
+    '';
+
     configureClaudeAgentWorkflow = lib.hm.dag.entryAfter [ "writeBoundary" ] ''
       settings="$HOME/.claude/settings.json"
       hook_command="$HOME/.claude/hooks/herdr-agent-state.sh session"
