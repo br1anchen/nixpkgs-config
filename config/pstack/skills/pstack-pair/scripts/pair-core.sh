@@ -2687,6 +2687,30 @@ cmd_log() {
 	event "$store" master log - "$1: $2"
 }
 
+# A jj scratch is a jj workspace that is also a linked git worktree at the
+# same commit. A jj workspace alone has no .git, and under .git/ git finds
+# only the git directory ("must be run in a work tree"), so every git, flake
+# and gate command there failed, and an agent that worked around it with
+# GIT_DIR/GIT_WORK_TREE wrote into the main repo. The git worktree is added
+# first with no checkout, its .git link set aside while jj fills the empty
+# directory, then put back and its index read from HEAD.
+jj_scratch_add() {
+	local cwd="$1" id="$2" path="$3" at="$4" rev
+	rev="${at:-$(git -C "$cwd" rev-parse HEAD)}"
+	git -C "$cwd" worktree add --no-checkout --detach "$path" "$rev" >/dev/null 2>&1 || die "git worktree add failed" 2
+	mv "$path/.git" "$path.gitlink"
+	if ! jj -R "$cwd" workspace add --name "scratch-$id" ${at:+-r "$at"} "$path" >/dev/null; then
+		rm -f "$path.gitlink"
+		git -C "$cwd" worktree remove --force "$path" >/dev/null 2>&1 || true
+		git -C "$cwd" worktree prune >/dev/null 2>&1 || true
+		die "jj workspace add failed" 2
+	fi
+	mv "$path.gitlink" "$path/.git"
+	git -C "$path" reset -q >/dev/null 2>&1 || die "git reset in $path failed" 2
+	[ -e "$path/.jj/.gitignore" ] || printf '/*\n' >"$path/.jj/.gitignore"
+	[ "$(git -C "$path" rev-parse --show-toplevel 2>/dev/null)" = "$(cd "$path" && pwd -P)" ] || die "scratch $path is not a git work tree" 2
+}
+
 # A throwaway worktree beside the shared tree. Default: detached at HEAD with
 # the sidekick's uncommitted diff applied, so a prototype or build starts from
 # the live state. With --at SHA: exactly that commit, so the master can rerun
@@ -2718,7 +2742,8 @@ cmd_scratch() {
 	if [ "$remove" -eq 1 ]; then
 		if [ -d "$cwd/.jj" ]; then
 			jj -R "$cwd" workspace forget "scratch-$id" >/dev/null 2>&1 || true
-			rm -rf "$path"
+			git -C "$cwd" worktree remove --force "$path" >/dev/null 2>&1 || rm -rf "$path"
+			git -C "$cwd" worktree prune >/dev/null 2>&1 || true
 		else
 			git -C "$cwd" worktree remove --force "$path" >/dev/null 2>&1 || rm -rf "$path"
 			git -C "$cwd" worktree prune >/dev/null 2>&1 || true
@@ -2738,12 +2763,12 @@ cmd_scratch() {
 	if [ -n "$at" ]; then
 		git -C "$cwd" rev-parse --verify --quiet "$at^{commit}" >/dev/null || die "not a commit: $at"
 		if [ -d "$cwd/.jj" ]; then
-			jj -R "$cwd" workspace add --name "scratch-$id" -r "$at" "$path" >/dev/null || die "jj workspace add failed" 2
+			jj_scratch_add "$cwd" "$id" "$path" "$at"
 		else
 			git -C "$cwd" worktree add --detach "$path" "$at" >/dev/null || die "git worktree add failed" 2
 		fi
 	elif [ -d "$cwd/.jj" ]; then
-		jj -R "$cwd" workspace add --name "scratch-$id" "$path" >/dev/null || die "jj workspace add failed" 2
+		jj_scratch_add "$cwd" "$id" "$path" ""
 	else
 		git -C "$cwd" worktree add --detach "$path" HEAD >/dev/null || die "git worktree add failed" 2
 		# Tracked changes as a patch; untracked files copied as they are.

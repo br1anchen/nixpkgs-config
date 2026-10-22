@@ -4,6 +4,7 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -2101,6 +2102,31 @@ esac
         self.assertFalse(path.exists())
         self.assertFalse((self.store / 'scratch/001-x-review').is_symlink())
         self.assertEqual(list(git_dir.iterdir()), [])
+
+    @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
+    def test_a_jj_scratch_is_a_git_work_tree_at_the_commit(self):
+        # A bare jj workspace under .git/ is no git work tree: a verifier's
+        # gates failed there, and its GIT_DIR workaround wrote into the repo.
+        subprocess.run(['jj', 'git', 'init', '--colocate'], cwd=self.repo, env=self.env,
+                       check=True, capture_output=True)
+        head = self.git('rev-parse', 'HEAD')
+        out = self.run_sh('scratch', str(self.store), '001-x-verify', '--at', head)
+        path = Path(next(line for line in out.splitlines() if line.endswith('/001-x-verify')))
+        def git_in(*args):
+            return subprocess.run(['git', *args], cwd=path, env=self.env, check=True,
+                                  capture_output=True, text=True).stdout.strip()
+        self.assertEqual(Path(git_in('rev-parse', '--show-toplevel')).resolve(), path.resolve())
+        self.assertEqual(git_in('rev-parse', 'HEAD'), head)
+        self.assertEqual(git_in('status', '--porcelain'), '')
+        self.assertEqual(self.git('rev-parse', 'HEAD'), head)
+        self.assertIsNone(subprocess.run(['git', 'config', '--get', 'core.worktree'], cwd=self.repo,
+                                         env=self.env, capture_output=True, text=True).stdout.strip() or None)
+        self.run_sh('scratch', str(self.store), '001-x-verify', '--remove')
+        self.assertFalse(path.exists())
+        self.assertNotIn('pstack-scratch', self.git('worktree', 'list'))
+        ws = subprocess.run(['jj', 'workspace', 'list'], cwd=self.repo, env=self.env,
+                            check=True, capture_output=True, text=True).stdout
+        self.assertNotIn('scratch-', ws)
 
     def test_a_trust_dialog_is_declined_not_answered(self):
         (self.fake / 'agents/demo-consultant').unlink(missing_ok=True)

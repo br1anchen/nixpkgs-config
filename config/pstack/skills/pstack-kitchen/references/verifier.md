@@ -11,6 +11,10 @@ work?", and then your pane closes.
    scratch worktree at the unit's head, the range, each unit's Goal and
    Acceptance, the changed files, the commands to run, and the feature map.
    Work only in the scratch worktree. Write nothing else but the verdict.
+   Never set `GIT_DIR`, `GIT_WORK_TREE` or `GIT_INDEX_FILE`: every child,
+   including the repo's own fixtures, inherits them and writes into the main
+   repo. When git does not see the scratch as a work tree, stop and write an
+   inconclusive verdict saying so.
 2. Prepare the scratch the repo's way. When the packet's Prove block starts
    with a `kitchen.py ... setup` line, run it before anything else: it is the
    repo's declared preparation, such as its dependency install, and a bare
