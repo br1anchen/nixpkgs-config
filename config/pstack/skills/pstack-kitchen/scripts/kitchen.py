@@ -853,6 +853,18 @@ def setup_timing(root: Path) -> float | None:
     return last
 
 
+def last_setup_run(root: Path) -> tuple[int, bool] | None:
+    """The latest recorded setup run as (epoch, passed), or None when none was recorded."""
+    path = state_dir(root) / TIMINGS
+    last = None
+    if path.exists():
+        for line in path.read_text().splitlines():
+            f = line.split('\t')
+            if len(f) >= 6 and f[1] == '-' and f[2] == 'setup' and f[0].isdigit():
+                last = (int(f[0]), f[4] == 'pass')
+    return last
+
+
 def host_load() -> tuple[float, int]:
     """One-minute load and cores; PSTACK_KITCHEN_LOAD="<load1> <cores>" overrides both (tests)."""
     raw = os.environ.get('PSTACK_KITCHEN_LOAD')
@@ -1228,7 +1240,14 @@ def doctor(root: Path, kitchen: Kitchen, source: Source, run: bool) -> list[dict
     manifests = [m for m, locks in (('package.json', ('bun.lock', 'bun.lockb', 'pnpm-lock.yaml', 'package-lock.json', 'yarn.lock')),
                                     ('pyproject.toml', ('uv.lock', 'poetry.lock')))
                  if (root / m).exists() and any((root / x).exists() for x in locks)]
-    if kitchen.scratch_setup:
+    last_setup = last_setup_run(root)
+    if kitchen.scratch_setup and last_setup and not last_setup[1]:
+        # A setup that worked when written goes stale when the repo moves
+        # (a renamed task): every verifier then works around it by hand.
+        at = time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(last_setup[0]))
+        add('scratch setup', 'warn', f'the last verifier setup failed ({at}): check [scratch].setup still works at the '
+            f'current head: {"; ".join(kitchen.scratch_setup)}')
+    elif kitchen.scratch_setup:
         add('scratch setup', 'ok', '; '.join(kitchen.scratch_setup))
     elif manifests:
         add('scratch setup', 'warn', f'none, but the repo root has {", ".join(manifests)} with a lockfile: a bare verifier '

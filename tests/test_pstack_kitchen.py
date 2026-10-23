@@ -715,6 +715,19 @@ class WrapTests(KitchenTests):
         self.write('uv.lock', '\n')
         self.assertEqual(self.doctor_scratch()['status'], 'warn')
 
+    def test_doctor_warns_when_the_last_verifier_setup_failed(self):
+        self.kitchen()
+        self.scratch(['pnpm generate'])
+        timings = Path(self.run_kitchen('statedir').strip()) / 'timings.tsv'
+        timings.parent.mkdir(parents=True, exist_ok=True)
+        timings.write_text('100\t-\tsetup\tverifier\tfail\t3\n')
+        c = self.doctor_scratch()
+        self.assertEqual(c['status'], 'warn')
+        self.assertIn('the last verifier setup failed (1970-01-01T00:01:40Z)', c['detail'])
+        with timings.open('a') as f:
+            f.write('200\t-\tsetup\tverifier\tpass\t3\n')
+        self.assertEqual(self.doctor_scratch()['status'], 'ok')
+
     def test_doctor_resolves_commands_inside_the_wrap(self):
         self.kitchen()
         self.write('.agents/kitchen.toml', (self.repo / '.agents/kitchen.toml').read_text()
@@ -2115,6 +2128,14 @@ esac
         self.assertFalse(path.exists())
         self.assertFalse((self.store / 'scratch/001-x-review').is_symlink())
         self.assertEqual(list(git_dir.iterdir()), [])
+
+    @unittest.skipUnless(subprocess.run(['/bin/bash', '-c', '[ "${BASH_VERSINFO[0]}" -lt 4 ]']).returncode == 0,
+                         'needs an old /bin/bash (macOS)')
+    def test_an_old_bash_is_refused_by_name(self):
+        r = subprocess.run(['/bin/bash', str(self.script), 'status', str(self.store)], cwd=self.repo, env=self.env,
+                           capture_output=True, text=True, check=False)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn('bash 4 or later is required, found 3.', r.stderr)
 
     @unittest.skipUnless(shutil.which('jj'), 'jj not on PATH')
     def test_a_jj_scratch_is_a_git_work_tree_at_the_commit(self):
