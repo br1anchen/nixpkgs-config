@@ -390,6 +390,23 @@ class ReadinessTests(unittest.TestCase):
         self.assertNotIn('report_status', out)
         self.assertIn('report:unready', (self.store / 'events.tsv').read_text())
 
+    def test_a_later_units_step_resolves_a_finished_units_note_by_its_qualified_id(self):
+        c1 = self.commit('one')
+        self.step(c1)
+        self.note(1)
+        self.write_report(c1)
+        self.assertIn('open blocking notes n1', self.wait(4))
+        second = self.store / 'briefs/002-second.md'
+        second.write_text('playbook: investigation\nplan: none\ntimebox: 30\n')
+        state = json.loads((self.store / 'pair.json').read_text())
+        state['dispatch']['brief'] = str(second)
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        c2 = self.commit('two')
+        self.assertIn('no published note n9 on unit 001',
+                      self.run_command('step', str(self.store), c2, 'fix', '--resolves', '001-n9', code=1))
+        self.run_command('step', str(self.store), c2, 'fix', '--resolves', '001-n1')
+        self.assertNotIn('open blocking notes', self.wait(0))
+
     def test_the_resolving_step_does_not_expose_the_old_report_until_it_is_rewritten(self):
         c1 = self.commit('one')
         self.step(c1)

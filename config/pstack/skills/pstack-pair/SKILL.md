@@ -231,7 +231,9 @@ of each step catches the same blockers while they are one commit old.
   unit or cause a revise.
 - At each step boundary the sidekick runs `pair.sh notes`, fixes the open
   blocking items first as fixup commits, and records them with `pair.sh step
-  --resolves`. `finish` refuses a `done` report while one is open.
+  --resolves`. `finish` refuses a `done` report while one is open. A
+  blocking note on a unit already done is fixed by the next brief, whose step
+  names it qualified: `--resolves 020-n1`.
 - A problem that would waste the next steps, a wrong design rather than a
   wrong line, still goes out at once as a steer.
 - Each step runs the checks it names, and a brief's Verify runs the targeted

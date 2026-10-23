@@ -864,6 +864,12 @@ open_notes() {
 		if [ -f "$file" ] && awk -F '\t' -v id="$id" '{n = split($4, r, ","); for (i = 1; i <= n; i++) if (r[i] == id) found = 1} END {exit !found}' "$file"; then
 			continue
 		fi
+		# A later unit's step can resolve it by its qualified id, NNN-n<k>:
+		# a note published after its unit finished is fixed by the next brief.
+		if compgen -G "$1/steps/*.tsv" >/dev/null &&
+			awk -F '\t' -v id="${unit:0:3}-$id" '{n = split($4, r, ","); for (i = 1; i <= n; i++) if (r[i] == id) found = 1} END {exit !found}' "$1"/steps/*.tsv; then
+			continue
+		fi
 		printf '%s\n' "$f"
 	done
 }
@@ -2132,7 +2138,7 @@ cmd_queue() {
 # The sidekick records a committed step and goes straight on; the master's
 # wait picks it up for review. --resolves names the notes the step fixes.
 cmd_step() {
-	[ $# -ge 3 ] || die "usage: pair.sh step <store> <sha> <summary> [--resolves n1,n2]"
+	[ $# -ge 3 ] || die "usage: pair.sh step <store> <sha> <summary> [--resolves n1,n2|NNN-n1]"
 	local store="$1" sha="$2" summary="$3" resolves="" brief file full k
 	shift 3
 	case "${1:-}" in
@@ -2140,14 +2146,18 @@ cmd_step() {
 	"") ;;
 	*) die "unknown option $1" ;;
 	esac
-	[[ "$resolves" =~ ^(n[0-9]+(,n[0-9]+)*)?$ ]] || die "--resolves takes note ids like n2,n3"
+	[[ "$resolves" =~ ^(([0-9]{3}-)?n[0-9]+(,([0-9]{3}-)?n[0-9]+)*)?$ ]] || die "--resolves takes note ids like n2,n3, or 020-n1 for another unit's note"
 	pair_file "$store" >/dev/null
 	brief="$(field "$store" '.dispatch.brief // empty')"
 	[ -n "$brief" ] || die "no brief dispatched; a step belongs to a running brief"
 	full="$(git -C "$(field "$store" .cwd)" rev-parse --verify --quiet "$sha^{commit}")" || die "not a commit: $sha; commit the step first"
 	local id
 	for id in ${resolves//,/ }; do
-		[ -f "$store/notes/$(basename "$brief" .md)-$id.md" ] || die "--resolves $id: no published note $id on $(basename "$brief" .md); resolve only notes pair.sh notes printed"
+		if [[ "$id" == n* ]]; then
+			[ -f "$store/notes/$(basename "$brief" .md)-$id.md" ] || die "--resolves $id: no published note $id on $(basename "$brief" .md); resolve only notes pair.sh notes printed"
+		else
+			compgen -G "$store/notes/${id%%-*}-*-${id#*-}.md" >/dev/null || die "--resolves $id: no published note ${id#*-} on unit ${id%%-*}"
+		fi
 	done
 	mkdir -p "$store/steps" "$store/progress"
 	file="$(steps_file "$store" "$brief")"
