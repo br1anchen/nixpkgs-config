@@ -2040,6 +2040,19 @@ esac
             (self.fake / 'stall').touch()
         return b, self.run_sh('verify', str(self.store), '001', code=code)
 
+    def test_a_verifier_start_on_a_settling_pane_is_retried(self):
+        self.env['PAIR_START_RETRY_S'] = '0'
+        (self.fake / 'start-busy-once').touch()
+        _, out = self.verify_app_unit('clean', 0)
+        self.assertIn('status: clean\n', out)
+        self.assertEqual(len(self.verifier_starts()), 2)
+
+    def test_a_verifier_start_herdr_refuses_is_not_retried(self):
+        self.env['PAIR_START_RETRY_S'] = '0'
+        (self.fake / 'start-fail').touch()
+        self.verify_app_unit('clean', 5)
+        self.assertEqual(len(self.verifier_starts()), 1)
+
     def test_verifier_pane_writes_a_clean_verdict_then_goes(self):
         _, out = self.verify_app_unit('clean', 0)
         self.assertIn('verifier demo-verifier (pi --model devin/swe-2) in ', out)

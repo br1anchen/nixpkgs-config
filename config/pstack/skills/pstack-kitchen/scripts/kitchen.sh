@@ -1024,7 +1024,7 @@ cmd_verify() {
 	new_pane "$store" verifier "$anchor" "" "$scratch" >/dev/null
 	pane="$new_pane_id"
 	local start_failed=0
-	herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout 60000 -- "${args[@]}" >/dev/null || start_failed=1
+	herdr_agent_start "$name" --kind "$kind" --pane "$pane" --timeout 60000 -- "${args[@]}" >/dev/null || start_failed=1
 	if [ "$start_failed" -eq 1 ] && [ "$kind" != prime-agent ]; then
 		local why="verifier start failed in $pane"
 		if grep -qiE "$trust_re" <<<"$(herdr pane read "$pane" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ')"; then
@@ -1797,7 +1797,7 @@ cmd_rotate_master() {
 	cwd="$(field "$store" .cwd)"
 	new_pane "$store" master "$pane" "" "$cwd"
 	local start_err=""
-	if ! start_err="$(herdr agent start "$temp" --kind claude --pane "$new_pane_id" --timeout 60000 -- "${args[@]}" 2>&1 >/dev/null)"; then
+	if ! start_err="$(herdr_agent_start "$temp" --kind claude --pane "$new_pane_id" --timeout 60000 -- "${args[@]}" 2>&1 >/dev/null)"; then
 		refuse_untrusted "$new_pane_id" claude "$cwd" close
 		# The pane stays open and its screen goes to a log beside the
 		# handoffs: a closed pane and a discarded error left no cause.

@@ -1311,6 +1311,21 @@ pick_direction() {
 # script's: decline it, which returns the pane to its shell, and stop with
 # what to do. Claude's dialog defaults to "No, exit", so an Enter would quit.
 trust_re='trust this folder|project you created or one you trust|do you trust the (files|contents)'
+# herdr agent start, retried while herdr says the pane is busy: a pane
+# split a moment ago can still be settling (agent_pane_busy), and one retry
+# a second later starts the agent. Any other error is returned at once.
+herdr_agent_start() {
+	local err rc try
+	for try in 1 2 3 4 5; do
+		rc=0
+		err="$(herdr agent start "$@" 2>&1 >&3)" || rc=$?
+		[ "$rc" -ne 0 ] && [ "$try" -lt 5 ] && grep -q agent_pane_busy <<<"$err" || break
+		sleep "${PAIR_START_RETRY_S:-1}"
+	done 3>&1
+	[ -z "$err" ] || printf '%s\n' "$err" >&2
+	return "$rc"
+}
+
 refuse_untrusted() {
 	local pane="$1" kind="$2" dir="$3" close="${4:-}"
 	grep -qiE "$trust_re" <<<"$(herdr pane read "$pane" --source visible --lines 40 2>/dev/null | tr -s '\n\t ' ' ')" || return 0
@@ -1415,7 +1430,7 @@ spawn_role() {
 	fi
 	local started=""
 	if [ -n "$pane" ]; then
-		if started="$(herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" 2>&1)"; then
+		if started="$(herdr_agent_start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" 2>&1)"; then
 			printf 'reused pane %s\n' "$pane"
 		else
 			refuse_untrusted "$pane" "$kind" "$cwd"
@@ -1426,7 +1441,7 @@ spawn_role() {
 	if [ -z "$pane" ]; then
 		new_pane "$store" "$role" "$anchor" "$direction" "$cwd"
 		pane="$new_pane_id"
-		if ! herdr agent start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" >/dev/null; then
+		if ! herdr_agent_start "$name" --kind "$kind" --pane "$pane" --timeout "$timeout" -- "$@" >/dev/null; then
 			if [ "$kind" = prime-agent ]; then
 				prime_start_failed=1
 			else
