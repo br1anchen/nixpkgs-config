@@ -170,7 +170,9 @@ case "$1 $2" in
 "pane process-info")
 	[ -f "$FAKE/panes/$4" ] || exit 1
 	pgid=100; [ ! -e "$FAKE/prime-client-stays" ] || pgid=200
-	printf '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":%s}}}\n' "$pgid" ;;
+	# $FAKE/agent-pid/<pane>: the agent process herdr names in the foreground.
+	fg='[]'; [ ! -s "$FAKE/agent-pid/$4" ] || fg="[{\"pid\":$(cat "$FAKE/agent-pid/$4")}]"
+	printf '{"result":{"process_info":{"shell_pid":100,"foreground_process_group_id":%s,"foreground_processes":%s}}}\n' "$pgid" "$fg" ;;
 "pane close")
 	# Closing a pane ends the agent in it.
 	held="$(cat "$FAKE/panes/$3" 2>/dev/null)"

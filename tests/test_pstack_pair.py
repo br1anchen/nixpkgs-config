@@ -12,6 +12,7 @@ import os
 import json
 from datetime import datetime, timedelta
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -37,7 +38,9 @@ def inherited_env():
 
 class PairScriptTests(unittest.TestCase):
     def check(self, variant):
-        env = inherited_env()
+        # The goldens record herdr calls; the process-tree lookup a host
+        # without /proc adds would make them differ by host.
+        env = {**inherited_env(), 'PAIR_PROC_TREE': '0'}
         out = subprocess.run([here / 'scenario.sh', skills, variant], env=env, capture_output=True, text=True, check=True).stdout
         golden = here / 'golden' / f'{variant}.txt'
         if os.environ.get('PSTACK_PAIR_UPDATE') == '1':
@@ -605,6 +608,21 @@ class ReadinessTests(unittest.TestCase):
                                 env={**self.env, 'HERDR_PANE_ID': state['sidekick']['pane_id']})
         self.addCleanup(lambda: (proc.kill(), proc.wait()))
         return proc
+
+    def test_without_proc_background_work_is_read_from_the_agents_process_tree(self):
+        (self.fake / 'agents/demo-sidekick').write_text('done pi\n')
+        self.env['PAIR_PROC_TREE'] = '1'
+        self.assertNotIn('check-in:', self.wait(4))
+        self.background(seconds='0')
+        agent = subprocess.Popen(['bash', '-c', 'sleep 30 & wait'], start_new_session=True,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.addCleanup(lambda: (os.killpg(agent.pid, signal.SIGKILL), agent.wait()))
+        time.sleep(0.3)
+        pane = json.loads((self.store / 'pair.json').read_text())['sidekick']['pane_id']
+        (self.fake / 'agent-pid').mkdir(exist_ok=True)
+        (self.fake / f'agent-pid/{pane}').write_text(str(agent.pid))
+        out = self.wait(4)
+        self.assertIn('running: sleep for 0m', out)
 
     @unittest.skipUnless(Path('/proc/self').exists(), 'background work is read from /proc, Linux only')
     def test_a_settle_is_not_believed_while_background_work_runs(self):

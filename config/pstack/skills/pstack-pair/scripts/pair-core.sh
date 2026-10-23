@@ -345,11 +345,16 @@ progress_path() {
 # is unique only within one Herdr server, so when this command runs under one
 # (HERDR_SOCKET_PATH) a process counts only if it carries the same socket.
 # Prints the longest-running one, preferring a command over the shell that
-# runs it, and its age; or nothing. Linux only.
+# runs it, and its age; or nothing. Without /proc, busy_command_tree.
 busy_command() {
 	# The trackers start below any etimes, so a process under a second old (etimes 0) is still picked.
 	local pane="$1" since="$2" now pid et comm best="" best_et=-1 shell="" shell_et=-1 env sock="${HERDR_SOCKET_PATH:-}"
-	[ -n "$pane" ] && [ -d /proc ] || return 0
+	[ -n "$pane" ] || return 0
+	# PAIR_PROC_TREE=1 reads the process tree even with /proc, 0 never does.
+	if [ "${PAIR_PROC_TREE:-}" = 1 ] || [ ! -d /proc ]; then
+		[ "${PAIR_PROC_TREE:-}" = 0 ] || busy_command_tree "$pane" "$since"
+		return 0
+	fi
 	now="$(date +%s)"
 	while read -r pid et comm; do
 		[ $((now - et)) -gt "$since" ] || continue
@@ -365,12 +370,52 @@ busy_command() {
 	[ -z "$best" ] || printf '%s for %dm' "$best" $((best_et / 60))
 }
 
+# busy_command without /proc (macOS): no process environment to read, so the
+# pane's processes are the descendants of the ones herdr names in its
+# foreground (the agent itself), from ps. A gate detached into its own session
+# is reparented and missed. caffeinate, which Claude restarts every few
+# minutes, is not work.
+busy_command_tree() {
+	local pane="$1" since="$2" roots
+	roots="$(herdr pane process-info --pane "$pane" 2>/dev/null | jq -r '[.result.process_info.foreground_processes[]?.pid] | join(" ")' 2>/dev/null || true)"
+	[ -n "$roots" ] || return 0
+	ps -A -o pid=,ppid=,etime=,comm= 2>/dev/null | awk -v roots="$roots" -v self="$$" -v age="$(( $(date +%s) - since ))" '
+		function secs(t,    d, n, p, s) {
+			d = 0
+			if (index(t, "-")) { d = substr(t, 1, index(t, "-") - 1); t = substr(t, index(t, "-") + 1) }
+			n = split(t, p, ":"); s = 0
+			for (i = 1; i <= n; i++) s = s * 60 + p[i]
+			return d * 86400 + s
+		}
+		{ pid[NR] = $1; ppid[NR] = $2; et[NR] = secs($3); c = $4; sub(/.*\//, "", c); comm[NR] = c }
+		END {
+			n = split(roots, r, " ")
+			for (i = 1; i <= n; i++) mine[r[i]] = 1
+			# This check itself, when run from the same pane, is not work.
+			skip[self] = 1
+			do { grew = 0
+				for (k = 1; k <= NR; k++) {
+					if (pid[k] in mine || pid[k] in kid || pid[k] in skip) continue
+					if (ppid[k] in skip) { skip[pid[k]] = 1; grew = 1 }
+					else if (ppid[k] in mine || ppid[k] in kid) { kid[pid[k]] = 1; grew = 1 }
+				}
+			} while (grew)
+			best = ""; be = -1; sh = ""; se = -1
+			for (k = 1; k <= NR; k++) {
+				if (!(pid[k] in kid) || et[k] >= age || comm[k] == "caffeinate") continue
+				if (comm[k] ~ /^-?(bash|sh|zsh|dash|fish)$/) { if (et[k] > se) { se = et[k]; sh = comm[k] } }
+				else if (et[k] > be) { be = et[k]; best = comm[k] }
+			}
+			if (best == "") { best = sh; be = se }
+			if (best != "") printf "%s for %dm", best, be / 60
+		}'
+}
+
 # The longest-running process in the sidekick's pane started since the current
 # dispatch, as "<command> for Nm", or nothing. It is how the wait and the digest
 # see background work the agent's UI does not show (a harness Monitor sweep, a
-# background shell): those processes inherit the pane's HERDR_PANE_ID. Linux
-# only (it reads /proc); elsewhere it reports nothing and the wait falls back to
-# the screen and Herdr's state.
+# background shell): those processes inherit the pane's HERDR_PANE_ID, or, on
+# a host without /proc, descend from the agent herdr names in the pane.
 sidekick_activity() {
 	local pane at since
 	pane="$(field "$1" '.sidekick.pane_id // empty')"

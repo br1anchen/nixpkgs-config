@@ -16,7 +16,9 @@ differ:
   The checks run detached, and `step` returns within about two minutes; when
   it prints `gates: still running`, run the same command again, at once, to
   keep waiting. Never move `step` to your harness's background and wait for a
-  notification: an idle turn there is a stalled kitchen.
+  notification: an idle turn there is a stalled kitchen. The same holds for
+  any long command (a bench, a sweep): wait on it in the foreground, never by
+  ending your turn on a Monitor or background shell.
 - **Policy rules are the repo's.** A forbid finding names what to use
   instead; use it. Opting a line out (`kitchen-allow: <id>` with the reason)
   is for a case the rule did not foresee, and the master reads every one.
