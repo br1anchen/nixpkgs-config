@@ -2255,6 +2255,21 @@ esac
         self.assertNotIn('sessions', state)
         self.assertFalse((self.store / 'sessions/master-1-handoff.md').exists())
 
+    def test_a_next_master_that_fails_to_start_leaves_its_pane_and_a_log(self):
+        self.filled_handoff()
+        (self.fake / 'start-fail').touch()
+        out = self.run_sh('rotate-master', str(self.store), code=2)
+        log = self.store / 'sessions/master-g2-start-failed.log'
+        self.assertIn('(agent_start_failed)', out)
+        self.assertIn(str(log), out)
+        text = log.read_text()
+        self.assertIn('"code":"agent_start_failed"', text)
+        self.assertRegex(text, r'launch: herdr agent start demo-master-g2 --kind claude --pane (p\d+) .*--permission-mode')
+        pane = re.search(r'^pane: (\S+)$', text, re.M).group(1)
+        self.assertNotIn(f'pane close {pane}', (self.fake / 'calls.log').read_text())
+        self.assertIn('\tmaster\trotate-failed\t-\tgeneration:2:agent_start_failed', (self.store / 'events.tsv').read_text())
+        self.assertEqual(self.state()['master']['name'], 'demo-master')
+
     def test_rotating_again_after_an_abandoned_rotation_keeps_the_generation(self):
         self.filled_handoff()
         # The in-place restart recorded the session, then never started generation 2.

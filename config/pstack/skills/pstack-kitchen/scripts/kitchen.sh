@@ -1771,11 +1771,31 @@ cmd_rotate_master() {
 	[ "${KITCHEN_MASTER_REMOTE_CONTROL:-1}" = 0 ] || args+=(--remote-control "$temp")
 	cwd="$(field "$store" .cwd)"
 	new_pane "$store" master "$pane" "" "$cwd"
-	if ! herdr agent start "$temp" --kind claude --pane "$new_pane_id" --timeout 60000 -- "${args[@]}" >/dev/null 2>&1; then
+	local start_err=""
+	if ! start_err="$(herdr agent start "$temp" --kind claude --pane "$new_pane_id" --timeout 60000 -- "${args[@]}" 2>&1 >/dev/null)"; then
 		refuse_untrusted "$new_pane_id" claude "$cwd" close
-		herdr pane close "$new_pane_id" >/dev/null 2>&1 || true
-		event "$store" master rotate-failed - "generation:$next"
-		die "the next master did not start in $new_pane_id; you stay the master (generation $gen), so carry on and rotate at a later boundary" 2
+		# The pane stays open and its screen goes to a log beside the
+		# handoffs: a closed pane and a discarded error left no cause.
+		local failed_log="$store/sessions/master-g$next-start-failed.log" code
+		mkdir -p "$store/sessions"
+		{
+			printf 'at: %s
+pane: %s
+cwd: %s
+launch: herdr agent start %s --kind claude --pane %s --timeout 60000 --%s
+
+## herdr
+
+%s
+
+## pane
+
+' 				"$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$new_pane_id" "$cwd" "$temp" "$new_pane_id" "$(printf ' %q' "${args[@]}")" "$start_err"
+			herdr pane read "$new_pane_id" --source visible --lines 80 2>&1 || true
+		} >"$failed_log"
+		code="$(jq -r '.error.code // empty' <<<"$start_err" 2>/dev/null | head -1 || true)"
+		event "$store" master rotate-failed - "generation:$next${code:+:$code}"
+		die "the next master did not start in $new_pane_id (${code:-no herdr error code}); its pane stays open and $failed_log has herdr's error, the launch command and the pane's screen. You stay the master (generation $gen): close $new_pane_id when done with it, carry on, and rotate at a later boundary" 2
 	fi
 	mkdir -p "$store/sessions"
 	cp "$handoff" "$store/sessions/master-$gen-handoff.md"

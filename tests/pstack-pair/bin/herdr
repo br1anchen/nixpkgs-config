@@ -43,6 +43,10 @@ case "$1 $2" in
 "agent start")
 	name="$3"; kind=""; shift 3
 	while [ $# -gt 0 ]; do case "$1" in --kind) kind="$2"; shift 2 ;; --pane) printf '%s' "$name" >"$FAKE/panes/$2"; shift 2 ;; --) break ;; *) shift ;; esac; done
+	# $FAKE/start-fail: herdr refuses the start for a reason of its own.
+	if [ -e "$FAKE/start-fail" ]; then
+		printf '{"error":{"code":"agent_start_failed","message":"shell not ready"}}\n' >&2; exit 1
+	fi
 	# $FAKE/trust-dialog: the agent opens on a folder-trust dialog.
 	if [ -e "$FAKE/trust-dialog" ]; then
 		printf '{"error":{"code":"agent_not_ready","message":"blocked during startup"}}\n' >&2; exit 1
