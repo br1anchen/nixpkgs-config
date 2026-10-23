@@ -3200,6 +3200,20 @@ esac
         (self.fake / block / 'demo-sidekick').touch()
         return self.run_sh('rotate', str(self.store))
 
+    def test_rotate_points_no_mcp_json_at_the_current_build(self):
+        state = self.state()
+        old = '/nix/store/gone-skills/pstack-pair/references/no-mcp.json'
+        state['sidekick'].update(kind='claude', rotation_required=True,
+                                 start_args=['--model', 'm', '--strict-mcp-config', '--mcp-config', old])
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.fake / 'agents/demo-sidekick').write_text('idle claude\n')
+        self.run_sh('rotate', str(self.store))
+        start = [line for line in (self.fake / 'calls.log').read_text().splitlines()
+                 if line.startswith('agent start demo-sidekick')][-1]
+        self.assertNotIn(old, start)
+        path = re.search(r'--mcp-config (\S+)', start).group(1)
+        self.assertTrue(Path(path).is_file(), path)
+
     def test_rotate_answers_claudes_background_work_dialog(self):
         out = self.rotate_claude_sidekick('exit-dialog')
         self.assertNotIn('has not exited', out)

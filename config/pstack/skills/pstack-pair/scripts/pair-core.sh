@@ -1783,6 +1783,12 @@ cmd_rotate() {
 	esac
 	local -a args
 	mapfile -t args < <(jq -r '.sidekick.start_args[]' "$store/pair.json")
+	# The recorded no-mcp.json lives in the build that spawned the sidekick;
+	# after a switch, a garbage collection can remove it. Use this build's.
+	local i
+	for i in "${!args[@]}"; do
+		case "${args[i]}" in */references/no-mcp.json) args[i]="$pair_core_dir/../references/no-mcp.json" ;; esac
+	done
 	event "$store" master rotate - "generation:$(field "$store" .sidekick.generation)"
 	spawn_role "$store" sidekick "$kind" none "$(field "$store" .master.pane_id)" 60000 "" "$(field "$store" .sidekick.pane_id)" "${args[@]}"
 }
