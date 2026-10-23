@@ -9,8 +9,9 @@ work?", and then your pane closes.
 
 1. Read the packet. It names the verdict file to write, the template, the
    scratch worktree at the unit's head, the range, each unit's Goal and
-   Acceptance, the changed files, the commands to run, and the feature map.
-   Work only in the scratch worktree. Write nothing else but the verdict.
+   Acceptance, the run's standing orders, the changed files, the commands to
+   run, and the feature map. A standing order about the verifier or about
+   running the repo's commands binds you. Work only in the scratch worktree. Write nothing else but the verdict.
    Never set `GIT_DIR`, `GIT_WORK_TREE` or `GIT_INDEX_FILE`: every child,
    including the repo's own fixtures, inherits them and writes into the main
    repo. When git does not see the scratch as a work tree, stop and write an

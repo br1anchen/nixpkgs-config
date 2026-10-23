@@ -2565,6 +2565,16 @@ esac
         self.assertRegex(block[1], r'^python3 \S+kitchen\.py --repo \S+/000-landing-verify setup$')
         self.assertIn(' gate app behavioral ', block[2])
 
+    def test_unit_and_landing_packets_carry_the_runs_standing_orders(self):
+        orders = self.store / 'standing-orders.md'
+        orders.write_text(orders.read_text() + '99. Verifiers run gates with no GIT_DIR set.\n')
+        self.verify_app_unit('clean', 0)
+        self.verify_landing()
+        for name in ('001-util-v1', 'landing-v1'):
+            text = (self.store / f'verdicts/{name}-packet.md').read_text()
+            section = text.split('## Standing orders', 1)[1].split('## Changed', 1)[0]
+            self.assertIn('99. Verifiers run gates with no GIT_DIR set.', section)
+
     def packet_fields(self, n='001-util-v1'):
         text = (self.store / f'verdicts/{n}-packet.md').read_text()
         return {k: v for k, v in (line.split(': ', 1) for line in text.splitlines() if line.startswith('verifier-'))}

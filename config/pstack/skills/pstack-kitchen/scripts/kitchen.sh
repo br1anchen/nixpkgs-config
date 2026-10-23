@@ -1002,6 +1002,13 @@ cmd_verify() {
 			lessons="$(python3 "$here/kitchen.py" lesson-packet "${ubriefs[@]}")"
 			[ -z "$lessons" ] || printf '%s\n\n' "$lessons"
 		fi
+		# The run's standing orders, inlined: a verifier reads no brief header,
+		# so an order the master added mid-run reached it only by hand.
+		if [ -s "$store/standing-orders.md" ]; then
+			printf '## Standing orders\n\nFrom %s. An order about the verifier, or about running the repo'"'"'s\ncommands, binds you; one about the sidekick'"'"'s scope, steps or reports does not.\n\n' "$store/standing-orders.md"
+			sed '1{/^# /d;}' "$store/standing-orders.md"
+			printf '\n'
+		fi
 		printf '## Changed\n\n```\n%s\n```\n\n' "$(git -C "$root" diff --stat "$base...$head" | tail -40)"
 		printf '## Prove\n\nYou share this machine with the sidekick. Run every repo command with\n`PSTACK_KITCHEN_ROLE=verifier` exported, so the repo'"'"'s scripts give you\nyour own ports, emulators, and data, and stop everything you start before\nyou end. Run these in the scratch worktree, then drive what they cannot reach:\n\n```bash\nexport PSTACK_KITCHEN_ROLE=verifier'
 		printf ' PSTACK_KITCHEN_RUN=%s\n' "$(field "$store" .slug)"
