@@ -1553,14 +1553,63 @@ PY
 	printf '%s\n' "$path"
 }
 
+# The clean verdict of a unit's own, if any (the last one listing it).
+lc_clean_verdict() {
+	local store="$1" seq="$2" f verdict=""
+	for f in "$store"/verdicts/*-v[0-9]*.md; do
+		[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
+		grep -qE "^units:(.* )?$seq( |$)" "$f" && [ "$(header_field "$f" status)" = clean ] && verdict="$f"
+	done
+	printf '%s' "$verdict"
+}
+
+# The clean landing verdict whose tip contains the unit's head. Any clean one
+# counts, not only the latest: a later rebase or squash rewrites the heads a
+# newer landing range holds, and the rewriting unit is reviewed in its own right.
+lc_landing_cover() {
+	local store="$1" brief="$2" uhead line_v line_h
+	uhead="$(unit_head "$store" "$brief")"
+	[ -n "$uhead" ] || return 0
+	while IFS=$'\t' read -r line_v line_h; do
+		[ -n "$line_h" ] || continue
+		if git -C "$(field "$store" .git_root)" merge-base --is-ancestor "$uhead" "$line_h" 2>/dev/null; then
+			printf '%s' "$line_v"
+			return 0
+		fi
+	done <<<"$lc_landings"
+}
+
+# A unit whose own verdict rejected it is covered by the fix brief revise
+# drafted from that verdict ("- verdict: <path>" in its Context), once that
+# fix is verified or covered itself. Prints the fix's seq.
+lc_fix_cover() {
+	local store="$1" seq="$2" depth="${3:-0}" b v fseq fbrief
+	[ "$depth" -lt 5 ] || return 0
+	for b in "$store"/briefs/[0-9][0-9][0-9]-*.md; do
+		[ -e "$b" ] || continue
+		fseq="$(basename "$b" | cut -c1-3)"
+		[ "$fseq" != "$seq" ] || continue
+		v="$(sed -n 's/^- verdict: //p' "$b" | head -1)"
+		[ -n "$v" ] && [ -f "$v" ] && grep -qE "^units:(.* )?$seq( |$)" "$v" || continue
+		fbrief="$(ls "$store"/briefs/"$fseq"-*.md | head -1)"
+		if [ -n "$(lc_clean_verdict "$store" "$fseq")" ] || [ -n "$(lc_landing_cover "$store" "$fbrief")" ] ||
+			[ -n "$(lc_fix_cover "$store" "$fseq" $((depth + 1)))" ]; then
+			printf '%s' "$fseq"
+			return 0
+		fi
+	done
+}
+
 land_check() {
 	# Prints one line per problem; returns 1 when there is any. A unit with no
-	# clean verdict of its own is covered by the latest landing verdict when
-	# that one is clean and its range's head contains the unit's head. A
-	# kitchen that names a review engine requires each accepted unit's review
-	# note to cite a run of it: "engine: <name> <run id or artifact path>".
-	local store="$1" r seq brief verdict f problems=0 uhead engine cited
-	local landing_verdict="" landing_head="" lk best=0
+	# clean verdict of its own is covered by a clean landing verdict whose
+	# range's head contains the unit's head, or by a verified fix of the
+	# verdict that rejected it. A kitchen that names a review engine requires
+	# each accepted unit's review note to cite a run of it: "engine: <name>
+	# <run id or artifact path>".
+	local store="$1" r seq brief verdict f problems=0 engine cited fix
+	local landing_verdict="" lk best=0 h
+	lc_landings=""
 	engine="$(kpy "$store" --json validate 2>/dev/null | jq -r '.review_engine // empty')" ||
 		{ printf 'kitchen: validate fails (kitchen.py validate shows why)\n'; return 1; }
 	for f in "$store"/verdicts/landing-v[0-9]*.md; do
@@ -1568,10 +1617,10 @@ land_check() {
 		lk="${f##*-v}"
 		lk="${lk%.md}"
 		[ "$lk" -le "$best" ] || { best="$lk"; landing_verdict="$f"; }
+		[ "$(header_field "$f" status)" = clean ] || continue
+		h="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$f" range | sed 's/.*\.\.//')^{commit}" 2>/dev/null || true)"
+		[ -z "$h" ] || lc_landings+="$f"$'\t'"$h"$'\n'
 	done
-	if [ -n "$landing_verdict" ] && [ "$(header_field "$landing_verdict" status)" = clean ]; then
-		landing_head="$(git -C "$(field "$store" .git_root)" rev-parse --verify --quiet "$(header_field "$landing_verdict" range | sed 's/.*\.\.//')^{commit}" 2>/dev/null || true)"
-	fi
 	for r in "$store"/reviews/[0-9][0-9][0-9]-*.md; do
 		[ -e "$r" ] || continue
 		[ "$(header_field "$r" verdict)" = accept ] || continue
@@ -1587,17 +1636,14 @@ land_check() {
 				problems=$((problems + 1))
 			fi
 		fi
-		verdict=""
-		for f in "$store"/verdicts/*-v[0-9]*.md; do
-			[ -e "$f" ] && [[ "$f" != *-packet.md ]] || continue
-			grep -qE "^units:(.* )?$seq( |$)" "$f" && [ "$(header_field "$f" status)" = clean ] && verdict="$f"
-		done
-		if [ -z "$verdict" ] && [ -n "$landing_head" ]; then
-			uhead="$(unit_head "$store" "$brief")"
-			if [ -n "$uhead" ] && git -C "$(field "$store" .git_root)" merge-base --is-ancestor "$uhead" "$landing_head" 2>/dev/null; then
-				verdict="$landing_verdict"
-				printf 'covered: unit %s by the clean landing verdict %s\n' "$seq" "$landing_verdict"
-			fi
+		verdict="$(lc_clean_verdict "$store" "$seq")"
+		if [ -z "$verdict" ]; then
+			verdict="$(lc_landing_cover "$store" "$brief")"
+			[ -z "$verdict" ] || printf 'covered: unit %s by the clean landing verdict %s\n' "$seq" "$verdict"
+		fi
+		if [ -z "$verdict" ]; then
+			fix="$(lc_fix_cover "$store" "$seq")"
+			[ -z "$fix" ] || { verdict="fix $fix"; printf 'covered: unit %s by its verified fix, unit %s\n' "$seq" "$fix"; }
 		fi
 		if [ -z "$verdict" ]; then
 			printf 'unverified: unit %s has no clean verdict (kitchen.sh verify %s %s)\n' "$seq" "$store" "$seq"

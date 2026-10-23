@@ -3415,6 +3415,43 @@ esac
         self.assertIn(f'covered: unit 001 by the clean landing verdict {landing}', out)
         self.assertIn('land-check: pass', out)
 
+    def accepted_unit(self, seq, slug, value):
+        b = self.brief(seq, slug, ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', f'X = {value}\n')
+        head = self.commit(slug)
+        self.done(b, head)
+        (self.store / f'reviews/{seq}-{slug}.md').write_text('verdict: accept\n')
+        return b, head
+
+    def test_an_older_clean_landing_still_covers_a_unit_a_rebase_rewrote(self):
+        init = self.git('rev-list', '--max-parents=0', 'HEAD')
+        _, head = self.accepted_unit('001', 'util', 3)
+        (self.store / 'verdicts').mkdir(exist_ok=True)
+        v1 = self.store / 'verdicts/landing-v1.md'
+        v1.write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init}..{head}\n')
+        self.git('commit', '-q', '--amend', '-m', 'util rewritten')
+        tip = self.git('rev-parse', 'HEAD')
+        (self.store / 'verdicts/landing-v2.md').write_text(f'# Verdict\n\nstatus: clean\nunits: landing\nrange: {init}..{tip}\n')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn(f'covered: unit 001 by the clean landing verdict {v1}', out)
+        v1.write_text(f'# Verdict\n\nstatus: reject\nunits: landing\nrange: {init}..{head}\n')
+        self.assertIn('unverified: unit 001', self.run_sh('land-check', str(self.store), code=2))
+
+    def test_a_verified_fix_covers_the_unit_its_verdict_rejected(self):
+        self.accepted_unit('001', 'util', 3)
+        verdict = self.rejected('001-util-v1', '001')
+        fix = Path(self.run_sh('revise', str(self.store), str(verdict)).strip())
+        self.dispatch(fix)
+        self.write('src/util.py', 'X = 4\n')
+        self.done(fix, self.commit('fix'))
+        (self.store / 'reviews/002-util-fix.md').write_text('verdict: accept\n')
+        self.assertIn('unverified: unit 001', self.run_sh('land-check', str(self.store), code=2))
+        (self.store / 'verdicts/002-util-fix-v1.md').write_text('# Verdict\n\nstatus: clean\nunits: 002\n')
+        out = self.run_sh('land-check', str(self.store))
+        self.assertIn('covered: unit 001 by its verified fix, unit 002', out)
+        self.assertIn('land-check: pass', out)
+
     def test_rejected_verdict_drafts_the_fix_brief(self):
         _, out = self.verify_app_unit('reject', 2)
         self.assertIn('Acceptance broke', out)
