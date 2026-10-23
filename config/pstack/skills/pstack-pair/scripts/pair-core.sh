@@ -23,6 +23,10 @@ die() {
 	exit "${2:-1}"
 }
 
+# mapfile and friends need bash 4; macOS's /bin/bash is 3.2, which fails
+# later with errors that name neither.
+[ "${BASH_VERSINFO[0]:-0}" -ge 4 ] || die "bash 4 or later is required, found $BASH_VERSION; put a newer bash ahead of /bin/bash on PATH"
+
 need() {
 	command -v "$1" >/dev/null 2>&1 || die "$1 is required on PATH"
 }
