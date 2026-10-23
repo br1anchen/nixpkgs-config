@@ -27,7 +27,10 @@ work?", and then your pane closes.
    your own ports, emulators, and data, and stop every server, emulator, or
    process you start before step 7.
 3. Run every command under Prove. They are the repo's behavioral gates for
-   the touched profiles. Run anything that can outlast your harness's
+   the touched profiles. Run each as its own plain command. A probe with
+   several steps goes in a script file in the scratch, run by path, not in
+   an inline `bash -c '...'`: a harness permission check cannot read inside
+   one that deletes files, asks a human nobody is watching, and denies it. Run anything that can outlast your harness's
    foreground limit (a sweep, a long suite) in the background and wait on its
    process or log. Never count a script your harness killed as passing
    evidence: say in an inconclusive verdict what was interrupted and what that
