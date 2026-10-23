@@ -3147,6 +3147,28 @@ esac
         self.assertIn('agent prompt demo-sidekick /quit', (self.fake / 'calls.log').read_text())
         self.assertFalse(self.state()['sidekick'].get('rotation_required'))
 
+    def pending_bootstrap(self, ready):
+        state = self.state()
+        state['sidekick'].update(kind='claude', start_args=['--model', 'm'], bootstrap_pending=True, rotation_required=False)
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.fake / 'agents/demo-sidekick').write_text('idle claude\n')
+        if ready:
+            (self.store / 'reports/000-ready.md').write_text('READY\n')
+        else:
+            (self.store / 'reports/000-ready.md').unlink(missing_ok=True)
+
+    def test_a_late_ready_clears_a_pending_bootstrap_at_dispatch(self):
+        self.pending_bootstrap(ready=True)
+        self.dispatch(self.brief('001', 'util', ['src/**', 'tests/**']))
+        self.assertFalse(self.state()['sidekick']['bootstrap_pending'])
+        self.assertIn('\tsidekick\tspawn\t-\tclaude:ready', (self.store / 'events.tsv').read_text())
+
+    def test_a_pending_bootstrap_without_ready_still_holds_dispatch(self):
+        self.pending_bootstrap(ready=False)
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        out = self.run_sh('dispatch', str(self.store), str(b), code=5)
+        self.assertIn('successful bootstrap', out)
+
     def test_a_claude_sidekick_starts_the_next_brief_in_a_fresh_session(self):
         state = self.state()
         state['sidekick'].update(kind='claude', start_args=['--model', 'claude-sonnet-5-5'])

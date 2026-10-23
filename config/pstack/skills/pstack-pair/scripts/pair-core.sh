@@ -1534,6 +1534,14 @@ fresh_per_brief() { fresh_kind "$1"; }
 require_fresh_session() {
 	local kind
 	kind="$(field "$1" '.sidekick.kind')"
+	# A bootstrap that finished after its spawn returned (a dialog held it)
+	# wrote READY with nothing to clear the flag. spawn moves an older READY
+	# aside, so one present belongs to the live generation.
+	if [ "$(field "$1" '(.sidekick.bootstrap_pending // false) and ((.sidekick.rotation_required // false) | not)')" = true ] &&
+		[ -f "$1/reports/000-ready.md" ] && [ "$(agent_status "$(field "$1" .sidekick.name)")" != absent ]; then
+		json_update "$1" '.sidekick.bootstrap_pending = false'
+		event "$1" sidekick spawn - "$kind:ready"
+	fi
 	if fresh_per_brief "$kind" && [ "$(field "$1" '(.sidekick.rotation_required // false) or (.sidekick.bootstrap_pending // false)')" = true ]; then
 		die "the $kind sidekick needs a fresh session or a successful bootstrap before another task; inspect READY and run pair.sh rotate $1 after a completed task. The queue is preserved." 5
 	fi
