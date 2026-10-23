@@ -51,6 +51,17 @@ case "$1 $2" in
 	printf 'idle %s\n' "$kind" >"$FAKE/agents/$name"; ok idle "$kind" ;;
 "agent prompt")
 	name="$3"; text="$4"; wait=0; until=""; shift 4
+	# $FAKE/exit-dialog/<name>: Claude asks about its background work; option 1
+	# then Enter exits. $FAKE/exit-not-ready/<name>: the pane is already back
+	# at its shell, so herdr refuses the prompt and then drops the agent.
+	if { [ "$text" = /exit ] || [ "$text" = /quit ]; } && [ -e "$FAKE/exit-not-ready/$name" ]; then
+		rm -f "$FAKE/agents/$name" "$FAKE/exit-not-ready/$name"
+		printf '{"error":{"code":"agent_not_ready","message":"no longer the pane foreground process"}}\n' >&2; exit 1
+	fi
+	if { [ "$text" = /exit ] || [ "$text" = /quit ]; } && [ -e "$FAKE/exit-dialog/$name" ]; then
+		mkdir -p "$FAKE/screen"; printf 'Background work is running\n❯ 1. Exit and stop tasks\n  2. Cancel\n' >"$FAKE/screen/$name"
+		printf '{}\n'; exit 0
+	fi
 	if [ "$text" = /exit ] || [ "$text" = /quit ]; then rm -f "$FAKE/agents/$name"; printf '{}\n'; exit 0; fi
 	# $FAKE/prompt-fail: delivery fails.
 	[ -e "$FAKE/prompt-fail" ] && { printf '{"error":{"code":"prompt_failed"}}\n' >&2; exit 1; }
@@ -109,6 +120,13 @@ case "$1 $2" in
 	if [ "$s" = working ]; then sleep 0.2; printf '{"error":{"code":"timeout"}}\n' >&2; exit 1; fi
 	ok "$s" ;;
 "agent send-keys")
+	if [ -e "$FAKE/exit-dialog/$3" ] && [ -s "$FAKE/screen/$3" ]; then
+		case "${4:-}" in
+		1) touch "$FAKE/exit-dialog/$3.chose1" ;;
+		enter) [ ! -e "$FAKE/exit-dialog/$3.chose1" ] || rm -f "$FAKE/agents/$3" "$FAKE/screen/$3" "$FAKE/exit-dialog/$3" "$FAKE/exit-dialog/$3.chose1" ;;
+		esac
+		printf '{}\n'; exit 0
+	fi
 	if [ "${4:-}" = ctrl+d ] && [ "$(kind_of "$3")" = prime-agent ]; then
 		rm -f "$FAKE/agents/$3"; printf '{}\n'; exit 0
 	fi

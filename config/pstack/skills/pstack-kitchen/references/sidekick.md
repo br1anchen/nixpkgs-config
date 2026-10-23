@@ -41,7 +41,9 @@ differ:
   each command's log tail: fix it in a new commit, record it with `step`,
   name it in `head:`, and run `finish` again. If they cannot pass, report
   `blocked` with the output. Exit 4 means they are still running, as with
-  `step`: run the same `finish` again at once.
+  `step`: run the same `finish` again at once. Stop every background shell
+  or server you started before `finish`: your session ends after each brief,
+  and live background work holds the exit at a dialog.
 - **After a verifier's rejection,** the fix brief's Context names the
   verdict. Fix each finding with the check that shows it gone; the next
   verification repeats the same acceptance.

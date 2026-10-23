@@ -1632,6 +1632,30 @@ exit_command() {
 	esac
 }
 
+# Sends an agent its exit command and waits up to fifteen seconds for herdr
+# to stop listing it. A Claude with background work asks first ("Background
+# work is running", or the older "move to background and exit"); option 1
+# stops the work and exits. A prompt refused because the pane is already back
+# at its shell (agent_not_ready) only means herdr has not dropped the agent
+# yet, so the wait goes on. Returns 1, with herdr's last error on stderr,
+# when the agent is still there.
+exit_agent() {
+	local name="$1" kind="$2" err="" deadline
+	err="$(herdr agent prompt "$name" "$(exit_command "$kind")" 2>&1 >/dev/null)" || true
+	deadline=$(($(date +%s) + 15))
+	while [ "$(agent_status "$name")" != absent ]; do
+		if [ "$(date +%s)" -ge "$deadline" ]; then
+			[ -z "$err" ] || printf '%s\n' "$err" >&2
+			return 1
+		fi
+		if grep -qiE 'background work is running|exit and stop tasks|move to background and exit' <<<"$(pane_text "$name")"; then
+			herdr agent send-keys "$name" 1 >/dev/null 2>&1 || true
+			herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
+		fi
+		sleep 1
+	done
+}
+
 # Ends a role's agent and closes its pane, for a run that is over: the exit
 # command, then up to fifteen seconds for the agent to go (a Claude asking
 # what to do with its background tasks is told to stop them and exit). The
@@ -1649,15 +1673,7 @@ close_role() {
 		stop_prime_role "$store" "$role" || return 1
 	fi
 	if [ "$(agent_status "$name")" != absent ]; then
-		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
-		deadline=$(( $(date +%s) + 15 ))
-		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$deadline" ]; do
-			if grep -qi 'move to background and exit' <<<"$(pane_text "$name")"; then
-				herdr agent send-keys "$name" 1 >/dev/null 2>&1 || true
-				herdr agent send-keys "$name" enter >/dev/null 2>&1 || true
-			fi
-			sleep 1
-		done
+		exit_agent "$name" "$kind" 2>/dev/null || true
 	fi
 	if [ "$(agent_status "$name")" != absent ]; then
 		printf '%s %s did not exit; its pane %s stays open\n' "$role" "$name" "$pane" >&2
@@ -1701,12 +1717,7 @@ cmd_failover() {
 	if [ "$kind" = prime-agent ]; then
 		stop_prime_role "$store" sidekick || die "Prime session cleanup failed; no fallback was started" 5
 	elif [ "$status" != absent ]; then
-		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
-		deadline=$(($(date +%s) + 15))
-		while [ "$(agent_status "$name")" != absent ]; do
-			[ "$(date +%s)" -lt "$deadline" ] || die "$kind sidekick has not exited; close it by hand, then rerun failover" 5
-			sleep 1
-		done
+		exit_agent "$name" "$kind" || die "$kind sidekick has not exited; close it by hand, then rerun failover" 5
 	fi
 	record_failover "$store" "$kind" "$fallback" "$reason"
 	local -a args=()
@@ -1725,12 +1736,12 @@ cmd_failover() {
 cmd_rotate() {
 	in_herdr
 	[ $# -eq 1 ] || die "usage: pair.sh rotate <store>"
-	local store="$1" name status err code=0 deadline
+	local store="$1" name status
 	pair_file "$store" >/dev/null
 	require_not_paused "$store"
 	local kind
 	kind="$(field "$store" '.sidekick.kind')"
-	fresh_per_brief "$kind" || die "rotate is for a sidekick that starts fresh per brief (devin, pi, prime-agent), not $kind" 5
+	fresh_per_brief "$kind" || die "rotate is for a sidekick that starts fresh per brief, not $kind" 5
 	[ "$(field "$store" '.sidekick.rotation_required // false')" = true ] || die "rotation requires a completed task; partial or blocked work keeps its session" 5
 	jq -e '.sidekick.start_args | type == "array"' "$store/pair.json" >/dev/null || die "no recorded startup arguments; exit the idle sidekick and spawn it with its original model and permission flags" 5
 	name="$(field "$store" .sidekick.name)"
@@ -1740,15 +1751,7 @@ cmd_rotate() {
 		if [ "$kind" = prime-agent ]; then
 			stop_prime_role "$store" sidekick || die "Prime session cleanup failed; no new session was started" 5
 		else
-			err="$(herdr agent prompt "$name" "$(exit_command "$kind")" 2>&1)" || code=$?
-			if [ "$code" -ne 0 ] && ! grep -qE 'agent_prompt_stalled|agent_not_found|not_found' <<<"$err"; then
-				die "$kind exit failed: $err" 2
-			fi
-			deadline=$(($(date +%s) + 15))
-			while [ "$(agent_status "$name")" != absent ]; do
-				[ "$(date +%s)" -lt "$deadline" ] || die "$kind has not exited; inspect $name before retrying rotate" 5
-				sleep 1
-			done
+			exit_agent "$name" "$kind" || die "$kind has not exited; inspect $name before retrying rotate" 5
 		fi
 		;;
 	absent)

@@ -3120,6 +3120,27 @@ esac
         self.assertIn('take the sidekick role (generation 2, pane p1)', calls)
         self.assertFalse(self.state()['sidekick'].get('rotation_required'))
 
+    def rotate_claude_sidekick(self, block):
+        state = self.state()
+        state['sidekick'].update(kind='claude', start_args=['--model', 'claude-sonnet-5-5'], rotation_required=True)
+        (self.store / 'pair.json').write_text(json.dumps(state))
+        (self.fake / 'agents/demo-sidekick').write_text('idle claude\n')
+        (self.fake / block).mkdir(exist_ok=True)
+        (self.fake / block / 'demo-sidekick').touch()
+        return self.run_sh('rotate', str(self.store))
+
+    def test_rotate_answers_claudes_background_work_dialog(self):
+        out = self.rotate_claude_sidekick('exit-dialog')
+        self.assertNotIn('has not exited', out)
+        calls = (self.fake / 'calls.log').read_text()
+        self.assertRegex(calls, r'agent send-keys demo-sidekick 1\nagent send-keys demo-sidekick enter')
+        self.assertRegex(calls, r'agent start demo-sidekick --kind claude --pane p1 ')
+
+    def test_rotate_takes_a_pane_back_at_its_shell_as_exited(self):
+        out = self.rotate_claude_sidekick('exit-not-ready')
+        self.assertNotIn('exit failed', out)
+        self.assertRegex((self.fake / 'calls.log').read_text(), r'agent start demo-sidekick --kind claude --pane p1 ')
+
     def test_an_escalated_plan_reaches_the_consultant_while_the_sidekick_works(self):
         state = self.state()
         state['consultant'] = {'name': 'demo-consultant', 'kind': 'codex'}

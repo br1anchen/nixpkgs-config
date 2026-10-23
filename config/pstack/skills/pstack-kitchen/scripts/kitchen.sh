@@ -1348,9 +1348,7 @@ verify_wait() {
 	if [ "$kind" = prime-agent ]; then
 		stop_prime_role "$store" verifier || die "Prime verifier cleanup failed; its pane and scratch stay for inspection" 5
 	else
-		herdr agent prompt "$name" "$(exit_command "$kind")" >/dev/null 2>&1 || true
-		local gone=$(( $(date +%s) + 15 ))
-		while [ "$(agent_status "$name")" != absent ] && [ "$(date +%s)" -lt "$gone" ]; do sleep 1; done
+		exit_agent "$name" "$kind" 2>/dev/null || true
 	fi
 	herdr pane close "$pane" >/dev/null 2>&1 || true
 	[ "$kind" != prime-agent ] || json_update "$store" '.verifier.closed = true'
