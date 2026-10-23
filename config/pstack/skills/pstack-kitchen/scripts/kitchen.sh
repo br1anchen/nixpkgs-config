@@ -1276,6 +1276,29 @@ redeliver_packet() {
 	submit_typed "$name" "$(basename "$packet")"
 }
 
+# Two waiters on one verification (verify and a verify --wait beside it)
+# both reach its close; the second used to read the scratch id the first had
+# deleted. The first to claim the attempt closes it. Any other waits for that
+# close, or finds it done, and reports the verdict without closing again.
+claim_verify_close() {
+	local store="$1" verdict="$2" claim status i
+	claim="$store/.verify-closing/$(basename "$verdict" .md)"
+	mkdir -p "$store/.verify-closing"
+	if mkdir "$claim" 2>/dev/null; then
+		[ -z "$(field "$store" '.verifying.verdict // empty')" ] || return 0
+	else
+		for ((i = 0; i < 120; i++)); do
+			[ -n "$(field "$store" '.verifying.verdict // empty')" ] || break
+			sleep 1
+		done
+		[ -z "$(field "$store" '.verifying.verdict // empty')" ] || die "another verify --wait is closing $verdict and has not finished; check kitchen.sh status $store" 4
+	fi
+	status="$( [ -f "$verdict" ] && header_field "$verdict" status || true)"
+	printf 'verdict: %s\nstatus: %s (closed by another verify --wait)\n' "$verdict" "${status:-none}"
+	[ "$status" = clean ] && exit 0
+	exit 2
+}
+
 verify_wait() {
 	local store="$1" every_m="$2" verdict name kind until state="" now idle_since stalled=0
 	verdict="$(field "$store" .verifying.verdict)"
@@ -1331,7 +1354,8 @@ verify_wait() {
 	fi
 	# A verdict just written may still be closing; give the writer a moment.
 	[ ! -f "$verdict" ] || sleep "${KITCHEN_VERDICT_SETTLE_S:-3}"
-	local brief risk sample unit pane packet session
+	claim_verify_close "$store" "$verdict"
+	local brief risk sample unit pane packet session scratch_id
 	packet="$(field "$store" .verifying.packet)"
 	session="$(field "$store" '.verifying.session // empty')"
 	brief="$(field "$store" .verifying.brief)"
@@ -1352,7 +1376,8 @@ verify_wait() {
 	fi
 	herdr pane close "$pane" >/dev/null 2>&1 || true
 	[ "$kind" != prime-agent ] || json_update "$store" '.verifier.closed = true'
-	cmd_scratch "$store" "$(field "$store" .verifying.scratch)" --remove >/dev/null
+	scratch_id="$(field "$store" '.verifying.scratch // empty')"
+	[ -z "$scratch_id" ] || cmd_scratch "$store" "$scratch_id" --remove >/dev/null
 	# The attempt's outcome is written to its packet before .verifying goes and
 	# before any fallback starts, so fleet can tell attempts apart.
 	local problem="" status=""

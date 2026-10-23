@@ -2508,6 +2508,27 @@ esac
         self.assertEqual(list((self.store / 'scratch').iterdir()), [])
         self.assertIn('no verification is open', self.run_sh('verify', str(self.store), '--wait', code=5))
 
+    def test_two_waiters_on_one_verification_close_it_once(self):
+        b = self.brief('001', 'util', ['src/**', 'tests/**'])
+        self.dispatch(b)
+        self.write('src/util.py', 'X = 8\n')
+        self.write('tests/test_app.py', 'x = 8\n')
+        self.done(b, self.commit('util'))
+        (self.fake / 'verdict-mode').write_text('slow')
+        self.run_sh('verify', str(self.store), '001', '--every', '0', code=4)
+        open_ = self.state()['verifying']
+        Path(open_['verdict']).write_text('status: clean\nunits: 001\n\n## Evidence\n\n```\n$ true\n```\n')
+        waiters = [subprocess.Popen([str(self.script), 'verify', str(self.store), '--wait'], cwd=self.repo, env=self.env,
+                                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True) for _ in range(2)]
+        outs = [w.communicate(timeout=120)[0] for w in waiters]
+        self.assertEqual([w.returncode for w in waiters], [0, 0], outs)
+        for out in outs:
+            self.assertIn('status: clean', out)
+            self.assertNotIn('scratch id must look like', out)
+        self.assertEqual(sum('closed by another verify --wait' in out for out in outs), 1, outs)
+        self.assertEqual((self.fake / 'calls.log').read_text().count('agent prompt demo-verifier /quit'), 1)
+        self.assertNotIn('verifying', self.state())
+
     def rate_limited_verifier(self):
         session = Path(self.tmp.name) / 'pi-session.jsonl'
         session.write_text('{"type":"session"}\n')
