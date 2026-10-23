@@ -29,7 +29,7 @@ pnpm = "11.22.0"
 bun = "1.3.14"
 deno = "1.46.2"
 zig = "0.13.0"
-uv = "0.11.20"
+uv = "0.12.24"
 opencode = "latest"
 
 # Commit CLI, driven by lazygit's `git czg` custom command (config/lazygit/config.yml).
