@@ -116,6 +116,22 @@
         "type": "github"
       }
     },
+    "pstack": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792821382,
+        "narHash": "sha256-dLnhve5Li8fIpaZySQ9AqZ/ei7o69Lb4mGYkq6Te9v8=",
+        "owner": "br1anchen",
+        "repo": "open-pstack",
+        "rev": "cc4ab5a307eff7128538d7e3d52d0a052e4905e3",
+        "type": "github"
+      },
+      "original": {
+        "owner": "br1anchen",
+        "repo": "open-pstack",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
         "herdr": "herdr",
@@ -123,6 +139,7 @@
         "mise-flake": "mise-flake",
         "nixpkgs": "nixpkgs",
         "plannotator-src": "plannotator-src",
+        "pstack": "pstack",
         "vim-herdr-navigation-src": "vim-herdr-navigation-src"
       }
     },

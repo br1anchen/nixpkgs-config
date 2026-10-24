@@ -80,6 +80,6 @@ The [ancestor scan](https://github.com/PrimeIntellect-ai/prime-agent/blob/2ee7e6
 The initial source investigation did not start agent turns or alter Herdr sessions.
 The subsequent implementation is described in
 [the integration notes](prime-agent-herdr-plan.md). Its reusable
-[real-binary smoke test](../tests/prime_herdr_smoke.py) uses an isolated session,
+[real-binary smoke test](https://github.com/br1anchen/open-pstack/blob/main/tests/prime_herdr_smoke.py) uses an isolated session,
 daemon socket, and local provider. The native send parser discrepancy above was
 found during that test; CLI help alone was insufficient evidence.

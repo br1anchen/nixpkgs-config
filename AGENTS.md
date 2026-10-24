@@ -28,7 +28,7 @@
 ## Testing Guidelines
 
 - Use `nix flake check` as the baseline validation before commits.
-- Run the Python suites with `python3 tests/run.py` (parallel, one process per test; about 100 s against about 10 minutes serially). `-k <text>` selects tests by id; `PSTACK_PAIR_UPDATE=1` regenerates the pair goldens.
+- Pstack (skills, pair/trio/kitchen scripts and their tests) lives in [open-pstack](https://github.com/br1anchen/open-pstack) and arrives as the `pstack` flake input; change it there, then `nix flake update pstack` here. To try a local checkout before pushing it: `home-manager build --flake .#omarchy --override-input pstack path:$HOME/Documents/open-pstack`.
 - For Home Manager changes, dry-run with `home-manager build --flake .#<profile>`. Always check **both** profiles before switching. Build the one for the host you are on; the other cannot build there (its derivations need that platform's builder), so evaluate it instead, e.g. on Omarchy `nix eval --raw .#homeConfigurations.darwin.activationPackage.drvPath`.
 - When altering overlays/packages, build them explicitly (`nix build .#<pkg>`), and prefer small, host-scoped diffs.
 
