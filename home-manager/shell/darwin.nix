@@ -133,8 +133,6 @@ lib.mkIf isDarwin {
         eval "$(starship init zsh)"
         eval "$(zoxide init zsh)"
 
-        # Ghostty starts herdr before this interactive shell initialises, so the
-        # long-lived herdr server does not retain shell-only secrets.
         if command -v glab >/dev/null 2>&1; then
           export NPM_TOKEN="$(glab config get token --host git.jotta.us 2>/dev/null)"
         fi

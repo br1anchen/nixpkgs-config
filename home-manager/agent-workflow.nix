@@ -93,7 +93,7 @@ lib.mkIf agentWorkflow {
   # ghostty's `command = herdr` is NOT here either: on Omarchy, herdr is launched
   # by Omarchy's own SUPER+CTRL+RETURN binding (omarchy-launch-terminal-herdr),
   # and forcing every ghostty window to run herdr would break the plain terminal.
-  # macOS keeps that behaviour via config/ghostty/platform.darwin.
+  # macOS does not auto-start it either; run `herdr` manually.
   xdg.configFile = {
     "nvim/after/plugin/herdr_nav.lua".source = "${navigationRoot}/editor/nvim.lua";
   };

@@ -54,7 +54,8 @@ Devin's self-update is disabled.
 from the `pstack` flake input (`home-manager/pstack.nix`); bump it with `nix flake update pstack`.
 Use `poteto-help` for workflow advice; see the [scenario tutorial](https://github.com/br1anchen/open-pstack/blob/main/skills/poteto-help/references/scenarios.md).
 
-Ghostty starts Herdr as the default control plane. Herdr opens login zsh
+Herdr is the agent control plane; start it manually with `herdr` (`hdr`).
+Ghostty does not auto-start it or any multiplexer. Herdr opens login zsh
 shells, stores worktrees under `~/.herdr/worktrees`, and restores supported
 agent sessions. Start a plan-gated Pi session with:
 
@@ -75,7 +76,6 @@ launched manually.
 Useful fallbacks:
 
 ```bash
-gsh   # Open a plain Ghostty login shell without Herdr
 tmux  # Launch the retained tmux configuration manually
 ```
 
