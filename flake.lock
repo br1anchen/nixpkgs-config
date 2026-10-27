@@ -119,11 +119,11 @@
     "pstack": {
       "flake": false,
       "locked": {
-        "lastModified": 1793058660,
-        "narHash": "sha256-ws3+N0ZCdv1jnRy0H8bDkls3Uma55wCI98qahBNQo7k=",
+        "lastModified": 1793082479,
+        "narHash": "sha256-s/eOls+IWKAM+deQWRh1gtXeUUnvoKgm7RezyLTfy9M=",
         "owner": "br1anchen",
         "repo": "open-pstack",
-        "rev": "a0b291cdf1c923bf2a94ca463a988acd92d644ff",
+        "rev": "4686668873488591595a49f2f92a90f7053cd784",
         "type": "github"
       },
       "original": {
