@@ -18,7 +18,7 @@ let
     exec ghostty --command="''${SHELL:-/bin/sh} -l" "$@"
   '';
   codexHooks = (pkgs.formats.json { }).generate "codex-hooks.json" {
-    description = "Herdr session reporting and Plannotator plan review.";
+    description = "Herdr and Rex session reporting and Plannotator plan review.";
     hooks = {
       SessionStart = [
         {
@@ -27,6 +27,16 @@ let
               type = "command";
               command = "${config.home.homeDirectory}/.codex/herdr-agent-state.sh session";
               timeout = 10;
+            }
+          ];
+        }
+        # What `rex skill setup` adds; it can't write this read-only file itself.
+        {
+          hooks = [
+            {
+              type = "command";
+              command = "/bin/sh -c 'rex __internal session-start --agent codex --feature-session-naming=false 2>/dev/null || true'";
+              timeout = 5;
             }
           ];
         }
