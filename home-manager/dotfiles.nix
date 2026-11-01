@@ -70,4 +70,26 @@ in
   # Available on both so `dotfiles-sync status` works anywhere; `push` refuses
   # to run on macOS, where home-manager owns these paths.
   home.packages = [ dotfilesSync ];
+
+  # Omarchy: land new manifest entries and repo-only edits on every switch, so a
+  # fresh host (or a newly tracked file, like rex/init.lua) is never left with no
+  # live copy. `push --safe` skips anything with a live edit; those it reports.
+  home.activation.pushSafeDotfiles = lib.mkIf (!isDarwin) (
+    lib.hm.dag.entryAfter [ "writeBoundary" ] ''
+      if [[ -f "$HOME/nixpkgs-config/dotfiles/manifest.tsv" ]]; then
+        if [[ -n "''${DRY_RUN_CMD:-}" ]]; then
+          ${dotfilesSync}/bin/dotfiles-sync status
+        else
+          pushed="$(${dotfilesSync}/bin/dotfiles-sync push --safe)" || true
+          [[ -n "$pushed" ]] && echo "$pushed"
+          # The rex server only rereads init.lua on reload
+          if [[ "$pushed" == *".config/rex"* ]] && [[ -x "$HOME/.nix-profile/bin/rex" ]]; then
+            "$HOME/.nix-profile/bin/rex" config reload >/dev/null 2>&1 || echo "warning: rex config reload failed" >&2
+          fi
+        fi
+      else
+        echo "warning: ~/nixpkgs-config missing; dotfiles not pushed" >&2
+      fi
+    ''
+  );
 }

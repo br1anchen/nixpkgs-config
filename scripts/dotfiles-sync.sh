@@ -12,6 +12,9 @@
 #   pull                    live -> repo, whole file, reviewing each change
 #   pull --report           live -> repo, report only (used by the post-update hook)
 #   push                    repo -> live, whole file, copying with a .bak.<epoch> first
+#   push --safe             push only what cannot lose a live edit: paths absent
+#                           live, or where only the repo moved (run on every
+#                           home-manager switch, so new manifest entries land)
 #   merge [--base-rev REV]  three-way merge of repo and live against the last
 #                           synced content; overlapping hunks land as conflict
 #                           markers in the REPO file, live is left untouched
@@ -291,6 +294,8 @@ cmd_push() {
         echo "${c_red}refuse${c_off} $repo ${c_dim}still has conflict markers; resolve them first${c_off}"; continue ;;
       live-changed|both-changed)
         echo "${c_red}refuse${c_off} $repo ${c_dim}~/$live moved since the last sync; run: dotfiles-sync merge $live${c_off}"; continue ;;
+      no-base)
+        [ -n "$SAFE" ] && { echo "${c_yel}skip${c_off} $repo ${c_dim}differs with no base yet; run: dotfiles-sync merge $live${c_off}"; continue; } ;;
     esac
     echo "${c_grn}push${c_off} $repo -> ~/$live"
     backup "$l"
@@ -424,13 +429,14 @@ cmd_merge() {
 
 # --- args --------------------------------------------------------------------
 
-usage() { echo "usage: dotfiles-sync {status|pull [--report]|push|merge [--base-rev REV]} [path-filter...]" >&2; exit 2; }
+usage() { echo "usage: dotfiles-sync {status|pull [--report]|push [--safe]|merge [--base-rev REV]} [path-filter...]" >&2; exit 2; }
 
 CMD="${1:-status}"; [ $# -gt 0 ] && shift
-REPORT=""; BASE_REV=""; FILTERS=()
+REPORT=""; SAFE=""; BASE_REV=""; FILTERS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --report)     REPORT="--report" ;;
+    --safe)       SAFE=1 ;;
     --base-rev)   [ $# -ge 2 ] || usage; BASE_REV="$2"; shift ;;
     --base-rev=*) BASE_REV="${1#--base-rev=}" ;;
     -*)           usage ;;
