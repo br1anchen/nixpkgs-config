@@ -32,6 +32,12 @@
       url = "github:br1anchen/open-pstack";
       flake = false;
     };
+    # Rex terminal multiplexer server (prebuilt binary, preview channel).
+    # Bump with `nix flake update rex`.
+    rex = {
+      url = "https://pkgs.superlogical.com/rex/nix/preview.tar.gz";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     plannotator-src = {
       url = "github:backnotprop/plannotator/v0.25.1";
       flake = false;
