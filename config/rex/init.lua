@@ -9,7 +9,7 @@
 -- After a change: `rex config check`, then `rex config reload` on that host.
 --
 -- No equivalent in Rex, so not mirrored: detach, copy mode, last pane,
--- rename pane, agent navigation, and vim-herdr-navigation's ctrl+hjkl.
+-- rename pane and agent navigation.
 
 local P = "ctrl+a>"
 
@@ -35,6 +35,21 @@ for dir, vim in pairs(arrows) do
   rex.bind("ctrl+alt+" .. dir, "pane.focus." .. dir)
   rex.bind("ctrl+alt+shift+" .. dir, "pane.resize", { direction = dir })
   rex.bind(P .. "shift+" .. vim, "pane.move." .. dir)
+end
+
+-- vim-tmux-navigator style: ctrl+hjkl goes to (n)vim when it is in front,
+-- and smart-splits' at_edge runs `rex focus` at its last split
+local terminal = "com.superlogical.terminal"
+for dir, vim in pairs(arrows) do
+  rex.bind("ctrl+" .. vim, function(ctx)
+    local p = rex.block.call(terminal, "process", { block_id = ctx.block_id })
+    local fg = p and p.foreground and p.foreground.name or ""
+    if fg:match("^n?vim$") then
+      return false
+    end
+    rex.session.focus_direction({ session_id = ctx.session_id, direction = dir })
+    return true
+  end)
 end
 
 -- Like herdr's resize_mode: arrows resize until escape or enter
