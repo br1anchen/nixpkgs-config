@@ -24,5 +24,6 @@ config/opencode/AGENTS.md	.config/opencode/AGENTS.md	file	both
 config/jj/config.toml	.config/jj/config.toml	file	both
 config/mise/config.toml	.config/mise/config.toml	file	both
 config/herdr/config.toml	.config/herdr/config.toml	file	both
+config/rex/init.lua	.config/rex/init.lua	file	both
 config/bob/config.json	.config/bob/config.json	file	both
 config/lazyvim	.config/nvim	dir	both
