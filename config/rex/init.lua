@@ -89,3 +89,12 @@ end
 for _, key in ipairs({ P .. "shift+n", "alt+down" }) do
   rex.bind(key, "session.next")
 end
+
+-- pstack actions (kitchen/pair/trio/fleet/sync) from the checkout
+-- home-manager/pstack.nix links at ~/.local/share/pstack. Skipped when absent.
+local pstack = (os.getenv("HOME") or "") .. "/.local/share/pstack"
+local f = io.open(pstack .. "/plugins/rex/pstack.lua")
+if f then
+  f:close()
+  dofile(pstack .. "/plugins/rex/pstack.lua")(pstack)
+end

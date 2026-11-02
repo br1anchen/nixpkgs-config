@@ -12,6 +12,13 @@ let
   rev = inputs.pstack.rev or inputs.pstack.dirtyRev or "unknown";
 in
 {
+  # Stable path to the pinned checkout for config/rex/init.lua's pstack
+  # actions (a store path changes every bump). Omarchy never touches either.
+  home.file.".local/share/pstack".source = inputs.pstack;
+  # Reports pi's state to Rex (OSC 7501); what `install-rex` would link.
+  home.file.".pi/agent/extensions/pstack-program-status.ts".source =
+    "${inputs.pstack}/plugins/rex/agents/pi-program-status.ts";
+
   # Each runtime gets individual links; unrelated skills and directory aliases
   # stay intact. Replaced pstack installs are archived before linking.
   home.activation.syncPstackSkills = lib.hm.dag.entryAfter [ "linkDotAgentSkills" ] ''
