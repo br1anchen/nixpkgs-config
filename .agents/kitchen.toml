@@ -29,6 +29,7 @@ paths = [
   "config/lazyvim",
   "config/mise/**",
   "config/opencode/**",
+  "config/rex/**",
   "config/tmux/**",
   "config/nix-temp-gc.sh",
   "config/starship.toml",
@@ -70,6 +71,7 @@ mode = "commit"
 [coverage]
 ignore = [
   ".agents/**",
+  ".claude/**",
   "docs/**",
   "README.md",
   "AGENTS.md",
