@@ -105,7 +105,13 @@ lib.mkIf agentWorkflow {
   # and forcing every ghostty window to run herdr would break the plain terminal.
   # macOS does not auto-start it either; run `herdr` manually.
   xdg.configFile = {
-    "nvim/after/plugin/herdr_nav.lua".source = "${navigationRoot}/editor/nvim.lua";
+    # Only inside herdr: elsewhere its <C-h/j/k/l> maps would shadow
+    # smart-splits (config/lazyvim), which hands edges to Rex and tmux.
+    "nvim/after/plugin/herdr_nav.lua".text = ''
+      if (vim.env.HERDR_PANE_ID or "") ~= "" then
+        dofile("${navigationRoot}/editor/nvim.lua")
+      end
+    '';
   };
 
   home.activation = {
