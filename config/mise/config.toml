@@ -19,6 +19,11 @@ pi = "latest"
 # plugin in config/mise/plugins/vfox-prime-agent (registered by
 # home-manager/mise-plugins.nix) installs its stable GitHub releases.
 prime-agent = "latest"
+# Amp CLI (ampcode.com/docs/cli). Registry short name -> npm:@ampcode/cli; mise
+# tracks it so it survives node bumps, unlike `npm i -g`. prerelease = true is
+# required: every Amp release is versioned 0.0.<n>-g<sha>, which semver treats
+# as a prerelease, so plain "latest" resolves to nothing.
+amp = { version = "latest", prerelease = true }
 
 # Language runtimes
 node = "26.8.1"
